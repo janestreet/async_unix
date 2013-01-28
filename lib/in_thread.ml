@@ -3,24 +3,26 @@ open Import
 
 open Raw_scheduler
 
+module Priority = Linux_ext.Priority
+
 module Helper_thread = struct
   include Thread_pool.Helper_thread
 
-  let create ?name () =
+  let create ?priority ?name () =
     let t = the_one_and_only ~should_lock:true in
     let finalize_helper_thread helper_thread =
       ok_exn (Thread_pool.finished_with_helper_thread t.thread_pool helper_thread)
     in
     let execution_context = current_execution_context t in
     let work_group = Execution_context.work_group execution_context in
-    Result.map (Thread_pool.create_helper_thread t.thread_pool work_group ?name)
+    Result.map (Thread_pool.create_helper_thread t.thread_pool work_group ?name ?priority)
       ~f:(fun helper_thread ->
-        add_finalizer t finalize_helper_thread helper_thread;
+        add_finalizer_exn t helper_thread finalize_helper_thread;
         helper_thread);
   ;;
 end
 
-let run_no_exn ?thread ?name f =
+let run_no_exn ?priority ?thread ?name f =
   let t = the_one_and_only ~should_lock:true in
   let doit () =
     let execution_context = current_execution_context t in
@@ -35,10 +37,16 @@ let run_no_exn ?thread ?name f =
       match thread with
       | Some helper_thread ->
         ok_exn
-          (Thread_pool.add_work_for_helper_thread t.thread_pool helper_thread doit ?name)
+          (Thread_pool.add_work_for_helper_thread
+            t.thread_pool
+            helper_thread
+            doit
+            ?name
+            ?priority)
       | None ->
         let work_group = Execution_context.work_group execution_context in
-        ok_exn (Thread_pool.add_work_for_group t.thread_pool work_group doit ?name))
+        ok_exn
+          (Thread_pool.add_work_for_group t.thread_pool work_group doit ?name ?priority))
   in
   if t.is_running then
     doit ()
@@ -51,7 +59,7 @@ let run_no_exn ?thread ?name f =
     Deferred.bind Deferred.unit doit
 ;;
 
-let run ?thread ?name f = run_no_exn ?thread ?name f >>| Result.ok_exn
+let run ?priority ?thread ?name f = run_no_exn ?priority ?thread ?name f >>| Result.ok_exn
 
 let syscall ~name f = run ~name (fun () -> Syscall.syscall f)
 

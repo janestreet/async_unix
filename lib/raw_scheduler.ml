@@ -383,7 +383,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
-  Raw_signal_manager.handle_signal t.signal_manager Signal.pipe;
+  Raw_signal_manager.manage t.signal_manager Signal.pipe;
   let rec handle_finalizers () =
     if debug then Debug.log_string "scheduling finalizers";
     match Thread_safe_queue.dequeue t.finalizer_jobs with
@@ -397,16 +397,16 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     if Core_scheduler.num_pending_jobs t.core_scheduler > 0 then
       (* We want to timeout immediately if there are still jobs remaining, so that we
          immediately come back and start running them after checking for I/O. *)
-      Some (sec 0.)
+      `Immediately
     else begin
       let now = Time.now () in
       match Core_scheduler.next_upcoming_event t.core_scheduler with
-      | None -> None
+      | None -> `Never
       | Some time ->
         if Time.(>) time now then
-          Some (Time.diff time now)
+          `After (Time.diff time now)
         else
-          Some (sec 0.)
+          `Immediately
     end
   in
   let handle_post post =
@@ -455,8 +455,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     let timeout = compute_timeout () in
     unlock t;
     if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.thread_safe_check" (`timeout timeout, t)
-        (<:sexp_of< [ `timeout of Time.Span.t option ] * t >>);
+      Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
+        (<:sexp_of< File_descr_watcher_intf.Timeout.t * t >>);
     let check_result =
       File_descr_watcher.thread_safe_check t.file_descr_watcher pre ~timeout
     in
@@ -504,23 +504,33 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   end
 ;;
 
-let add_finalizer t f obj =
+let add_finalizer t heap_block f =
   let e = current_execution_context t in
-  (* We use [Caml.Gc.finalise] instead of [Core.Std.Gc.finalise] because the latter has
-     its own wrapper around [Caml.Gc.finalise] to run finalizers synchronously. *)
-  Caml.Gc.finalise (fun x ->
-    (* By putting [x] in [finalizer_jobs], we are keeping it alive until the next time the
-       scheduler gets around to calling [handle_finalizers].  Calling
+  let finalizer heap_block =
+    (* Here we can be in any thread, and may not be holding the async lock.  So, we
+       can only do thread-safe things.
+
+       By putting [heap_block] in [finalizer_jobs], we are keeping it alive until the next
+       time the scheduler gets around to calling [handle_finalizers].  Calling
        [thread_safe_wakeup_scheduler] ensures that will happen in short order.  Thus, we
-       are not dramatically increasing the lifetime of [x], since the OCaml runtime
-       already resurrected [x] so that we could refer to it here.  The OCaml runtime
-       already removed the finalizer function when it noticed [x] could be finalized, so
-       there is no infinite loop in which we are causing the finalizer to run again.
-       Also, OCaml does not impose any requirement on finalizer functions that they need
-       to dispose of the block, so it's fine that we keep [x] around until later. *)
-    Thread_safe_queue.enqueue t.finalizer_jobs (e, (fun () -> f x));
-    thread_safe_wakeup_scheduler t)
-    obj;
+       are not dramatically increasing the lifetime of [heap_block], since the OCaml
+       runtime already resurrected [heap_block] so that we could refer to it here.  The
+       OCaml runtime already removed the finalizer function when it noticed [heap_block]
+       could be finalized, so there is no infinite loop in which we are causing the
+       finalizer to run again.  Also, OCaml does not impose any requirement on finalizer
+       functions that they need to dispose of the block, so it's fine that we keep
+       [heap_block] around until later. *)
+    Thread_safe_queue.enqueue t.finalizer_jobs (e, (fun () -> f heap_block));
+    thread_safe_wakeup_scheduler t;
+  in
+  (* We use [Caml.Gc.finalise] instead of [Core.Std.Gc.add_finalizer] because the latter
+     has its own wrapper around [Caml.Gc.finalise] to run finalizers synchronously. *)
+  Caml.Gc.finalise finalizer heap_block;
+;;
+
+let add_finalizer_exn t x f =
+  add_finalizer t (Heap_block.create_exn x)
+    (fun heap_block -> f (Heap_block.value heap_block))
 ;;
 
 let go ?raise_unhandled_exn () =

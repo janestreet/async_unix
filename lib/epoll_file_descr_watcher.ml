@@ -73,13 +73,7 @@ module Check_result = struct
 end
 
 let thread_safe_check t () ~timeout =
-  (* From the epoll man page:
-
-     | Specifying a timeout of -1 makes epoll_wait() wait indefinitely, while specifying a
-     | timeout equal to zero makes epoll_wait() to return immediately even if no events
-     | are available (return code equal to zero).  *)
-  let timeout = Option.value timeout ~default:(sec (-1.)) in
-  Result.try_with (fun () -> Epoll.wait t.epoll ~timeout);
+  Result.try_with (fun () -> Epoll.wait t.epoll ~timeout)
 ;;
 
 let post_check t check_result =

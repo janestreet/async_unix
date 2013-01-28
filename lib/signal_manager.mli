@@ -17,9 +17,13 @@ val invariant : t -> unit
     thread safe. *)
 val create : thread_safe_notify_signal_delivered:(unit -> unit) -> t
 
-(** [handle_signal t signal] causes [t] to manage handling of [signal], so that it will
-    record all future deliveries of that signal. *)
-val handle_signal : t -> Signal.t -> unit
+(** [manage t signal] causes [t] to manage [signal], thus overriding
+    [default_sys_behavior] for that signal, and any other OCaml handler for that
+    signal. *)
+val manage : t -> Signal.t -> unit
+
+(** [is_managing t signal] returns true iff [manage t signal] has been called *)
+val is_managing : t -> Signal.t -> bool
 
 (** [install_handler t signals f] causes [t] to manage the handling of [signals], and
     registers [f] to run on every signal in [signals] that is delivered.   It is an

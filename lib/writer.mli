@@ -1,5 +1,26 @@
-(** Writer provides an interface to writing strings that batches together writes into a
-    single underlying write system call. *)
+(** [Writer] is Async's main API for output to a file descriptor.  It is the analog of
+    [Core.Std.Out_channel].
+
+    Each writer has an internal buffer, to which [Writer.write*] adds data.  Each writer
+    uses an async microthread that makes write() system calls to move the data from the
+    writer's buffer to an OS buffer via the file descriptor.  There is no guarantee that
+    the data sync on the other side of the writer can keep up with the rate at which you
+    are writing.  If it cannot, the OS buffer will fill up and the writer's micro-thread
+    will be unable to send any bytes.  In that case, calls to [Writer.write*] will grow
+    the writer's buffer without bound, as long as your program produces data.  One
+    solution to this problem is to call [Writer.flushed] and not continue until that
+    becomes determined, which will only happen once the bytes in the writer's buffer have
+    been successfully transferred to the OS buffer.  Another solution is to check
+    [Writer.bytes_to_write] and not produce any more data if that is beyond some bound.
+
+    There are two kinds of errors that one can handle with writers.  First, a writer can
+    be [close]d, which will cause future [write]s (and other operations) to synchronously
+    raise an excecption.  Second, the writer's microthread can fail due to a write()
+    system call failing.  This will cause an exception to be sent to the writer's monitor,
+    which will be a child of the monitor in effect when the writer is created.  One can
+    deal with such asynchronous exceptions in the usual way, by handling the stream
+    returned by [Monitor.errors (Writer.monitor writer)].
+*)
 open Core.Std
 open Import
 
@@ -14,6 +35,8 @@ val io_stats : Io_stats.t
     we don't want to create them in all programs that happen to link with async. *)
 val stdout : t Lazy.t
 val stderr : t Lazy.t
+
+type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, sexp
 
 
 (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
@@ -36,7 +59,6 @@ val stderr : t Lazy.t
     writer will silently drop all writes after the consumer leaves, and the writer will
     eventually fail with a writer-buffer-older-than error if the application remains open
     long enough. *)
-type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, sexp
 val create
   :  ?buf_len:int
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]

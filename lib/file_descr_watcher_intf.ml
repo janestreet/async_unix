@@ -25,6 +25,10 @@ module Post = struct
   let empty = { ready = []; bad = [] }
 end
 
+module Timeout = struct
+  type t = [ `Never | `Immediately | `After of Time.Span.t ] with sexp_of
+end
+
 module type S = sig
 
   (** A file-descr-watcher is essentially a map from [File_descr.t] to [bool
@@ -59,7 +63,11 @@ module type S = sig
       [thread_safe_check] does not side effect [t].  Unlike the rest of the functions in
       this module, [thread_safe_check] is thread safe. *)
   module Check_result : sig type t with sexp_of end
-  val thread_safe_check : t -> Pre.t -> timeout:Time.Span.t option -> Check_result.t
+  val thread_safe_check
+    :  t
+    -> Pre.t
+    -> timeout:Timeout.t
+    -> Check_result.t
 
   (** [post_check t check_result] returns the file descriptors available for read and
       write.  Any file descriptor appearing in [post] for read must have been watched

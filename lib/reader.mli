@@ -1,4 +1,8 @@
-(** A reader lets one do buffered input from a file descriptor.
+(** [Reader] is Async's main API for buffered input from a file descriptor.  It is the
+    analog of [Core.Std.In_channel].
+
+    Each reader has an internal buffer, which is filled via read() system calls when data
+    is needed to satisfy a [Reader.read*] call.
 
     Each of the read functions returns a deferred that will become determined when the
     read completes.  It is an error to have two simultaneous reads.  That is, if one calls
@@ -6,7 +10,15 @@
     completes.
 
     If the file descriptor underlying a reader is closed, the reader will return EOF
-    (after all the buffered bytes have been read). *)
+    (after all the buffered bytes have been read).
+
+    Any [Reader.read*] call could, rather than determine its result, send an exception to
+    the monitor in effect when [read] was called.  Such exceptions can be handled in the
+    usual way by using [try_with], e.g.:
+
+    | try_with (fun () -> Reader.read reader ...)
+*)
+
 open Core.Std
 open Import
 
@@ -177,16 +189,15 @@ val read_until_max :
 
 (** [read_line t] reads up to, and including the next newline (\n) character and returns a
     freshly-allocated string containing everything up to but not including the newline
-    character.  If read_line encounters EOF before the newline char then everything read
+    character.  If [read_line] encounters EOF before the newline char then everything read
     up to but not including EOF will be returned as a line. *)
 val read_line : t -> string Read_result.t Deferred.t
 
-(** [really_read_line ~wait_time t] reads up to, and including the next
-    newline (\n) character and returns an optional, freshly-allocated string
-    containing everything up to but not including the newline character.
-    If read_line encounters EOF before the newline char, then a time span of
-    [wait_time] will be used before the input operation is retried.  If the
-    descriptor is closed, [None] will be returned. *)
+(** [really_read_line ~wait_time t] reads up to, and including the next newline (\n)
+    character and returns an optional, freshly-allocated string containing everything up
+    to but not including the newline character.  If [really_read_line] encounters EOF
+    before the newline char, then a time span of [wait_time] will be used before the input
+    operation is retried.  If the descriptor is closed, [None] will be returned. *)
 val really_read_line : wait_time : Time.Span.t -> t -> string option Deferred.t
 
 type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a

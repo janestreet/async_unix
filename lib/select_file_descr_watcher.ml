@@ -56,11 +56,11 @@ end
 let thread_safe_check _t pre ~timeout =
   let timeout =
     match timeout with
-    | None -> -1.
-    | Some span ->
+    | `Never | `Immediately as x -> x
+    | `After span ->
       (* Wait no longer than one second, which avoids any weirdness due to feeding large
          timeouts to select. *)
-      Float.min 1. (Time.Span.to_sec span)
+      `After (Float.min 1. (Time.Span.to_sec span))
   in
   { Check_result.
     pre;

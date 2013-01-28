@@ -36,6 +36,8 @@ let create ~thread_safe_notify_signal_delivered =
   }
 ;;
 
+let is_managing t signal = Hashtbl.mem t.handlers_by_signal signal
+
 module Handler = struct
   type t = T of (Handlers.t * (Signal.t -> unit) Bag.Elt.t) list
 end
@@ -53,7 +55,7 @@ let get_handlers t signal =
     handlers)
 ;;
 
-let handle_signal t signal = ignore (get_handlers t signal : Handlers.t)
+let manage t signal = ignore (get_handlers t signal : Handlers.t)
 
 let install_handler t signals handler =
   Handler.T

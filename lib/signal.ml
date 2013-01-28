@@ -28,13 +28,10 @@ let handle ?stop ts ~f =
       Raw_signal_manager.remove_handler signal_manager handler));
 ;;
 
-let standard =
-  (* Can't do [kill, stop] because it's not allowed to handle them.
-     Don't do [segv, vtalrm] because they already have a handler.
-     Don't do [fpe] because we want to hear about it.
-     Don't do [prof] so that we can profile things with -p. *)
-  [
-    abrt; alrm; chld; cont; hup; int; quit; term; tstp; ttin; ttou;
-    usr1; usr2;
-  ]
+let terminating = [ alrm; hup; int; term; usr1; usr2 ]
+
+let is_managed_by_async t =
+  let scheduler = the_one_and_only ~should_lock:true in
+  let signal_manager = scheduler.Scheduler.signal_manager in
+  Raw_signal_manager.is_managing signal_manager t
 ;;

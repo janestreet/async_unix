@@ -41,7 +41,7 @@ let create ~create_fd =
    OCaml's compilation, the test-and-set of [t.already_interrupted] is atomic, so
    we will only ever write one byte to the pipe before it is cleared. *)
 let thread_safe_interrupt t =
-  if debug then Debug.log_string "thread_safe_interrupt";
+  if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
   (* BEGIN ATOMIC *)
   if not t.already_interrupted then begin
     t.already_interrupted <- true;
@@ -59,21 +59,28 @@ let thread_safe_interrupt t =
 
 let clear t =
   if debug then Debug.log_string "Interruptor.clear";
-  Fd.syscall_exn (Read_write.get t.pipe `Read) ~nonblocking:true
-    (fun file_descr ->
-      let rec loop () =
-        let module U = Unix in
-        let read_again =
-          try
-            ignore (U.read_assume_fd_is_nonblocking file_descr t.clearbuffer
-                      ~pos:0 ~len:(String.length t.clearbuffer) : int);
-            true
-          with
-          | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> false
+  (* We only need to clear the pipe if it was written to.  This saves a system call in the
+     common case. *)
+  if t.already_interrupted then begin
+    Fd.syscall_exn (Read_write.get t.pipe `Read) ~nonblocking:true
+      (fun file_descr ->
+        let rec loop () =
+          let module U = Unix in
+          let read_again =
+            try
+              let bytes_read =
+                U.read_assume_fd_is_nonblocking file_descr t.clearbuffer
+                  ~pos:0 ~len:(String.length t.clearbuffer)
+              in
+              ignore (bytes_read : int);
+              true
+            with
+            | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> false
+          in
+          if read_again then loop ()
         in
-        if read_again then loop ()
-      in
-      loop ());
+        loop ());
+  end;
   (* We must clear [already_interrupted] after emptying the pipe.  If we did it before,
      a [thread_safe_interrupt] could come along in between.  We would then be left with
      [already_interrupted = true] and an empty pipe, which would then cause a

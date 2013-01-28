@@ -5,6 +5,8 @@
 open Core.Std
 open Async_core
 
+module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
+
 module Helper_thread : sig
   (** A Helper_thread is a thread that is dedicated to handling computations external to
       Async.  We need them because some libraries (e.g. Sqlite3) require that certain
@@ -13,7 +15,7 @@ module Helper_thread : sig
 
   (* [create ?name ()] creates a new helper thread.  The [name] will be used as the thread
      name for any work that that is done by the thread that doesn't get its own name. *)
-  val create : ?name:string -> unit -> t Or_error.t
+  val create : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
 end
 
 (** [pipe_of_squeue squeue] returns a pipe [p] and consumes the contents [squeue], placing
@@ -23,7 +25,7 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
 (** CRv201208 sweeks: Change [run] to [run_exn], and add [run] returning an
     [('a, exn) Result.t Deferred.t]. *)
-(** [run ?thread ?name f] runs [f()] in another thread and returns the result as a
+(** [run ?priority ?thread ?name f] runs [f()] in another thread and returns the result as a
     Deferred in the Async world.  If [f()] raises an exception (asynchronously, since it
     is another thread) then that exception will be raised to the monitor that called
     [run()].
@@ -33,6 +35,10 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     If [thread] is not supplied, then any thread from the thread pool could be used.  If
     you need to run routines in a specific thread (as is required by some libraries like
     Sqlite), you should create a helper thread and supply it to [run].
+
+    If [priority] is supplied, the priority of the thread in the linux scheduler will be
+    set to [priority] for the duration of [f()], provided the thread is allowed to do so,
+    see `man setpriority`.
 
     If you call [run] several times with the same helper thread, the [f()] calls will run
     in sequence, in the order in which they are supplied to [run].  Each [f()] will
@@ -50,7 +56,8 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     If [name] is supplied, the name of the thread will be set to it for the duration of
     the execution of [f ()]. *)
 val run
-  :  ?thread:Helper_thread.t
+  :  ?priority:Priority.t
+  -> ?thread:Helper_thread.t
   -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t
