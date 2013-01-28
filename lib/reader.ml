@@ -639,14 +639,15 @@ let use t =
 
 let do_read t f =
   use t;
-  f ()
-  >>| fun x ->
-  begin match t.state with
-  | `Closed -> () (* [f ()] closed it.  Leave it closed. *)
-  | `Not_in_use -> assert false  (* we're using it *)
-  | `In_use -> t.state <- `Not_in_use
-  end;
-  x;
+  let finally () =
+    begin match t.state with
+    | `Closed -> () (* [f ()] closed it.  Leave it closed. *)
+    | `Not_in_use -> assert false  (* we're using it *)
+    | `In_use -> t.state <- `Not_in_use
+    end;
+    Deferred.unit
+  in
+  Monitor.protect f ~finally;
 ;;
 
 (* The code below dynamically checks to make sure that there aren't simultaneous

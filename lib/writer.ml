@@ -474,7 +474,7 @@ let got_bytes t n = t.bytes_received <- Int63.(t.bytes_received + of_int n)
 let add_iovec t kind iovec ~count_bytes_as_received =
   assert (t.scheduled_back = t.back);
   if count_bytes_as_received then
-    got_bytes t (iovec.IOVec.len - iovec.IOVec.pos);
+    got_bytes t iovec.IOVec.len;
   if not (is_stopped_permanently t) then begin
     t.scheduled_bytes <- t.scheduled_bytes + iovec.IOVec.len;
     Queue.enqueue t.scheduled (iovec, kind);

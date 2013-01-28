@@ -3,6 +3,6 @@ open Core.Std
 include Async_core.Import
 include Async_core.Std
 
-module Config = Async_core.Config
+module Config = Async_config
 module Debug = Async_core.Debug
 module File_descr = Unix.File_descr

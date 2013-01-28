@@ -440,51 +440,53 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   let rec loop () =
     (* At this point, we have the lock. *)
     if Config.check_invariants then invariant t;
-    begin
-      match request_start_watching t (Interruptor.read_fd t.interruptor) `Read with
-      | `Already_watching | `Watching _ -> ()
-      | `Unsupported | `Already_closed ->
-        failwiths "can not watch interruptor" t <:sexp_of< t >>
-    end;
-    sync_changed_fds_to_file_descr_watcher t;
-    if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.pre_check" t (<:sexp_of< t >>);
-    let pre = File_descr_watcher.pre_check t.file_descr_watcher in
-    (* [compute_timeout] must be the last thing before [thread_safe_check], because we
-       want to make sure the timeout is zero if there are any scheduled jobs. *)
-    let timeout = compute_timeout () in
-    unlock t;
-    if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
-        (<:sexp_of< File_descr_watcher_intf.Timeout.t * t >>);
-    let check_result =
-      File_descr_watcher.thread_safe_check t.file_descr_watcher pre ~timeout
-    in
-    lock t;
-    (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
-       processing that needs to happen in response to [thread_safe_interrupt].  That way,
-       even if [Interruptor.clear] clears out an interrupt that hasn't been serviced yet,
-       the interrupt will still be serviced by the immediately following processing. *)
-    Interruptor.clear t.interruptor;
-    if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.post_check" (check_result, t)
-        (<:sexp_of< File_descr_watcher.Check_result.t * t >>);
-    begin match File_descr_watcher.post_check t.file_descr_watcher check_result with
-    | `Timeout | `Syscall_interrupted -> ()
-    | `Ok post ->
-      if Debug.file_descr_watcher then
-        Debug.log "File_descr_watcher.post_check returned" (post, t)
-          (<:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>);
-      handle_post post;
-    end;
-    if debug then Debug.log_string "handling finalizers";
-    handle_finalizers ();
-    if debug then Debug.log_string "handling delivered signals";
-    Raw_signal_manager.handle_delivered t.signal_manager;
-    have_lock_do_cycle t;
     match Core_scheduler.uncaught_exn t.core_scheduler with
-    | None -> loop ()
     | Some error -> unlock t; error
+    | None ->
+      begin
+        match request_start_watching t (Interruptor.read_fd t.interruptor) `Read with
+        | `Already_watching | `Watching _ -> ()
+        | `Unsupported | `Already_closed ->
+          failwiths "can not watch interruptor" t <:sexp_of< t >>
+      end;
+      sync_changed_fds_to_file_descr_watcher t;
+      if Debug.file_descr_watcher then
+        Debug.log "File_descr_watcher.pre_check" t (<:sexp_of< t >>);
+      let pre = File_descr_watcher.pre_check t.file_descr_watcher in
+      (* [compute_timeout] must be the last thing before [thread_safe_check], because we
+         want to make sure the timeout is zero if there are any scheduled jobs. *)
+      let timeout = compute_timeout () in
+      unlock t;
+      if Debug.file_descr_watcher then
+        Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
+          (<:sexp_of< File_descr_watcher_intf.Timeout.t * t >>);
+      let check_result =
+        File_descr_watcher.thread_safe_check t.file_descr_watcher pre ~timeout
+      in
+      lock t;
+      (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
+         processing that needs to happen in response to [thread_safe_interrupt].  That
+         way, even if [Interruptor.clear] clears out an interrupt that hasn't been
+         serviced yet, the interrupt will still be serviced by the immediately following
+         processing. *)
+      Interruptor.clear t.interruptor;
+      if Debug.file_descr_watcher then
+        Debug.log "File_descr_watcher.post_check" (check_result, t)
+          (<:sexp_of< File_descr_watcher.Check_result.t * t >>);
+      begin match File_descr_watcher.post_check t.file_descr_watcher check_result with
+      | `Timeout | `Syscall_interrupted -> ()
+      | `Ok post ->
+        if Debug.file_descr_watcher then
+          Debug.log "File_descr_watcher.post_check returned" (post, t)
+            (<:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>);
+        handle_post post;
+      end;
+      if debug then Debug.log_string "handling finalizers";
+      handle_finalizers ();
+      if debug then Debug.log_string "handling delivered signals";
+      Raw_signal_manager.handle_delivered t.signal_manager;
+      have_lock_do_cycle t;
+      loop ();
   in
   let exn =
     try `User_uncaught (loop ())

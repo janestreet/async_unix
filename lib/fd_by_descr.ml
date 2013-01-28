@@ -31,7 +31,14 @@ let add_exn t fd =
   match Table.add t ~key:fd.Fd.file_descr ~data:fd with
   | `Ok -> ()
   | `Duplicate _ ->
-    failwiths "attempt to overwrite existing fd" (fd, t) <:sexp_of< Fd.t * t >>
+    failwiths "\
+Error in Async.Fd_by_descr.add_exn: attempt to register a file descriptor with async
+that async believes it is already managing.  This likely indicates either:
+
+  * a bug in async
+  * code outside of async manipulating a file descriptor that async is managing
+"
+      (fd, t) <:sexp_of< Fd.t * t >>
 ;;
 
 let fold t ~init ~f = Table.fold t ~init ~f:(fun ~key:_ ~data:fd a -> f a fd)

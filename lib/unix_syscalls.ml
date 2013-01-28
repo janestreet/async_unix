@@ -389,6 +389,7 @@ let environment = Unix.environment
 let getenv = Sys.getenv
 let getenv_exn = Sys.getenv_exn
 let putenv = Unix.putenv
+let unsetenv = Unix.unsetenv
 
 (* processes *)
 
@@ -413,7 +414,10 @@ let make_wait wait_nohang =
             | Error exn -> Ivar.fill result (Error exn); ac)))
   in
   fun wait_on ->
-    (* We must call [wait_nohang] after installing the SIGCHLD handler.  If we did
+    (* We are going to install a handler for SIGCHLD that will call [wait_nohang wait_on]
+       in the future.  However, we must also call [wait_nohang wait_on] right now, in case
+       the child already exited, and will thus never cause a SIGCHLD in the future.  We
+       must install the SIGCHLD handler first and then call [wait_nohang].  If we did
        [wait_nohang] first, we could miss a SIGCHLD that was delivered after calling
        [wait_nohang] and before installing the handler. *)
     Lazy.force install_sigchld_handler_the_first_time;
