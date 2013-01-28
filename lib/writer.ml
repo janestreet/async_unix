@@ -443,12 +443,12 @@ let ensure_can_write t =
   | `Closed -> failwiths "attempt to use closed writer" t <:sexp_of< t >>
 ;;
 
-let open_file ?(append = false) file =
+let open_file ?(perm = 0o666) ?(append = false) file =
   (* Writing to /dropoff needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm:0o666 >>| create
+  Unix.openfile file ~mode ~perm >>| create
 ;;
 
 let with_close t f = Monitor.protect f ~finally:(fun () -> close t)
@@ -459,8 +459,8 @@ let with_writer_exclusive t f =
   Monitor.protect f ~finally:(fun () -> flushed t >>| fun () -> Unix.unlockf t.fd)
 ;;
 
-let with_file ?append ?(exclusive = false) file ~f =
-  open_file ?append file
+let with_file ?perm ?append ?(exclusive = false) file ~f =
+  open_file ?perm ?append file
   >>= fun t ->
   with_close t (fun () ->
     if exclusive then

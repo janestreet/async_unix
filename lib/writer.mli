@@ -80,7 +80,11 @@ val of_out_channel : out_channel -> Fd.Kind.t -> t
 
 (** [open_file ?append file] opens [file] for writing and returns a writer for it.  It
     uses [Unix_syscalls.open_write] to open the file.  *)
-val open_file : ?append:bool (* defaults to false *) -> string -> t Deferred.t
+val open_file
+  :  ?perm:int (* defaults to 0o666 *)
+  -> ?append:bool (* defaults to false *)
+  -> string
+  -> t Deferred.t
 
 (** [with_file ~file f] opens [file] for writing, creates a writer [t], and runs [f t] to
     obtain a deferred [d].  When [d] becomes determined, the writer is closed.  When the
@@ -90,7 +94,8 @@ val open_file : ?append:bool (* defaults to false *) -> string -> t Deferred.t
     writer to be flushed before closing it.  [Writer.close] will already wait for the
     flush. *)
 val with_file
-  :  ?append:bool (* defaults to false *)
+  :  ?perm:int (* defaults to 0o666 *)
+  -> ?append:bool (* defaults to false *)
   -> ?exclusive:bool (* defaults to false *)
   -> string
   -> f:(t -> 'a Deferred.t)
