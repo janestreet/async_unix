@@ -24,7 +24,6 @@ type error = Unix.error =
 
 exception Unix_error = Unix.Unix_error
 
-let ready_to = Fd.ready_to
 let close = Fd.close
 
 let system s = In_thread.syscall_exn (fun () -> Unix.system s)
@@ -171,8 +170,6 @@ module File_kind = struct
     | U.S_FIFO -> `Fifo
     | U.S_SOCK -> `Socket
   ;;
-
-  let to_string t = Sexp.to_string (sexp_of_t t)
 end
 
 module Stats = struct
@@ -443,15 +440,6 @@ module Socket = struct
 
     let addr_of_unix t u = t.addr_of_unix u
 
-    let family t = t.family
-
-    let to_string t =
-      match t.family with
-      | U.PF_INET -> "inet"
-      | U.PF_INET6 -> "inet6"
-      | U.PF_UNIX -> "unix"
-    ;;
-
     let inet =
       { family = U.PF_INET;
         addr_of_unix = function
@@ -501,17 +489,7 @@ module Socket = struct
 
   let fd t = t.fd
 
-  let to_string t =
-    let st_str =
-      Sexp.to_string (Unix.sexp_of_socket_type t.typ.Type.socket_type)
-    in
-    sprintf "{ typ = { family = %s; socket_type = %s }; fd = %s; }"
-      (Family.to_string t.typ.Type.family) st_str (Fd.to_string t.fd)
-  ;;
-
   let of_fd fd typ = { typ; fd }
-
-  let cast t = t
 
   let create typ =
     let fd =
@@ -529,8 +507,6 @@ module Socket = struct
       get : File_descr.t -> 'a;
       set : File_descr.t -> 'a -> unit;
     }
-
-    let to_string t = t.name
 
     let make getsockopt setsockopt name opt = {
       name;

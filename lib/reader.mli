@@ -169,6 +169,14 @@ val read_until_max :
     read up to but not including EOF will be returned as a line. *)
 val read_line : t -> string Read_result.t Deferred.t
 
+(** [really_read_line ~wait_time t] reads up to, and including the next
+    newline (\n) character and returns an optional, freshly-allocated string
+    containing everything up to but not including the newline character.
+    If read_line encounters EOF before the newline char, then a time span of
+    [wait_time] will be used before the input operation is retried.  If the
+    descriptor is closed, [None] will be returned. *)
+val really_read_line : wait_time : Time.Span.t -> t -> string option Deferred.t
+
 type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a
 
 (** [read_sexp t] reads the next sexp. *)

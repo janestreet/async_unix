@@ -2,7 +2,6 @@
    [select] to return due the file descriptor being ready for reading. *)
 
 open Core.Std
-open Import
 
 type t with sexp_of
 

@@ -23,9 +23,7 @@ end
 
 module State = struct
   type t = [ `Not_in_use | `In_use | `Closed ]
-  with sexp
-
-  let to_string t = Sexp.to_string (sexp_of_t t)
+  with sexp_of
 end
 
 type t = {
@@ -43,11 +41,13 @@ type t = {
 
 let io_stats = Io_stats.create ()
 
+(*
 let invariant t =
   assert (0 <= t.pos);
   assert (0 <= t.available);
   assert (t.pos + t.available <= Bigstring.length t.buf);
 ;;
+*)
 
 let create ?buf_len fd =
   let buf_len =
@@ -396,15 +396,10 @@ let really_read_line ~wait_time t =
     let fill_result = function
       | [] -> Ivar.fill result None
       | ac -> Ivar.fill result (Some (String.concat (List.rev ac))) in
-    let rec loop ac =
-      let continue ac =
-        if t.state = `Closed then
-          fill_result ac
-        else begin
-          Clock.after wait_time
-          >>> fun () -> loop ac
-        end
-      in
+    let rec continue ac =
+      if t.state = `Closed then fill_result ac
+      else Clock.after wait_time >>> fun () -> loop ac
+    and loop ac =
       read_line_gen t Fn.id >>> function
         | `Eof -> continue ac
         | `Eof_without_delim str -> continue (str :: ac)

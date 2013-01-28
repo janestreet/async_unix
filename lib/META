@@ -1,6 +1,6 @@
 # OASIS_START
-# DO NOT EDIT (digest: 6e99121175ea2cbcfabe8d013230ba34)
-version = "108.00.01"
+# DO NOT EDIT (digest: 15061d30a328752447c7d28aac02284c)
+version = "108.00.02"
 description = "Jane Street Capital's asynchronous execution library (unix)"
 requires =
 "sexplib.syntax sexplib fieldslib.syntax fieldslib bin_prot bin_prot.syntax pa_ounit pa_pipebang core async_core threads"

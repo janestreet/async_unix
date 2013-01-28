@@ -97,10 +97,6 @@ type writer = t with sexp_of
 
 let set_raise_epipe t bool = t.raise_epipe <- bool
 
-let iovecs_length iovecs =
-  Queue.fold iovecs ~init:0 ~f:(fun n (iovec, _) -> n + iovec.IOVec.len)
-;;
-
 let bytes_to_write t = t.scheduled_bytes + t.back - t.scheduled_back
 
 let is_stopped_permanently t =
@@ -109,7 +105,12 @@ let is_stopped_permanently t =
   | `Running | `Not_running -> false
 ;;
 
-let invariant t =
+(*
+let iovecs_length iovecs =
+  Queue.fold iovecs ~init:0 ~f:(fun n (iovec, _) -> n + iovec.IOVec.len)
+;;
+
+let _invariant t =
   assert (Int63.(zero <= t.bytes_written && t.bytes_written <= t.bytes_received));
   assert (0 <= t.scheduled_back
            && t.scheduled_back <= t.back
@@ -125,6 +126,7 @@ let invariant t =
     if phys_equal t.buf iovec.IOVec.buf then
       assert (kind = `Keep));
 ;;
+*)
 
 module Check_buffer_age : sig
   type t = writer Check_buffer_age'.t Bag.Elt.t option
@@ -709,7 +711,7 @@ include (struct
         len_len : int;
         pos_len : int;
       }
-    with sexp
+    with sexp_of
   end
 
   let write_bin_prot t writer v =

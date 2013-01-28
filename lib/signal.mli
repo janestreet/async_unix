@@ -1,4 +1,3 @@
-open Core.Std
 open Import
 
 include Module_type.Signal

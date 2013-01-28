@@ -477,9 +477,8 @@ let finalize t f obj =
    especially carefully.  [go] is called from the main thread and so must acquire the lock
    if the thread has not already done so implicitly via use of an async operation that
    used [the_one_and_only]. *)
-let go ?(raise_unhandled_exn = Bool.False_.default) () =
+let go ?(raise_unhandled_exn = false) () =
   if debug then Debug.log_string "Scheduler.go";
-  let raise_unhandled_exn = (raise_unhandled_exn :> bool) in
   let t = the_one_and_only ~should_lock:false in
   if not (am_holding_lock t) then lock t;
   if t.go_has_been_called then begin

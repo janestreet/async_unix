@@ -1,6 +1,3 @@
-open Core.Std
-open Import
-
 type t = Async_core.Block_group.t
 
 val create :

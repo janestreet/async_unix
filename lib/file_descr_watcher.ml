@@ -1,5 +1,4 @@
 open Core.Std
-open Import
 
 module File_descr = Unix.File_descr
 module Table = Bounded_int_table
@@ -103,7 +102,7 @@ module Check_result = struct
   with sexp_of
 end
 
-type 'a check_result = 'a Check_result.t with sexp_of
+type 'a check_result = 'a Check_result.t
 
 let thread_safe_check _t pre ~timeout =
   { Check_result.

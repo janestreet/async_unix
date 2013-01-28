@@ -1,6 +1,3 @@
-open Core.Std
-open Import
-
 include Async_core.Block_group
 
 module Scheduler = Raw_scheduler

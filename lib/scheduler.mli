@@ -20,10 +20,10 @@ open Import
 
     If any async job raises an unhandled exception that is not handled by any monitor,
     async execution ceases.  Then, by default, async pretty prints the exception, and
-    exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:()], which
+    exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
-  :  ?raise_unhandled_exn:Bool.False_.default
+  :  ?raise_unhandled_exn:bool
   -> unit
   -> never_returns
 
@@ -31,7 +31,7 @@ val go
     initialize the async computation, and that [go_main] will fail if any async has been
     used prior to [go_main] being called. *)
 val go_main
-  :  ?raise_unhandled_exn:Bool.False_.default
+  :  ?raise_unhandled_exn:bool
   -> main:(unit -> unit)
   -> unit
   -> never_returns

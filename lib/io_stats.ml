@@ -1,5 +1,4 @@
 open Core.Std
-open Import
 
 type t = {
   mutable total: Int63.t;

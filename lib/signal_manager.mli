@@ -6,7 +6,6 @@
     Once a signal manager starts managing a signal, it never stops. *)
 
 open Core.Std
-open Import
 
 type t with sexp_of
 
