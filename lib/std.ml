@@ -1,5 +1,4 @@
 module Fd          = Fd
-module Gc          = Async_gc
 module In_thread   = In_thread
 module Io_stats    = Io_stats
 module Print       = Async_print

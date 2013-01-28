@@ -15,13 +15,9 @@ let the_one_and_only = Scheduler.the_one_and_only
 let handle ?stop ts ~f =
   let scheduler = the_one_and_only ~should_lock:true in
   let signal_manager = scheduler.Scheduler.signal_manager in
-  let context = Scheduler.current_execution_context scheduler in
   let handler =
     Raw_signal_manager.install_handler signal_manager ts
-      (fun signal ->
-        Scheduler.with_execution_context scheduler context ~f:(fun () ->
-          try f signal
-          with exn -> Monitor.send_exn (Monitor.current ()) exn ~backtrace:`Get))
+      (unstage (Scheduler.preserve_execution_context scheduler f))
   in
   Option.iter stop ~f:(fun stop ->
     upon stop (fun () ->

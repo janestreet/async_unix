@@ -3,7 +3,7 @@
 OASISFormat:  0.3
 OCamlVersion: >= 3.12.1
 Name:         async_unix
-Version:      109.05.00
+Version:      109.06.00
 Synopsis:     Jane Street Capital's asynchronous execution library (unix)
 Authors:      Jane street capital
 Copyrights:   (C) 2008-2012 Jane Street Capital LLC
@@ -20,7 +20,7 @@ Library async_unix
   Path:               lib
   FindlibName:        async_unix
   Pack:               true
-  Modules:            Async_gc,Async_print,Async_sys,Epoll_file_descr_watcher,Fd,Fd_by_descr,File_descr_watcher_intf,Import,Inline_tests,Interruptor,In_thread,Io_stats,Raw_fd,Raw_scheduler,Raw_signal_manager,Reader,Read_write,Scheduler,Select_file_descr_watcher,Shutdown,Signal,Signal_manager,Std,Syscall,Thread_safe,Unix_syscalls,Work_group,Writer
+  Modules:            Async_print,Async_sys,Epoll_file_descr_watcher,Fd,Fd_by_descr,File_descr_watcher_intf,Import,Inline_tests,Interruptor,In_thread,Io_stats,Raw_fd,Raw_scheduler,Raw_signal_manager,Reader,Read_write,Scheduler,Select_file_descr_watcher,Shutdown,Signal,Signal_manager,Std,Syscall,Thread_safe,Unix_syscalls,Work_group,Writer
   BuildDepends:       sexplib.syntax,
                       sexplib,
                       fieldslib.syntax,

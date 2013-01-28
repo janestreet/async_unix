@@ -67,8 +67,16 @@ val with_file
   -> 'a Deferred.t
 
 (** [close fd] closes the file descriptor [fd], and raises an exception if [fd] has
-    already been closed.  *)
-val close : Fd.t -> unit Deferred.t
+    already been closed.
+
+    In some situations, one may need to cause async to release an fd that it is managing
+    without closing the underlying file descriptor.  In that case, one should supply
+    [~should_close_file_descriptor:false], which will skip the underlying close() system
+    call. *)
+val close
+  :  ?should_close_file_descriptor:bool (* defaults to [true] *)
+  -> Fd.t
+  -> unit Deferred.t
 
 val lseek : Fd.t -> int64 -> mode:[ `Set | `Cur | `End ] -> int64 Deferred.t
 

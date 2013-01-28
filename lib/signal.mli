@@ -10,11 +10,15 @@ val set            : [ `Do_not_use_with_async ] -> _ -> _
 val signal         : [ `Do_not_use_with_async ] -> _ -> _
 
 (** [handle ?stop signals ~f] arranges so that whenever a signal in [signals] is
-    delivered, [f] is called on that signal.  If [f] raises, than an exception will be
+    delivered, [f] is called on that signal.  If [f] raises, then an exception will be
     raised to the monitor in effect when [handle] was called.
 
-    Calling [handle] has the side-effect of installing a C signal handler for every signal
-    in [signals], which will replace the existing C signal handler for that signal. *)
+    Multiple calls to [handle] with the same signal will cause all the handlers to run
+    when that signal is delivered, not just the last handler from the last call to
+    [handle].
+
+    The first time [handle] is called for a signal, it will install a C signal handler for
+    that signal, which will replace the existing C signal handler for that signal. *)
 val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
 
 (** [terminating] is a list of signals that can be supplied to [handle] and whose default

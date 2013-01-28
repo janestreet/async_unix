@@ -60,22 +60,25 @@ let stderr =
   Memo.unit (fun () -> create_std_descr Unix.stderr (Info.of_string "<stderr>"))
 ;;
 
-let close t =
+let close ?(should_close_file_descriptor = true) t =
   if debug then Debug.log "Fd.close" t <:sexp_of< t >>;
   let module S = State in
   match t.state with
   | S.Close_requested _ | S.Closed -> Ivar.read t.close_finished
   | S.Open ->
     set_state t (S.Close_requested (fun () ->
-      Monitor.protect
-        ~finally:(fun () ->
-          In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
-        (fun () ->
-          match t.kind with
-          | Kind.Socket `Active ->
-            In_thread.syscall_exn ~name:"shutdown" (fun () ->
-              Unix.shutdown t.file_descr ~mode:Unix.SHUTDOWN_ALL)
-          | _ -> return ())));
+      if not should_close_file_descriptor then
+        Deferred.unit
+      else
+        Monitor.protect
+          ~finally:(fun () ->
+            In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
+          (fun () ->
+            match t.kind with
+            | Kind.Socket `Active ->
+              In_thread.syscall_exn ~name:"shutdown" (fun () ->
+                Unix.shutdown t.file_descr ~mode:Unix.SHUTDOWN_ALL)
+            | _ -> return ())));
     let module S = Scheduler in
     let scheduler = the_one_and_only () in
     S.request_stop_watching scheduler t `Read `Closed;

@@ -435,6 +435,11 @@ let create
   t
 ;;
 
+let set_buffer_age_limit t maximum_age =
+  Check_buffer_age.destroy t.check_buffer_age;
+  t.check_buffer_age <- Check_buffer_age.create t ~maximum_age;
+;;
+
 let of_out_channel oc kind = create (Fd.of_out_channel oc kind)
 
 let ensure_can_write t =

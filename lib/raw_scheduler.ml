@@ -39,8 +39,6 @@ let set_max_num_jobs_per_priority_per_cycle i =
   Core_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
 ;;
 
-type finalizer_job = Execution_context.t * (unit -> unit)
-
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
        data structures, which is almost all async code.  The [mutex] is automatically
@@ -65,7 +63,7 @@ type t =
 
     (* A distinguished thread, called the "scheduler" thread, is continually looping,
        checking file descriptors for I/O and then running a cycle.  It manages
-       the [file_descr_watcher], runs finalizers, runs signal handlers.
+       the [file_descr_watcher] and runs signal handlers.
 
        [scheduler_thread_id] is mutable because we create the scheduler before starting
        the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
@@ -77,12 +75,6 @@ type t =
     interruptor : Interruptor.t;
 
     signal_manager : Raw_signal_manager.t;
-
-    (* Finalizers are very much like signals; they can come at any time and in any thread.
-       When an OCaml finalizer fires, we stick a closure to do the work in a thread-safe
-       queue of [finalizer_jobs], which the scheduler then schedules to run as an ordinary
-       async job. *)
-    finalizer_jobs : finalizer_job Thread_safe_queue.t sexp_opaque;
 
     (* The [thread_pool] is used for making blocking system calls in threads other than
        the scheduler thread, and for servicing [In_thread.run] requests. *)
@@ -98,6 +90,10 @@ let current_execution_context t =
 
 let with_execution_context t context ~f =
   Core_scheduler.with_execution_context t.core_scheduler context ~f;
+;;
+
+let preserve_execution_context t f =
+  Core_scheduler.preserve_execution_context t.core_scheduler f
 ;;
 
 let create_fd t kind file_descr info =
@@ -233,7 +229,6 @@ let invariant t : unit =
       ~scheduler_thread_id:ignore
       ~interruptor:(check Interruptor.invariant)
       ~signal_manager:(check Raw_signal_manager.invariant)
-      ~finalizer_jobs:ignore
       ~thread_pool:(check Thread_pool.invariant)
       ~core_scheduler:(check Core_scheduler.invariant);
   with exn ->
@@ -248,7 +243,6 @@ let create () =
             main_work_group);
   let num_file_descrs = Config.max_num_open_file_descrs in
   let fd_by_descr = Fd_by_descr.create ~num_file_descrs in
-  let finalizer_jobs = Thread_safe_queue.create () in
   let create_fd kind file_descr info =
     let fd = Fd.create kind file_descr info in
     Fd_by_descr.add_exn fd_by_descr fd;
@@ -267,7 +261,6 @@ let create () =
       signal_manager =
         Raw_signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
           Interruptor.thread_safe_interrupt interruptor);
-      finalizer_jobs;
       thread_pool;
       core_scheduler;
     }
@@ -386,18 +379,12 @@ let sync_changed_fds_to_file_descr_watcher t =
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
+  Core_scheduler.set_thread_safe_finalizer_hook t.core_scheduler
+    (fun () -> thread_safe_wakeup_scheduler t);
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
   Raw_signal_manager.manage t.signal_manager Signal.pipe;
-  let rec handle_finalizers () =
-    if debug then Debug.log_string "scheduling finalizers";
-    match Thread_safe_queue.dequeue t.finalizer_jobs with
-    | None -> ()
-    | Some (execution_context, work) ->
-      Core_scheduler.add_job execution_context work ();
-      handle_finalizers ()
-  in
   let compute_timeout () =
     if debug then Debug.log_string "compute_timeout";
     if Core_scheduler.num_pending_jobs t.core_scheduler > 0 then
@@ -487,8 +474,6 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
             (<:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>);
         handle_post post;
       end;
-      if debug then Debug.log_string "handling finalizers";
-      handle_finalizers ();
       if debug then Debug.log_string "handling delivered signals";
       Raw_signal_manager.handle_delivered t.signal_manager;
       have_lock_do_cycle t;
@@ -513,27 +498,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
 ;;
 
 let add_finalizer t heap_block f =
-  let e = current_execution_context t in
-  let finalizer heap_block =
-    (* Here we can be in any thread, and may not be holding the async lock.  So, we
-       can only do thread-safe things.
-
-       By putting [heap_block] in [finalizer_jobs], we are keeping it alive until the next
-       time the scheduler gets around to calling [handle_finalizers].  Calling
-       [thread_safe_wakeup_scheduler] ensures that will happen in short order.  Thus, we
-       are not dramatically increasing the lifetime of [heap_block], since the OCaml
-       runtime already resurrected [heap_block] so that we could refer to it here.  The
-       OCaml runtime already removed the finalizer function when it noticed [heap_block]
-       could be finalized, so there is no infinite loop in which we are causing the
-       finalizer to run again.  Also, OCaml does not impose any requirement on finalizer
-       functions that they need to dispose of the block, so it's fine that we keep
-       [heap_block] around until later. *)
-    Thread_safe_queue.enqueue t.finalizer_jobs (e, (fun () -> f heap_block));
-    thread_safe_wakeup_scheduler t;
-  in
-  (* We use [Caml.Gc.finalise] instead of [Core.Std.Gc.add_finalizer] because the latter
-     has its own wrapper around [Caml.Gc.finalise] to run finalizers synchronously. *)
-  Caml.Gc.finalise finalizer heap_block;
+  Core_scheduler.add_finalizer t.core_scheduler heap_block f
 ;;
 
 let add_finalizer_exn t x f =

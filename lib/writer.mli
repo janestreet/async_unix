@@ -72,6 +72,11 @@ val create
     ECONNRESET (see [create]). *)
 val set_raise_when_consumer_leaves : t -> bool -> unit
 
+(** [set_buffer_age_limit t buffer_age_limit] replaces the existing buffer age limit with
+    the new one.  This is useful for stdout and stderr, which are lazily created in a
+    context that does not allow applications to specify [buffer_age_limit]. *)
+val set_buffer_age_limit : t -> buffer_age_limit -> unit
+
 (** [consumer_left t] returns a deferred that becomes determined when [t] attempts to
     write to a pipe that broke because the consumer on the other side left. *)
 val consumer_left : t -> unit Deferred.t

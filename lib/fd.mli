@@ -77,14 +77,22 @@ val supports_nonblock : t -> bool
     initial call will have no effect, but will return the same deferred as the original
     call.
 
+    In some situations, one may need to cause async to release an fd that it is managing
+    without closing the underlying file descriptor.  In that case, one should supply
+    [~should_close_file_descriptor:false], which will skip the underlying close() system
+    call.
+
     [close_finished t] becomes determined after the close() system call on [t]'s
     underlying file descriptor returns.  [close_finished] differs from [close] in that it
     does not have the side effect of initiating a close.
 
     [is_closed t] returns [true] iff [close t] has been called. *)
-val close          : t -> unit Deferred.t
+val close
+  :  ?should_close_file_descriptor:bool (* defaults to true *)
+  -> t
+  -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
-val is_closed      : t -> bool
+val is_closed : t -> bool
 
 (** [with_close t f] applies [f] to [t], returns the result of [f], and closes [t]. *)
 val with_close : t -> f:(t -> 'a Deferred.t) -> 'a Deferred.t
