@@ -23,7 +23,7 @@ open Import
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
-  :  ?raise_unhandled_exn:bool
+  :  ?raise_unhandled_exn:bool (* defaults to false *)
   -> unit
   -> never_returns
 
@@ -31,25 +31,25 @@ val go
     initialize the async computation, and that [go_main] will fail if any async has been
     used prior to [go_main] being called. *)
 val go_main
-  :  ?raise_unhandled_exn:bool
+  :  ?raise_unhandled_exn:bool (* defaults to false *)
   -> main:(unit -> unit)
   -> unit
   -> never_returns
 
 type 'a with_options =
-  ?block_group:Block_group.t
+  ?work_group:Work_group.t
   -> ?monitor:Monitor.t
   -> ?priority:Priority.t
   -> 'a
 
-val current_execution_context : unit -> Execution_context.t
+(* val current_execution_context : unit -> Execution_context.t *)
 
 (** [within_context context f] runs [f ()] right now with the specified execution
     context.  If [f] raises, then the exception is sent to the monitor of [context], and
     [Error ()] is returned. *)
 val within_context : Execution_context.t -> (unit -> 'a) -> ('a, unit) Result.t
 
-(** [within' f ~block_group ~monitor ~priority] runs [f ()] right now, with the specified
+(** [within' f ~work_group ~monitor ~priority] runs [f ()] right now, with the specified
     block group, monitor, and priority set as specified.  They will be reset to their
     original values when [f] returns.  If [f] raises, then the result of [within'] will
     never become determined, but the exception will end up in the specified monitor. *)
@@ -72,7 +72,6 @@ val schedule : ((unit -> unit) -> unit) with_options
     cycle. *)
 val cycle_start : unit -> Time.t
 
-
 (** [cycle_times ()] returns a stream that will have one element for each cycle that Async
     runs, with the amount of time that the cycle took (as determined by calls to Time.now
     at the beginning and end of the cycle). *)
@@ -83,16 +82,11 @@ val cycle_times : unit -> Time.Span.t Stream.t
     whose default is 1s. *)
 val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 
-(** [cycle_count ()] returns the total number of async cycles since Scheduler.go was
-    called *)
+(** [cycle_count ()] returns the total number of async cycles that have happened. *)
 val cycle_count : unit -> int
 
-(** [is_running ()] returns true if Scheduler.go has been called. *)
+(** [is_running ()] returns true if the scheduler has been started. *)
 val is_running : unit -> bool
-
-(** [num_pending_jobs ()] returns the number of jobs that are scheduled that haven't
-    yet been run. *)
-val num_pending_jobs : unit -> int
 
 (** [set_max_num_jobs_per_priority_per_cycle int] sets the maximum number of jobs that
     will be done at each priority within each async cycle.  The default is [500]. *)
@@ -100,3 +94,9 @@ val set_max_num_jobs_per_priority_per_cycle : int -> unit
 
 val is_ready_to_initialize : unit -> bool
 
+(** If a process that has already created, but not started, the async scheduler would like
+    to fork, and would like the child to have a clean async, i.e. not inherit any of the
+    async work that was done in the parent, it can call [reset_in_forked_process] at the
+    start of execution in the child process.  After that, the child can do async stuff and
+    then start the async scheduler. *)
+val reset_in_forked_process : unit -> unit

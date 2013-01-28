@@ -11,8 +11,13 @@ val invariant : t -> unit
 
 val create : num_file_descrs:int -> t
 
-val add : t -> Raw_fd.t -> unit
+(** [add_exn t fd] fails if the file descriptor for [fd] is already in [t].  *)
+val add_exn : t -> Raw_fd.t -> unit
 
 val find : t -> File_descr.t -> Raw_fd.t option
 
 val remove : t -> Raw_fd.t -> unit
+
+val fold : t -> init:'a -> f:('a -> Raw_fd.t -> 'a) -> 'a
+
+val iter : t -> f:(Raw_fd.t -> unit) -> unit

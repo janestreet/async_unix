@@ -22,7 +22,8 @@ val create : thread_safe_notify_signal_delivered:(unit -> unit) -> t
 val handle_signal : t -> Signal.t -> unit
 
 (** [install_handler t signals f] causes [t] to manage the handling of [signals], and
-    registers [f] to run on every signal in [signals] that is delivered. *)
+    registers [f] to run on every signal in [signals] that is delivered.   It is an
+    error if [f] ever raises when it is called. *)
 type handler
 val install_handler : t -> Signal.t list -> (Signal.t -> unit) -> handler
 

@@ -11,7 +11,13 @@ module Handlers = struct
 
   let remove t handler_elt = Bag.remove t.bag handler_elt
 
-  let deliver t signal = Bag.iter t.bag ~f:(fun handler -> handler signal)
+  let deliver t signal =
+    Bag.iter t.bag ~f:(fun handler ->
+      try
+        handler signal
+      with exn ->
+        failwiths "signal handler unexpectedly raised" exn <:sexp_of< exn >>)
+  ;;
 end
 
 type t =

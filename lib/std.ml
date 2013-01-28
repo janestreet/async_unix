@@ -1,5 +1,5 @@
-module Block_group = Block_group
 module Fd          = Fd
+module Gc          = Async_gc
 module In_thread   = In_thread
 module Io_stats    = Io_stats
 module Print       = Async_print
@@ -10,6 +10,7 @@ module Socket      = Unix_syscalls.Socket
 module Signal      = Signal
 module Sys         = Async_sys
 module Thread_safe = Thread_safe
+module Work_group  = Work_group
 module Writer      = Writer
 
 module Unix = struct

@@ -23,7 +23,7 @@ end
 
 module State = struct
   type t = [ `Not_in_use | `In_use | `Closed ]
-  with sexp_of
+  with sexp
 end
 
 type t = {
@@ -41,13 +41,11 @@ type t = {
 
 let io_stats = Io_stats.create ()
 
-(*
 let invariant t =
   assert (0 <= t.pos);
   assert (0 <= t.available);
   assert (t.pos + t.available <= Bigstring.length t.buf);
 ;;
-*)
 
 let create ?buf_len fd =
   let buf_len =
@@ -90,38 +88,37 @@ let open_file ?buf_len file =
 
 let stdin = lazy (create (Fd.stdin ()))
 
-let closed t = Ivar.read t.close_finished
+let close_finished t = Ivar.read t.close_finished
 
-let close_was_started t =
+let is_closed t =
   match t.state with
   | `Closed -> true
   | `Not_in_use | `In_use -> false
+;;
 
 let close t =
   begin match t.state with
   | `Closed -> ()
   | `Not_in_use | `In_use ->
-      t.state <- `Closed;
-      whenever (
-        Unix.close t.fd >>| fun () ->
-        Ivar.fill t.close_finished ());
+    t.state <- `Closed;
+    upon (Unix.close t.fd) (fun () -> Ivar.fill t.close_finished ());
   end;
-  closed t
+  close_finished t;
 ;;
 
-let with_close t f =
-  Monitor.protect f ~finally:(fun () -> close t)
-;;
+let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
 
 let with_reader_exclusive t f =
   Unix.lockf t.fd `Read
   >>= fun () ->
-  Monitor.protect f ~finally:(fun () -> Unix.unlockf t.fd; Deferred.unit)
+  Monitor.protect f ~finally:(fun () ->
+    if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
+    Deferred.unit)
 ;;
 
 let with_file ?buf_len ?(exclusive = false) file ~f =
   open_file ?buf_len file >>= fun t ->
-    with_close t (fun () ->
+    with_close t ~f:(fun () ->
       if exclusive then
         with_reader_exclusive t (fun () -> f t)
       else
@@ -168,7 +165,7 @@ let get_data t =
         let len = Bigstring.length buf in
         let module K = Fd.Kind in
         if not (Fd.supports_nonblock t.fd) then begin
-          Fd.syscall_in_thread t.fd
+          Fd.syscall_in_thread t.fd ~name:"read"
             (fun file_descr ->
               let res = Bigstring.read file_descr buf ~pos ~len in
               res, Time.now ())
@@ -191,11 +188,11 @@ let get_data t =
                        res, Scheduler.cycle_start ()))
                   (let module U = Unix in
                    function
-                     (* Since we just did a select, we should never see EWOULDBLOCK or
-                        EAGAIN.  But we don't trust the OS.  So, in case it does, we'd
-                        rather select again. *)
-                     | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> loop ()
-                     | exn -> raise exn)
+                   (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
+                      But we don't trust the OS.  So, in case it does, we just try
+                      again. *)
+                   | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> loop ()
+                   | exn -> raise exn)
           in
           loop ()
         end))
@@ -224,14 +221,14 @@ let read_one_chunk_at_a_time_until_eof t ~handle_chunk =
     let rec loop () =
       nonempty_buffer t
         (function
-          | `Eof -> Ivar.fill final_result `Eof
-          | `Ok ->
-            handle_chunk t.buf ~pos:t.pos ~len:t.available
-            >>> fun result ->
-            consume t t.available;
-            match result with
-            | `Stop a -> Ivar.fill final_result (`Stopped a)
-            | `Continue -> loop ())
+        | `Eof -> Ivar.fill final_result `Eof
+        | `Ok ->
+          handle_chunk t.buf ~pos:t.pos ~len:t.available
+          >>> fun result ->
+          consume t t.available;
+          match result with
+          | `Stop a -> Ivar.fill final_result (`Stopped a)
+          | `Continue -> loop ())
     in
     loop ())
 ;;
@@ -248,8 +245,8 @@ module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
     if S.length s = 0 then
       invalid_argf "Reader.read_%s with empty string" Name.name ();
     get_data t (function
-      | `Ok -> read_available t s
-      | `Eof -> `Eof)
+    | `Ok -> read_available t s
+    | `Eof -> `Eof)
   ;;
 
   let really_read t s =
@@ -260,8 +257,8 @@ module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
         else begin
           read t s
           >>> function
-            | `Eof -> Ivar.fill result (`Eof amount_read)
-            | `Ok len -> loop (S.drop_prefix s len) (amount_read + len)
+          | `Eof -> Ivar.fill result (`Eof amount_read)
+          | `Ok len -> loop (S.drop_prefix s len) (amount_read + len)
         end
       in
       loop s 0)
@@ -290,11 +287,11 @@ let really_read t ?pos ?len s =
 
 let read_char t =
   get_data t (function
-    | `Eof -> `Eof
-    | `Ok ->
-      let c = t.buf.{t.pos} in
-      consume t 1;
-      `Ok c)
+  | `Eof -> `Eof
+  | `Ok ->
+    let c = t.buf.{t.pos} in
+    consume t 1;
+    `Ok c)
 ;;
 
 let first_char t p =
@@ -327,37 +324,37 @@ let read_until_gen t p ~keep_delim ~max k =
   Deferred.create (fun result ->
     let rec loop ac total =
       nonempty_buffer t (function
-        | `Eof ->
-          Ivar.fill result
-            (k (if ac = [] then `Eof
-              else `Eof_without_delim (Bigsubstring.concat_string (List.rev ac))))
-        | `Ok ->
-          let concat_helper ss lst =
-            Bigsubstring.concat_string (List.rev_append lst [ss])
+      | `Eof ->
+        Ivar.fill result
+          (k (if ac = [] then `Eof
+            else `Eof_without_delim (Bigsubstring.concat_string (List.rev ac))))
+      | `Ok ->
+        let concat_helper ss lst =
+          Bigsubstring.concat_string (List.rev_append lst [ss])
+        in
+        match first_char t p with
+        | None ->
+          let len = t.available in
+          let total = total + len in
+          let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
+          t.buf <- Bigstring.create (Bigstring.length t.buf);
+          t.pos <- 0;
+          t.available <- 0;
+          begin match max with
+          | Some max when total > max ->
+            let s = concat_helper ss ac in
+            Ivar.fill result (k (`Max_exceeded s))
+          | Some _ | None -> loop (ss :: ac) total
+          end
+        | Some pos ->
+          let amount_consumed = pos + 1 - t.pos in
+          let len =
+            if keep_delim then amount_consumed else amount_consumed - 1
           in
-          match first_char t p with
-          | None ->
-            let len = t.available in
-            let total = total + len in
-            let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
-            t.buf <- Bigstring.create (Bigstring.length t.buf);
-            t.pos <- 0;
-            t.available <- 0;
-            begin match max with
-            | Some max when total > max ->
-              let s = concat_helper ss ac in
-              Ivar.fill result (k (`Max_exceeded s))
-            | Some _ | None -> loop (ss :: ac) total
-            end
-          | Some pos ->
-            let amount_consumed = pos + 1 - t.pos in
-            let len =
-              if keep_delim then amount_consumed else amount_consumed - 1
-            in
-            let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
-            consume t amount_consumed;
-            let res = concat_helper ss ac in
-            Ivar.fill result (k (`Ok res)))
+          let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
+          consume t amount_consumed;
+          let res = concat_helper ss ac in
+          Ivar.fill result (k (`Ok res)))
     in
     loop [] 0)
 ;;
@@ -368,7 +365,7 @@ let read_until_max t pred ~keep_delim ~max =
 
 let read_until t pred ~keep_delim k =
   read_until_gen t pred ~keep_delim ~max:None (function
-    | `Max_exceeded _ -> assert false  (* impossible - no maximum set *)
+  | `Max_exceeded _ -> assert false  (* impossible - no maximum set *)
     | `Eof
     | `Eof_without_delim _
     | `Ok _ as x -> k x)
@@ -415,32 +412,32 @@ let gen_read_sexp ?parse_pos t parse =
   Deferred.create (fun result ->
     let rec loop parse_fun =
       nonempty_buffer t (function
-        | `Eof ->
-          begin
-            (* The sexp parser doesn't know that a token ends at EOF, so we
-               add a space to be sure. *)
-            match parse_fun ~pos:0 ~len:1 space with
-            | Sexp.Done (sexp, parse_pos) ->
-                Ivar.fill result (`Ok (sexp, parse_pos))
-            | Sexp.Cont (Sexp.Cont_state.Parsing_whitespace, _) ->
-                Ivar.fill result `Eof
-            | Sexp.Cont _ ->
-                failwiths "Reader.read_sexp got unexpected eof"
-                  t <:sexp_of< t >>
-          end
-        | `Ok ->
-          match parse_fun ~pos:t.pos ~len:t.available t.buf with
-          | Sexp.Done (sexp, parse_pos) ->
-              consume t (parse_pos.Sexp.Parse_pos.buf_pos - t.pos);
-              Ivar.fill result (`Ok (sexp, parse_pos));
-          | Sexp.Cont (_, parse_fun) ->
-              t.available <- 0;
-              loop parse_fun)
+      | `Eof ->
+        (* The sexp parser doesn't know that a token ends at EOF, so we add a space to
+           be sure. *)
+        let module S = Sexp.Cont_state in
+        begin match parse_fun ~pos:0 ~len:1 space with
+        | Sexp.Done (sexp, parse_pos) -> Ivar.fill result (`Ok (sexp, parse_pos))
+        | Sexp.Cont (S.Parsing_whitespace, _) -> Ivar.fill result `Eof
+        | Sexp.Cont ((S.Parsing_atom
+                         | S.Parsing_list
+                         | S.Parsing_sexp_comment
+                         | S.Parsing_block_comment), _)
+          -> failwiths "Reader.read_sexp got unexpected eof" t <:sexp_of< t >>
+        end;
+      | `Ok ->
+        match parse_fun ~pos:t.pos ~len:t.available t.buf with
+        | Sexp.Done (sexp, parse_pos) ->
+          consume t (parse_pos.Sexp.Parse_pos.buf_pos - t.pos);
+          Ivar.fill result (`Ok (sexp, parse_pos));
+        | Sexp.Cont (_, parse_fun) ->
+          t.available <- 0;
+          loop parse_fun)
     in
     let parse ~pos ~len buf =
-      (* [parse_pos] will be threaded through the entire reading process by
-         the sexplib code.  Every occurrence of [parse_pos] above will be
-         identical to the [parse_pos] defined here. *)
+      (* [parse_pos] will be threaded through the entire reading process by the sexplib
+         code.  Every occurrence of [parse_pos] above will be identical to the [parse_pos]
+         defined here. *)
       let parse_pos =
         match parse_pos with
         | None -> Sexp.Parse_pos.create ~buf_pos:pos ()
@@ -456,30 +453,32 @@ type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a
 let read_sexp ?parse_pos t =
   gen_read_sexp t Sexp.parse_bigstring ?parse_pos
   >>| function
-    | `Eof -> `Eof
-    | `Ok (sexp, _) -> `Ok sexp
-;;
-
-let transfer_sexps ?parse_pos t parse pipe_writer =
-  (* Read sexps from [t] and write them to [pipe_writer], stopping when we reach Eof or
-     the pipe is closed. *)
-  let rec loop parse_pos =
-    gen_read_sexp t parse ?parse_pos >>> function
-      | `Eof -> Pipe.close pipe_writer
-      | `Ok (sexp, parse_pos) ->
-        if not (Pipe.is_closed pipe_writer) then begin
-          Pipe.write pipe_writer sexp
-          >>> fun () ->
-          loop (Some parse_pos)
-        end
-  in
-  loop parse_pos;
+  | `Eof -> `Eof
+  | `Ok (sexp, _) -> `Ok sexp
 ;;
 
 let gen_read_sexps ?parse_pos t parse =
   let pipe_r, pipe_w = Pipe.create () in
-  transfer_sexps t parse pipe_w ?parse_pos;
-  pipe_r
+  let finished =
+    Deferred.repeat_until_finished parse_pos
+      (fun parse_pos ->
+        gen_read_sexp t parse ?parse_pos
+        >>= function
+        | `Eof -> return (`Finished ())
+        | `Ok (sexp, parse_pos) ->
+          if Pipe.is_closed pipe_w then
+            return (`Finished ())
+          else begin
+            Pipe.write pipe_w sexp
+            >>| fun () ->
+            `Repeat (Some parse_pos)
+          end)
+  in
+  upon finished (fun () ->
+    close t
+    >>> fun () ->
+    Pipe.close pipe_w);
+  pipe_r;
 ;;
 
 let read_sexps ?parse_pos t = gen_read_sexps t Sexp.parse_bigstring ?parse_pos
@@ -499,33 +498,33 @@ let read_bin_prot ?(max_len = 100 * 1024 * 1024) t bin_prot_reader =
     in
     really_read_bigstring t t.bin_prot_len_buf
     >>> function
+    | `Eof n -> handle_eof n
+    | `Ok ->
+      let pos_ref = ref 0 in
+      let expected_len = Bigstring.length t.bin_prot_len_buf in
+      let len = Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref in
+      if !pos_ref <> expected_len then
+        error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+      if len > max_len then
+        error "max read length exceeded: %d > %d" len max_len ();
+      if len < 0 then
+        error "negative length %d" len ();
+      let prev_len = Bigstring.length t.bin_prot_buf in
+      if len > prev_len then
+        t.bin_prot_buf <- Bigstring.create
+          (Int.min max_len (Int.max len (prev_len * 2)));
+      let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
+      really_read_bigsubstring t ss
+      >>> function
       | `Eof n -> handle_eof n
       | `Ok ->
         let pos_ref = ref 0 in
-        let expected_len = Bigstring.length t.bin_prot_len_buf in
-        let len = Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref in
-        if !pos_ref <> expected_len then
+        let v =
+          bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref
+        in
+        if !pos_ref <> len then
           error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
-        if len > max_len then
-          error "max read length exceeded: %d > %d" len max_len ();
-        if len < 0 then
-          error "negative length %d" len ();
-        let prev_len = Bigstring.length t.bin_prot_buf in
-        if len > prev_len then
-          t.bin_prot_buf <- Bigstring.create
-            (Int.min max_len (Int.max len (prev_len * 2)));
-        let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
-        really_read_bigsubstring t ss
-        >>> function
-          | `Eof n -> handle_eof n
-          | `Ok ->
-            let pos_ref = ref 0 in
-            let v =
-              bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref
-            in
-            if !pos_ref <> len then
-              error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
-            Ivar.fill result (`Ok v))
+        Ivar.fill result (`Ok v))
 ;;
 
 let read_marshal_raw t =
@@ -535,38 +534,42 @@ let read_marshal_raw t =
   in
   let header = String.create Marshal.header_size in
   really_read t header >>= function
-    | `Eof n -> return (eofn n)
-    | `Ok ->
-      let len = Marshal.data_size header 0 in
-      let buf = String.create (len + Marshal.header_size) in
-      String.blit ~src:header ~dst:buf ~src_pos:0 ~dst_pos:0
-        ~len:Marshal.header_size;
-      let sub = Substring.create buf ~pos:Marshal.header_size ~len in
-      really_read_substring t sub >>| function
-        | `Eof n -> eofn n
-        | `Ok -> `Ok buf
+  | `Eof n -> return (eofn n)
+  | `Ok ->
+    let len = Marshal.data_size header 0 in
+    let buf = String.create (len + Marshal.header_size) in
+    String.blit ~src:header ~dst:buf ~src_pos:0 ~dst_pos:0
+      ~len:Marshal.header_size;
+    let sub = Substring.create buf ~pos:Marshal.header_size ~len in
+    really_read_substring t sub >>| function
+    | `Eof n -> eofn n
+    | `Ok -> `Ok buf
 ;;
 
 let read_marshal t =
   read_marshal_raw t >>| function
-    | `Eof -> `Eof
-    | `Ok buf -> `Ok (Marshal.from_string buf 0)
+  | `Eof -> `Eof
+  | `Ok buf -> `Ok (Marshal.from_string buf 0)
 ;;
 
 let read_all t read_one =
   let pipe_r, pipe_w = Pipe.create () in
-  let rec loop () =
-    read_one t
-    >>> function
-      | `Eof -> Pipe.close pipe_w
-      | `Ok one ->
-        if not (Pipe.is_closed pipe_w) then begin
-          Pipe.write pipe_w one
-          >>> fun () ->
-          loop ()
-        end
+  let finished =
+    Deferred.repeat_until_finished ()
+      (fun () ->
+        read_one t
+        >>= function
+        | `Eof -> return (`Finished ())
+        | `Ok one ->
+          if Pipe.is_closed pipe_w then
+            return (`Finished ())
+          else
+            Pipe.write pipe_w one >>| fun () -> `Repeat ())
   in
-  loop ();
+  upon finished (fun () ->
+    close t
+    >>> fun () ->
+    Pipe.close pipe_w);
   pipe_r
 ;;
 
@@ -575,17 +578,15 @@ let lines t = read_all t read_line
 let contents t =
   let buf = Buffer.create 1024 in
   let sbuf = String.create 1024 in
-  let res = Ivar.create () in
-  let rec loop () =
+  Deferred.repeat_until_finished () (fun () ->
     read t sbuf
-    >>> function
-      | `Ok l ->
-        Buffer.add_substring buf sbuf 0 l;
-        loop ()
-      | `Eof -> Ivar.fill res (Buffer.contents buf)
-  in
-  loop ();
-  Ivar.read res;
+    >>| function
+    | `Eof -> `Finished ()
+    | `Ok l -> Buffer.add_substring buf sbuf 0 l; `Repeat ())
+  >>= fun () ->
+  close t
+  >>| fun () ->
+  Buffer.contents buf
 ;;
 
 let file_contents file = with_file file ~f:contents
@@ -594,18 +595,18 @@ let recv t =
   Deferred.create (fun i ->
     read_line t
     >>> function
-      | `Eof -> Ivar.fill i `Eof
-      | `Ok length_str ->
-        match try Ok (int_of_string length_str) with _ -> Error () with
-        | Error () ->
-          failwiths "Reader.recv got strange length" (length_str, t)
-            (<:sexp_of< string * t >>)
-        | Ok length ->
-          let buf = String.create length in
-          really_read t buf
-          >>> function
-            | `Eof _ -> failwith "Reader.recv got unexpected EOF"
-            | `Ok -> Ivar.fill i (`Ok buf))
+    | `Eof -> Ivar.fill i `Eof
+    | `Ok length_str ->
+      match try Ok (int_of_string length_str) with _ -> Error () with
+      | Error () ->
+        failwiths "Reader.recv got strange length" (length_str, t)
+          (<:sexp_of< string * t >>)
+      | Ok length ->
+        let buf = String.create length in
+        really_read t buf
+        >>> function
+        | `Eof _ -> failwith "Reader.recv got unexpected EOF"
+        | `Ok -> Ivar.fill i (`Ok buf))
 ;;
 
 let transfer t pipe_w =
@@ -613,17 +614,17 @@ let transfer t pipe_w =
     (fun finished ->
       let rec loop () =
         nonempty_buffer t (function
-          | `Eof -> Ivar.fill finished ()
-          | `Ok ->
-            if Pipe.is_closed pipe_w then
-              Ivar.fill finished ()
-            else begin
-              let pos = t.pos in
-              let len = t.available in
-              consume t len;
-              Pipe.write pipe_w (Bigstring.to_string t.buf ~pos ~len)
-              >>> loop
-            end)
+        | `Eof -> Ivar.fill finished ()
+        | `Ok ->
+          if Pipe.is_closed pipe_w then
+            Ivar.fill finished ()
+          else begin
+            let pos = t.pos in
+            let len = t.available in
+            consume t len;
+            Pipe.write pipe_w (Bigstring.to_string t.buf ~pos ~len)
+            >>> loop
+          end)
       in
       loop ())
 ;;
@@ -722,7 +723,7 @@ let load_sexp ?exclusive file f =
       | _ -> multiple annot_sexps)
 ;;
 
-let load_sexp_exn ?exclusive file f = load_sexp ?exclusive file f >>| Or_error.ok_exn
+let load_sexp_exn ?exclusive file f = load_sexp ?exclusive file f >>| ok_exn
 
 let load_sexps ?exclusive file f =
   gen_load ?exclusive file
@@ -738,12 +739,13 @@ let load_sexps ?exclusive file f =
         (<:sexp_of< string * Error.t list >>))
 ;;
 
-let load_sexps_exn ?exclusive file f = load_sexps ?exclusive file f >>| Or_error.ok_exn
+let load_sexps_exn ?exclusive file f = load_sexps ?exclusive file f >>| ok_exn
 
 let pipe t =
   let pipe_r, pipe_w = Pipe.create () in
   upon (transfer t pipe_w) (fun () ->
-    whenever (close t);
+    close t
+    >>> fun () ->
     Pipe.close pipe_w);
   pipe_r
 ;;

@@ -9,9 +9,9 @@
 open Core.Std
 open Import
 
-module Exit                   : Module_type.Exit
-module Exit_or_signal         : Module_type.Exit_or_signal
-module Exit_or_signal_or_stop : Module_type.Exit_or_signal_or_stop
+module Exit                   : module type of Unix.Exit
+module Exit_or_signal         : module type of Unix.Exit_or_signal
+module Exit_or_signal_or_stop : module type of Unix.Exit_or_signal_or_stop
 
 val system     : string -> Exit_or_signal.t Deferred.t
 val system_exn : string -> unit             Deferred.t
@@ -137,7 +137,12 @@ val unlink : string -> unit Deferred.t
 
 val rename : src:string -> dst:string -> unit Deferred.t
 
-val link : ?force : bool -> target:string -> link_name:string -> unit -> unit Deferred.t
+val link
+  :  ?force:bool (* defaults to false *)
+  -> target:string
+  -> link_name:string
+  -> unit
+  -> unit Deferred.t
 
 val chmod : string -> perm:file_perm -> unit Deferred.t
 
@@ -181,7 +186,9 @@ val rewinddir : dir_handle -> unit Deferred.t
 
 val closedir : dir_handle -> unit Deferred.t
 
-val pipe : unit -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
+(** The [info] supplied to pipe is debugging information that will be included in the
+    returned [Fd]s. *)
+val pipe : Info.t -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
 
 val symlink : src:string -> dst:string -> unit Deferred.t
 
@@ -235,7 +242,7 @@ val putenv : key:string -> data:string -> unit
 val fork_exec
   :  prog:string
   -> args:string list
-  -> ?use_path:bool
+  -> ?use_path:bool (* defaults to true *)
   -> ?env:string list
   -> unit
   -> Pid.t Deferred.t
@@ -253,8 +260,17 @@ val wait_nohang          : wait_on -> (Pid.t * Exit_or_signal.t        ) option
 val wait_untraced        : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
 val wait_nohang_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) option
 
+(** [waitpid pid] returns a deferred that becomes determined with the child's exit
+    status, when the child process with process id [pid] exits.  [waitpid_exn] is like
+    [waitpid], except the result only becomes determined if the child exits with status
+    zero; it raises if the child terminates win any other way. *)
+val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
+val waitpid_exn : Pid.t -> unit             Deferred.t
+
 module Inet_addr : sig
-  type t = Unix.Inet_addr.t with bin_io, sexp
+  type t = Unix.Inet_addr.t with bin_io, sexp, compare
+
+  include Comparable.S with type t := t
 
   (* same as Core.Unix *)
   val of_string : string -> t
@@ -278,30 +294,37 @@ end
 val socketpair : unit -> Fd.t * Fd.t
 
 module Socket : sig
-  type unix = [ `Unix of string ] with sexp, bin_io
-  type inet = [ `Inet of Inet_addr.t * int ] with sexp, bin_io
-  type 'a addr = 'a constraint 'a = [< unix | inet ] with sexp, bin_io
-
-  val address_string_of_inet : inet -> string
-  val string_of_inet : inet -> string
-  val string_of_unix : unix -> string
-
   module Address : sig
-    type t = [ unix | inet ] with sexp, bin_io
+    module Unix : sig
+      type t = [ `Unix of string ] with bin_io, sexp, compare
 
-    val unix : string -> unix
-    val inet : Inet_addr.t -> port:int -> inet
-    val inet_addr_any : port:int -> inet
+      val create : string -> t
+      val to_string : t -> string
+    end
 
-    val to_string : 'a addr -> string
-    val to_unix : 'a addr -> Core.Std.Unix.sockaddr
+    module Inet : sig
+      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp
+
+      val create : Inet_addr.t -> port:int -> t
+      val create_bind_any : port:int -> t
+      val addr : t -> Inet_addr.t
+      val port : t -> int
+      val to_string : t -> string
+    end
+
+    type t = [ Inet.t | Unix.t ] with bin_io, sexp
+
+    val to_string : [< t ] -> string
+    val to_sockaddr : [< t ] -> Core.Std.Unix.sockaddr
   end
 
   module Family : sig
-    type 'a t constraint 'a = 'a addr
+    type 'a t constraint 'a = [< Address.t ]
 
-              val unix : unix t
-              val inet : inet t
+    val unix : Address.Unix.t t
+    val inet : Address.Inet.t t
+
+    val to_string : 'a t -> string
   end
 
   (** Sockets have a phantom type parameter that tracks the state of the socket
@@ -311,18 +334,20 @@ module Socket : sig
       Here is a chart of the allowed state transitions.
 
       Unconnected ---connect--> Active
+      |
       | ---bind--> Bound ---listen--> Passive ---accept---> Active
   *)
   type ('a, 'b) t
   constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
-  constraint 'b = 'b addr
+  constraint 'b = [< Address.t ]
+  with sexp_of
 
   module Type : sig
-    type 'a t constraint 'a = 'a addr
+    type 'a t constraint 'a = [< Address.t ]
 
-    val tcp : inet t
-    val udp : inet t
-    val unix : unix t
+    val tcp : Address.Inet.t t
+    val udp : Address.Inet.t t
+    val unix : Address.Unix.t t
   end
 
   val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
@@ -348,12 +373,17 @@ module Socket : sig
     -> ([ `Bound ], 'addr) t
     -> ([ `Passive ], 'addr) t
 
-  val accept : ([ `Passive ], 'addr) t -> (([ `Active ], 'addr) t * 'addr) Deferred.t
+  val accept
+    :  ([ `Passive ], 'addr) t
+    -> [ `Ok of (([ `Active ], 'addr) t * 'addr)
+       | `Socket_closed
+       ] Deferred.t
 
   val accept_interruptible
     :  ([ `Passive ], 'addr) t
     -> interrupt:(unit Deferred.t)
     -> [ `Ok of (([ `Active ], 'addr) t * 'addr)
+       | `Socket_closed
        | `Interrupted
        ] Deferred.t
 
@@ -390,6 +420,8 @@ module Socket : sig
 
     val rcvtimeo : float t
     val sndtimeo : float t
+
+    val to_string : 'a t -> string
   end
 
   val getopt : ('a, 'addr) t -> 'c Opt.t -> 'c
@@ -409,7 +441,9 @@ module Host : sig
   val getbyname_exn : string      -> t        Deferred.t
   val getbyaddr     : Inet_addr.t -> t option Deferred.t
   val getbyaddr_exn : Inet_addr.t -> t        Deferred.t
-end
+
+  val have_address_in_common : t -> t -> bool
+ end
 
 val gethostname : unit -> string
 
@@ -424,7 +458,7 @@ val getegid : unit -> int
 val setuid : int -> unit
 
 type error =
- Unix.error =
+  Unix.error =
 | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
 | EFAULT | EFBIG | EINTR | EINVAL | EIO | EISDIR | EMFILE | EMLINK
 | ENAMETOOLONG | ENFILE | ENODEV | ENOENT | ENOEXEC | ENOLCK | ENOMEM | ENOSPC

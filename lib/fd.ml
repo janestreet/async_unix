@@ -9,6 +9,7 @@ include Fd.T
 
 open Fd
 
+let debug               = debug
 let is_closed           = is_closed
 let is_open             = is_open
 let syscall             = syscall
@@ -31,7 +32,7 @@ module Kind = struct
   ;;
 
   let infer_using_stat file_descr =
-    In_thread.syscall_exn (fun () -> blocking_infer_using_stat file_descr)
+    In_thread.syscall_exn ~name:"fstat" (fun () -> blocking_infer_using_stat file_descr)
   ;;
 end
 
@@ -39,31 +40,40 @@ let to_string t = Sexp.to_string_hum (sexp_of_t t)
 
 let the_one_and_only () = Scheduler.the_one_and_only ~should_lock:true
 
-let create kind file_descr ~name =
-  Scheduler.create_fd (the_one_and_only ()) kind file_descr ~name;
+let create kind file_descr info =
+  Scheduler.create_fd (the_one_and_only ()) kind file_descr info;
 ;;
 
-let create_std_descr file_descr ~name =
-  create (Kind.blocking_infer_using_stat file_descr) file_descr ~name
+let create_std_descr file_descr info =
+  create (Kind.blocking_infer_using_stat file_descr) file_descr info
 ;;
 
-let stdin  = Memo.unit (fun () -> create_std_descr ~name:"<stdin>"  Unix.stdin )
-let stdout = Memo.unit (fun () -> create_std_descr ~name:"<stdout>" Unix.stdout)
-let stderr = Memo.unit (fun () -> create_std_descr ~name:"<stderr>" Unix.stderr)
+let stdin  =
+  Memo.unit (fun () -> create_std_descr Unix.stdin (Info.of_string "<stdin>"))
+;;
+
+let stdout =
+  Memo.unit (fun () -> create_std_descr Unix.stdout (Info.of_string "<stdout>"))
+;;
+
+let stderr =
+  Memo.unit (fun () -> create_std_descr Unix.stderr (Info.of_string "<stderr>"))
+;;
 
 let close t =
+  if debug then Debug.log "Fd.close" t <:sexp_of< t >>;
   let module S = State in
   match t.state with
-  | S.Replaced -> failwiths "may not close replaced fd" t <:sexp_of< t >>
   | S.Close_requested _ | S.Closed -> Ivar.read t.close_finished
   | S.Open ->
     set_state t (S.Close_requested (fun () ->
       Monitor.protect
-        ~finally:(fun () -> In_thread.syscall_exn (fun () -> Unix.close t.file_descr))
+        ~finally:(fun () ->
+          In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
         (fun () ->
           match t.kind with
           | Kind.Socket `Active ->
-            In_thread.syscall_exn (fun () ->
+            In_thread.syscall_exn ~name:"shutdown" (fun () ->
               Unix.shutdown t.file_descr ~mode:Unix.SHUTDOWN_ALL)
           | _ -> return ())));
     let module S = Scheduler in
@@ -91,17 +101,23 @@ let with_file_descr_deferred t f =
 ;;
 
 let start_watching t read_or_write =
+  if debug then
+    Debug.log "Fd.start_watching" (t, read_or_write) (<:sexp_of< t * Read_write.Key.t >>);
   let r = the_one_and_only () in
-  match Scheduler.request_start_watching r t read_or_write ~interrupt_select:true with
-  | `Already_closed | `Watching _ as x -> x
+  match Scheduler.request_start_watching r t read_or_write with
+  | `Unsupported | `Already_closed | `Watching _ as x -> x
   | `Already_watching ->
     failwiths "cannot watch an fd already being watched" (t, r)
       (<:sexp_of< t * Scheduler.t >>)
 ;;
 
 let ready_to_interruptible t read_or_write ~interrupt =
+  if debug then
+    Debug.log "Fd.ready_to_interruptible" (t, read_or_write)
+      (<:sexp_of< t * Read_write.Key.t >>);
   match start_watching t read_or_write with
   | `Already_closed -> return `Closed
+  | `Unsupported -> return `Ready
   | `Watching ivar ->
     upon
       (Deferred.choose
@@ -118,8 +134,11 @@ let ready_to_interruptible t read_or_write ~interrupt =
 ;;
 
 let ready_to t read_or_write =
+  if debug then
+    Debug.log "Fd.ready_to" (t, read_or_write) (<:sexp_of< t * Read_write.Key.t >>);
   match start_watching t read_or_write with
   | `Already_closed -> return `Closed
+  | `Unsupported -> return `Ready
   | `Watching ivar ->
     Ivar.read ivar
     >>| function
@@ -127,10 +146,12 @@ let ready_to t read_or_write =
       | `Interrupted -> assert false (* impossible *)
 ;;
 
-let syscall_in_thread t f =
-  with_file_descr_deferred t (fun file_descr -> In_thread.syscall (fun () -> f file_descr))
+let syscall_in_thread t ~name f =
+  with_file_descr_deferred t (fun file_descr ->
+    In_thread.syscall ~name (fun () -> f file_descr))
   >>| function
-    | `Error _ -> assert false
+    | `Error e ->
+      failwiths "Fd.syscall_in_thread bug -- should be impossible" e (<:sexp_of< exn >>)
     | `Already_closed -> `Already_closed
     | `Ok x ->
       match x with
@@ -138,8 +159,8 @@ let syscall_in_thread t f =
       | Error exn -> `Error exn
 ;;
 
-let syscall_in_thread_exn t f =
-  syscall_in_thread t f
+let syscall_in_thread_exn t ~name f =
+  syscall_in_thread t ~name f
   >>| function
     | `Ok x -> x
     | `Error exn -> raise exn
@@ -148,11 +169,11 @@ let syscall_in_thread_exn t f =
 ;;
 
 let of_in_channel ic kind =
-  create kind (Unix.descr_of_in_channel ic) ~name:"<of_in_channel>"
+  create kind (Unix.descr_of_in_channel ic) (Info.of_string "<of_in_channel>")
 ;;
 
 let of_out_channel oc kind =
-  create kind (Unix.descr_of_out_channel oc) ~name:"<of_out_channel>"
+  create kind (Unix.descr_of_out_channel oc) (Info.of_string "<of_out_channel>")
 ;;
 
 let of_in_channel_auto ic =
@@ -172,12 +193,13 @@ let file_descr_exn t =
 
 let to_int_exn t = File_descr.to_int (file_descr_exn t)
 
-let replace t kind =
-  if is_closed t || t.num_active_syscalls > 0 then
-    failwiths "invalid replace" (t, kind) <:sexp_of< t * Kind.t >>
+let replace t kind info =
+  if is_closed t then
+    failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
+      (<:sexp_of< t * Kind.t * Scheduler.t >>)
   else begin
-    set_state t State.Replaced;
-    Scheduler.remove_fd (the_one_and_only ()) t;
-    create kind t.file_descr ~name:t.name;
+    t.kind <- kind;
+    t.info <- (Info.create "replaced" (info, `previously_was t.info)
+                 (<:sexp_of< Info.t * [ `previously_was of Info.t ] >>));
   end
 ;;

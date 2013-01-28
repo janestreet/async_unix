@@ -11,10 +11,9 @@ module Helper_thread : sig
       collections of computations run in the same thread. *)
   type t
 
-  (* [create ?name_first16 ()] creates a new helper thread.  The first 16 chars of
-     [name_first16] will be used as the thread name for any work that that is done by the
-     thread that doesn't get its own name. *)
-  val create : ?name_first16:string -> unit -> [ `Ok of t | `Out_of_threads ]
+  (* [create ?name ()] creates a new helper thread.  The [name] will be used as the thread
+     name for any work that that is done by the thread that doesn't get its own name. *)
+  val create : ?name:string -> unit -> t Or_error.t
 end
 
 (** [pipe_of_squeue squeue] returns a pipe [p] and consumes the contents [squeue], placing
@@ -24,7 +23,7 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
 (** CRv201208 sweeks: Change [run] to [run_exn], and add [run] returning an
     [('a, exn) Result.t Deferred.t]. *)
-(** [run ?thread ?name_first16 f] runs [f()] in another thread and returns the result as a
+(** [run ?thread ?name f] runs [f()] in another thread and returns the result as a
     Deferred in the Async world.  If [f()] raises an exception (asynchronously, since it
     is another thread) then that exception will be raised to the monitor that called
     [run()].
@@ -45,14 +44,14 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     [run ~thread f2]
     [run ~thread f3]
 
-    Then the thread will run [f1()] to completion, then [f2()] to completion, then [f3()]
-    to completion.
+    Then the thread will run [f1 ()] to completion, then [f2 ()] to completion, then
+    [f3 ()] to completion.
 
-    If [name_first16] is supplied, the name of the thread will be set to it for the
-    duration of the execution of [f ()]. *)
+    If [name] is supplied, the name of the thread will be set to it for the duration of
+    the execution of [f ()]. *)
 val run
   :  ?thread:Helper_thread.t
-  -> ?name_first16:string
+  -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t
 
@@ -60,5 +59,5 @@ val run
     handling the restarting of interrupted system calls.  To avoid race conditions, the
     [f] supplied to [syscall] should just make a system call.  That way, everything else
     is done holding the Async lock. *)
-val syscall     : (unit -> 'a) -> ('a, exn) Result.t Deferred.t
-val syscall_exn : (unit -> 'a) ->  'a                Deferred.t
+val syscall     : name:string -> (unit -> 'a) -> ('a, exn) Result.t Deferred.t
+val syscall_exn : name:string -> (unit -> 'a) ->  'a                Deferred.t

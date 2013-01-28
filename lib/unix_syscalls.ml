@@ -26,7 +26,7 @@ exception Unix_error = Unix.Unix_error
 
 let close = Fd.close
 
-let system s = In_thread.syscall_exn (fun () -> Unix.system s)
+let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 
 let system_exn s =
   system s
@@ -47,7 +47,10 @@ let this_process_became_child_of_init ?(poll_delay = sec 1.) () =
 
 let nice i = Unix.nice i
 
-let cores = Or_error.map Linux_ext.cores ~f:(fun cores () -> In_thread.syscall_exn cores)
+let cores =
+  Or_error.map Linux_ext.cores ~f:(fun cores () ->
+    In_thread.syscall_exn ~name:"cores" cores)
+;;
 
 (* basic input/output *)
 
@@ -85,9 +88,9 @@ type file_perm = int with sexp
 
 let openfile ?perm file ~mode =
   let mode = List.map mode ~f:convert_open_flag in
-  In_thread.syscall_exn (fun () -> Unix.openfile ?perm file ~mode)
+  In_thread.syscall_exn ~name:"openfile" (fun () -> Unix.openfile ?perm file ~mode)
   >>| fun file_descr ->
-  Fd.create Fd.Kind.File file_descr ~name:file
+  Fd.create Fd.Kind.File file_descr (Info.of_string file)
 ;;
 
 let lseek fd pos ~mode =
@@ -97,21 +100,24 @@ let lseek fd pos ~mode =
     | `Cur -> U.SEEK_CUR
     | `End -> U.SEEK_END
   in
-  Fd.syscall_in_thread_exn fd (fun file_descr -> Unix.lseek file_descr pos ~mode)
+  Fd.syscall_in_thread_exn fd ~name:"lseek"
+    (fun file_descr -> Unix.lseek file_descr pos ~mode)
 ;;
 
-let truncate filename ~len = In_thread.syscall_exn (fun () -> Unix.truncate filename ~len)
+let truncate filename ~len =
+  In_thread.syscall_exn ~name:"truncate" (fun () -> Unix.truncate filename ~len)
+;;
 
 let ftruncate fd ~len =
-  Fd.syscall_in_thread_exn fd (fun file_descr -> Unix.ftruncate file_descr ~len)
+  Fd.syscall_in_thread_exn fd ~name:"ftruncate"
+    (fun file_descr -> Unix.ftruncate file_descr ~len)
 ;;
 
-let fsync fd = Fd.syscall_in_thread_exn fd Unix.fsync
+let fsync fd = Fd.syscall_in_thread_exn fd ~name:"fsync" Unix.fsync
 
-let fdatasync fd = Fd.syscall_in_thread_exn fd Unix.fdatasync
-;;
+let fdatasync fd = Fd.syscall_in_thread_exn fd ~name:"fdatasync" Unix.fdatasync
 
-let sync () = In_thread.syscall_exn Unix.sync
+let sync () = In_thread.syscall_exn ~name:"sync" Unix.sync
 
 let lockf ?(len = 0L) fd read_or_write =
   let mode =
@@ -119,7 +125,8 @@ let lockf ?(len = 0L) fd read_or_write =
     | `Read -> U.F_RLOCK
     | `Write -> U.F_LOCK
   in
-  Fd.syscall_in_thread_exn fd (fun file_descr -> Unix.lockf file_descr ~mode ~len)
+  Fd.syscall_in_thread_exn fd ~name:"lockf"
+    (fun file_descr -> Unix.lockf file_descr ~mode ~len)
 ;;
 
 let try_lockf ?(len = 0L) fd read_or_write =
@@ -207,60 +214,71 @@ module Stats = struct
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
 
-let fstat fd = Fd.syscall_in_thread_exn fd Unix.fstat >>| Stats.of_unix
+let fstat fd = Fd.syscall_in_thread_exn fd ~name:"fstat" Unix.fstat >>| Stats.of_unix
 
 let stat filename =
-  In_thread.syscall_exn (fun () -> Unix.stat filename) >>| Stats.of_unix
+  In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
 ;;
 
 let lstat filename =
-  In_thread.syscall_exn (fun () -> Unix.lstat filename) >>| Stats.of_unix
+  In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
 ;;
 
 (* operations on filenames *)
 
-let unlink filename = In_thread.syscall_exn (fun () -> Unix.unlink filename)
-let rename ~src ~dst = In_thread.syscall_exn (fun () -> Unix.rename ~src ~dst)
+let unlink filename =
+  In_thread.syscall_exn ~name:"unlink" (fun () -> Unix.unlink filename)
+;;
+
+let rename ~src ~dst =
+  In_thread.syscall_exn ~name:"rename" (fun () -> Unix.rename ~src ~dst)
+;;
 
 let link ?force ~target ~link_name () =
-  In_thread.syscall_exn (fun () -> Unix.link ?force ~target ~link_name ())
+  In_thread.syscall_exn ~name:"link" (fun () -> Unix.link ?force ~target ~link_name ())
+;;
 
 (* file permission and ownership *)
 
 let chmod filename ~perm =
-  In_thread.syscall_exn (fun () -> Unix.chmod filename ~perm)
+  In_thread.syscall_exn ~name:"chmod" (fun () -> Unix.chmod filename ~perm)
 ;;
 
 let fchmod fd ~perm =
-  Fd.syscall_in_thread_exn fd (fun file_descr -> Unix.fchmod file_descr ~perm)
+  Fd.syscall_in_thread_exn fd ~name:"fchmod"
+    (fun file_descr -> Unix.fchmod file_descr ~perm)
 ;;
 
 let chown filename ~uid ~gid =
-  In_thread.syscall_exn (fun () -> Unix.chown filename ~uid ~gid)
+  In_thread.syscall_exn ~name:"chown" (fun () -> Unix.chown filename ~uid ~gid)
 ;;
 
 let fchown fd ~uid ~gid =
-  Fd.syscall_in_thread_exn fd (fun file_descr -> Unix.fchown file_descr ~uid ~gid)
+  Fd.syscall_in_thread_exn fd ~name:"fchown"
+    (fun file_descr -> Unix.fchown file_descr ~uid ~gid)
 ;;
 
 let access filename perm =
-  Monitor.try_with (fun () -> In_thread.syscall_exn (fun () -> Unix.access filename perm))
+  Monitor.try_with (fun () ->
+    In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
   >>| function
     | Ok res -> res
     | Error exn -> Error (Monitor.extract_exn exn)
 ;;
 
 let access_exn filename perm =
-  In_thread.syscall_exn (fun () -> Unix.access_exn filename perm)
+  In_thread.syscall_exn ~name:"access" (fun () -> Unix.access_exn filename perm)
 ;;
 
 (* operations on file descriptors *)
 
-let set_close_on_exec fd = Fd.with_file_descr_exn fd Unix.set_close_on_exec
+let set_close_on_exec   fd = Fd.with_file_descr_exn fd Unix.set_close_on_exec
 let clear_close_on_exec fd = Fd.with_file_descr_exn fd Unix.clear_close_on_exec
 
 let mkdir ?p ?(perm = 0o777) dirname =
-  let mkdir dirname = In_thread.syscall_exn (fun () -> Unix.mkdir dirname ~perm) in
+  let mkdir dirname =
+    In_thread.syscall_exn ~name:"mkdir" (fun () -> Unix.mkdir dirname ~perm)
+  in
   match p with
   | None -> mkdir dirname
   | Some () ->
@@ -285,34 +303,53 @@ let mkdir ?p ?(perm = 0o777) dirname =
     ()
 ;;
 
-let rmdir  dirname = In_thread.syscall_exn (fun () -> Unix.rmdir  dirname)
-let chdir  dirname = In_thread.syscall_exn (fun () -> Unix.chdir  dirname)
-let chroot dirname = In_thread.syscall_exn (fun () -> Unix.chroot dirname)
+let rmdir  dirname = In_thread.syscall_exn ~name:"rmdir" (fun () -> Unix.rmdir  dirname)
+let chdir  dirname = In_thread.syscall_exn ~name:"chdir" (fun () -> Unix.chdir  dirname)
+let chroot dirname = In_thread.syscall_exn ~name:"chroot" (fun () -> Unix.chroot dirname)
 
-let getcwd () = In_thread.syscall_exn (fun () -> Unix.getcwd ())
+let getcwd () = In_thread.syscall_exn ~name:"getcwd" (fun () -> Unix.getcwd ())
 
 type dir_handle = Unix.dir_handle
-let opendir   dirname = In_thread.syscall_exn (fun () -> Unix.opendir   dirname)
-let readdir   handle  = In_thread.syscall_exn (fun () -> Unix.readdir   handle )
-let rewinddir handle  = In_thread.syscall_exn (fun () -> Unix.rewinddir handle )
-let closedir  handle  = In_thread.syscall_exn (fun () -> Unix.closedir  handle )
+let opendir dirname =
+  In_thread.syscall_exn ~name:"opendir" (fun () -> Unix.opendir dirname)
+;;
 
-let pipe () =
-  In_thread.syscall_exn (fun () -> Unix.pipe ())
+let readdir handle =
+  In_thread.syscall_exn ~name:"readdir" (fun () -> Unix.readdir handle)
+;;
+
+let rewinddir handle =
+  In_thread.syscall_exn ~name:"rewinddir" (fun () -> Unix.rewinddir handle)
+;;
+
+let closedir handle =
+  In_thread.syscall_exn ~name:"closedir" (fun () -> Unix.closedir handle)
+;;
+
+let pipe info =
+  In_thread.syscall_exn ~name:"pipe" (fun () -> Unix.pipe ())
   >>| fun (reader, writer) ->
-  (`Reader (Fd.create Fd.Kind.Fifo reader ~name:"<pipe reader>"),
-   `Writer (Fd.create Fd.Kind.Fifo writer ~name:"<pipe writer>"))
+  let create file_descr kind = Fd.create Fd.Kind.Fifo file_descr (Info.tag info kind) in
+  (`Reader (create reader "reader"), `Writer (create writer "writer"))
 ;;
 
 (* symlinks *)
-let symlink ~src ~dst = In_thread.syscall_exn (fun () -> Unix.symlink ~src ~dst)
-let readlink filename = In_thread.syscall_exn (fun () -> Unix.readlink filename)
-let mkdtemp filename = In_thread.syscall_exn (fun () -> Unix.mkdtemp filename)
+let symlink ~src ~dst =
+  In_thread.syscall_exn ~name:"symlink" (fun () -> Unix.symlink ~src ~dst)
+;;
+
+let readlink filename =
+  In_thread.syscall_exn ~name:"readlink" (fun () -> Unix.readlink filename)
+;;
+
+let mkdtemp filename =
+  In_thread.syscall_exn ~name:"mkdtemp" (fun () -> Unix.mkdtemp filename)
+;;
 
 let mkstemp filename =
-  In_thread.syscall_exn (fun () ->
+  In_thread.syscall_exn ~name:"mkstemp" (fun () ->
     let name, file_descr = Unix.mkstemp filename in
-    (name, Fd.create Fd.Kind.File file_descr ~name))
+    (name, Fd.create Fd.Kind.File file_descr (Info.of_string name)))
 ;;
 
 type process_times =
@@ -343,7 +380,7 @@ let localtime = Unix.localtime
 let mktime = Unix.mktime
 
 let utimes name ~access ~modif =
-  In_thread.syscall_exn (fun () -> Unix.utimes name ~access ~modif)
+  In_thread.syscall_exn ~name:"utimes" (fun () -> Unix.utimes name ~access ~modif)
 ;;
 
 (* environment *)
@@ -376,12 +413,14 @@ let make_wait wait_nohang =
             | Error exn -> Ivar.fill result (Error exn); ac)))
   in
   fun wait_on ->
+    (* We must call [wait_nohang] after installing the SIGCHLD handler.  If we did
+       [wait_nohang] first, we could miss a SIGCHLD that was delivered after calling
+       [wait_nohang] and before installing the handler. *)
+    Lazy.force install_sigchld_handler_the_first_time;
     match wait_nohang wait_on with
     | Some result -> return result
     | None ->
-      Deferred.create (fun result ->
-        Lazy.force install_sigchld_handler_the_first_time;
-        waits := (wait_on, result) :: !waits)
+      Deferred.create (fun result -> waits := (wait_on, result) :: !waits)
       >>| Result.ok_exn
 ;;
 
@@ -390,6 +429,22 @@ let wait_nohang_untraced = Unix.wait_nohang_untraced
 
 let wait          = make_wait wait_nohang
 let wait_untraced = make_wait wait_nohang_untraced
+
+let waitpid pid =
+  wait (`Pid pid)
+  >>| fun (pid', exit_or_signal) ->
+  assert (pid = pid');
+  exit_or_signal;
+;;
+
+let waitpid_exn pid =
+  waitpid pid
+  >>| fun exit_or_signal ->
+  if Result.is_error exit_or_signal then
+    failwiths "child process didn't exit with status zero"
+      (`Child_pid pid, exit_or_signal)
+      (<:sexp_of< [ `Child_pid of Pid.t ] * Exit_or_signal.t >>)
+;;
 
 module Inet_addr = struct
   include Unix.Inet_addr
@@ -403,65 +458,91 @@ module Inet_addr = struct
 end
 
 module Socket = struct
-  type unix = [ `Unix of string ] with sexp, bin_io
-  type inet = [ `Inet of Inet_addr.t * int ] with sexp, bin_io
-
-  type 'a addr = 'a constraint 'a = [< unix | inet ] with sexp, bin_io
-
-  let address_string_of_inet (`Inet (a,_p)) = Inet_addr.to_string a
-  let string_of_inet (`Inet (a,p)) = sprintf "%s:%d" (Unix.Inet_addr.to_string a) p
-  let string_of_unix (`Unix s) = s
-
   module Address = struct
-    type t = [ unix | inet ] with sexp, bin_io
+    module Inet = struct
+      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp, compare
 
-    let unix s = `Unix s
-    let inet a ~port = `Inet (a, port)
-    let inet_addr_any ~port = `Inet (Inet_addr.of_string "0.0.0.0", port)
+      let addr (`Inet (a, _)) = a
 
-    let to_unix = function
+      let port (`Inet (_, p)) = p
+
+      let to_string (`Inet (a, p)) = sprintf "%s:%d" (Inet_addr.to_string a) p
+
+      let create a ~port = `Inet (a, port)
+
+      let create_bind_any ~port = `Inet (Inet_addr.of_string "0.0.0.0", port)
+
+      let of_sockaddr_exn = function
+        | U.ADDR_INET (a, i) -> `Inet (a, i)
+        | u -> failwiths "Socket.Address.inet" u <:sexp_of< Unix.sockaddr >>
+      ;;
+    end
+
+    module Unix = struct
+      type t = [ `Unix of string ] with bin_io, sexp, compare
+
+      let create s = `Unix s
+
+      let to_string (`Unix s) = s
+
+      let of_sockaddr_exn = function
+        | U.ADDR_UNIX s -> `Unix s
+        | u -> failwiths "Socket.Address.unix" u <:sexp_of< Unix.sockaddr >>
+      ;;
+    end
+
+    type t = [ Inet.t | Unix.t ] with bin_io, sexp
+
+    let to_sockaddr = function
       | `Unix s -> U.ADDR_UNIX s
       | `Inet (a, i) -> U.ADDR_INET (a, i)
     ;;
 
-    let unix_to_string = function
-      | U.ADDR_INET (a, p) -> sprintf "%s:%d" (Unix.Inet_addr.to_string a) p
-      | U.ADDR_UNIX s -> s
+    let to_string = function
+      | `Inet (a, p) -> sprintf "%s:%d" (Inet_addr.to_string a) p
+      | `Unix s -> s
     ;;
-
-    let to_string addr = unix_to_string (to_unix addr)
   end
 
   module Family = struct
-    type 'a t = {
-      family : Unix.socket_domain;
-      addr_of_unix : Unix.sockaddr -> 'a;
-    } constraint 'a = 'a addr
+    type 'address t =
+      { family : Unix.socket_domain;
+        address_of_sockaddr_exn : Unix.sockaddr -> 'address;
+        sexp_of_address : 'address -> Sexp.t;
+      }
+    constraint 'address = [< Address.t ]
+    with fields, sexp_of
 
-    let addr_of_unix t u = t.addr_of_unix u
+    let to_string t =
+      match t.family with
+      | U.PF_INET -> "inet"
+      | U.PF_INET6 -> "inet6"
+      | U.PF_UNIX -> "unix"
+    ;;
 
     let inet =
       { family = U.PF_INET;
-        addr_of_unix = function
-          | U.ADDR_INET (a, i) -> `Inet (a, i)
-          | _ -> failwith "Socket.Family.inet";
+        address_of_sockaddr_exn = Address.Inet.of_sockaddr_exn;
+        sexp_of_address = Address.Inet.sexp_of_t;
       }
     ;;
 
     let unix =
       { family = U.PF_UNIX;
-        addr_of_unix = function
-          | U.ADDR_UNIX s -> `Unix s
-          | _ -> failwith "Socket.Family.unix";
+        address_of_sockaddr_exn = Address.Unix.of_sockaddr_exn;
+        sexp_of_address = Address.Unix.sexp_of_t;
       }
     ;;
   end
 
   module Type = struct
-    type 'a t = {
-      family : 'a Family.t;
-      socket_type : Unix.socket_type;
-    }
+    type 'a t =
+      { family : 'a Family.t;
+        socket_type : Unix.socket_type;
+      }
+    with sexp_of
+
+    let sexp_of_address t = t.family.Family.sexp_of_address
 
     let tcp =
       { family = Family.inet;
@@ -482,57 +563,66 @@ module Socket = struct
     ;;
   end
 
-  type ('a, 'b) t = {
-    typ : 'b Type.t;
-    fd : Fd.t;
-  } constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
+  type 'b t_ =
+    { type_ : 'b Type.t;
+      fd : Fd.t;
+    }
+  with sexp_of
+
+  type ('a, 'b) t = 'b t_
+  constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
+  with sexp_of
 
   let fd t = t.fd
 
-  let of_fd fd typ = { typ; fd }
+  let of_fd fd type_ = { type_; fd }
 
-  let create typ =
+  let sexp_of_address t = Type.sexp_of_address t.type_
+
+  let create type_ =
     let fd =
       Fd.create (Fd.Kind.Socket `Unconnected)
-        (Unix.socket ~domain:typ.Type.family.Family.family
-            ~kind:typ.Type.socket_type ~protocol:0)
-        ~name:"<socket>"
+        (Unix.socket ~domain:type_.Type.family.Family.family
+           ~kind:type_.Type.socket_type ~protocol:0)
+        (Info.create "socket" type_ <:sexp_of< __ Type.t >>)
     in
-    { typ; fd }
+    { type_; fd }
   ;;
 
   module Opt = struct
-    type 'a t = {
-      name : string;
-      get : File_descr.t -> 'a;
-      set : File_descr.t -> 'a -> unit;
-    }
+    type 'a t =
+      { name : string;
+        get : File_descr.t -> 'a;
+        set : File_descr.t -> 'a -> unit;
+      }
 
-    let make getsockopt setsockopt name opt = {
-      name;
-      get = (fun fd -> getsockopt fd opt);
-      set = (fun fd a -> setsockopt fd opt a);
-    }
+    let to_string t = t.name
 
-    let bool = make Unix.getsockopt Unix.setsockopt
-    let int = make Unix.getsockopt_int Unix.setsockopt_int
+    let make getsockopt setsockopt name opt =
+      { name;
+        get = (fun fd -> getsockopt fd opt);
+        set = (fun fd a -> setsockopt fd opt a);
+      }
+    ;;
+
+    let bool   = make Unix.getsockopt        Unix.setsockopt
+    let int    = make Unix.getsockopt_int    Unix.setsockopt_int
     let optint = make Unix.getsockopt_optint Unix.setsockopt_optint
-    let float = make Unix.getsockopt_float Unix.setsockopt_float
+    let float  = make Unix.getsockopt_float  Unix.setsockopt_float
 
-    let debug = bool "debug" U.SO_DEBUG
-    let broadcast = bool "broadcast" U.SO_BROADCAST
-    let reuseaddr = bool "reuseaddr" U.SO_REUSEADDR
-    let keepalive = bool "keepalive" U.SO_KEEPALIVE
-    let dontroute = bool "dontroute" U.SO_DONTROUTE
-    let oobinline = bool "oobinline" U.SO_OOBINLINE
+    let debug      = bool "debug"      U.SO_DEBUG
+    let broadcast  = bool "broadcast"  U.SO_BROADCAST
+    let reuseaddr  = bool "reuseaddr"  U.SO_REUSEADDR
+    let keepalive  = bool "keepalive"  U.SO_KEEPALIVE
+    let dontroute  = bool "dontroute"  U.SO_DONTROUTE
+    let oobinline  = bool "oobinline"  U.SO_OOBINLINE
     let acceptconn = bool "acceptconn" U.SO_ACCEPTCONN
+    let nodelay    = bool "nodelay"    U.TCP_NODELAY
 
-    let nodelay = bool "nodelay" U.TCP_NODELAY
-
-    let sndbuf = int "sndbuf" U.SO_SNDBUF
-    let rcvbuf = int "rcvbuf" U.SO_RCVBUF
-    let error = int "error" U.SO_ERROR
-    let typ = int "typ" U.SO_TYPE
+    let sndbuf   = int "sndbuf"   U.SO_SNDBUF
+    let rcvbuf   = int "rcvbuf"   U.SO_RCVBUF
+    let error    = int "error"    U.SO_ERROR
+    let typ      = int "typ"      U.SO_TYPE
     let rcvlowat = int "rcvlowat" U.SO_RCVLOWAT
     let sndlowat = int "sndlowat" U.SO_SNDLOWAT
 
@@ -548,133 +638,134 @@ module Socket = struct
     Fd.with_file_descr_exn t.fd (fun file_descr -> opt.Opt.set file_descr a)
   ;;
 
-  let bind t addr =
+  let bind t address =
     setopt t Opt.reuseaddr true;
     set_close_on_exec t.fd;
-    let addr =
-      match addr with
-      | `Unix s -> U.ADDR_UNIX s
-      | `Inet (addr, port) -> U.ADDR_INET (addr, port)
-      | `Inet_addr_any port -> U.ADDR_INET (Unix.Inet_addr.bind_any, port)
-    in
-    Fd.syscall_in_thread_exn t.fd (fun file_descr -> Unix.bind file_descr ~addr)
+    let sockaddr = Address.to_sockaddr address in
+    Fd.syscall_in_thread_exn t.fd ~name:"bind"
+      (fun file_descr -> Unix.bind file_descr ~addr:sockaddr)
     >>| fun () ->
-    { fd = Fd.replace t.fd (Fd.Kind.Socket `Bound);
-      typ = t.typ;
-    }
+    let info =
+      Info.create "socket" (`bound_on address)
+        (let sexp_of_address = sexp_of_address t in
+         <:sexp_of< [ `bound_on of address ] >>)
+    in
+    Fd.replace t.fd (Fd.Kind.Socket `Bound) info;
+    t
   ;;
 
   let listen ?(max_pending_connections = 10) t =
-    Fd.syscall_exn t.fd (fun file_descr ->
+    let fd = t.fd in
+    Fd.syscall_exn fd (fun file_descr ->
       Unix.listen file_descr ~max:max_pending_connections);
-    { fd = Fd.replace t.fd (Fd.Kind.Socket `Passive);
-      typ = t.typ;
-    }
+    Fd.replace fd (Fd.Kind.Socket `Passive) (Info.of_string "listening");
+    t
   ;;
 
   let turn_off_nagle addr t =
-    match addr, t.typ.Type.socket_type with
+    match addr, t.type_.Type.socket_type with
     | U.ADDR_INET _ , U.SOCK_STREAM -> setopt t Opt.nodelay true
     | (U.ADDR_UNIX _ | U.ADDR_INET _), _ -> ()
   ;;
 
   let accept_interruptible t ~interrupt =
-    Deferred.create (fun i ->
-      let rec loop () =
-        match
-          (* We call [accept] with [~nonblocking:true] because there is no way to use
-             [select] to guarantee that an [accept] will not block (see Stevens' book on
-             Unix Network Programming, p422). *)
-          Fd.with_file_descr t.fd ~nonblocking:true
-            (fun file_descr ->
-              U.accept file_descr)
-        with
-        | `Already_closed -> failwiths "already closed" t.fd <:sexp_of< Fd.t >>
-        | `Ok (file_descr, addr) ->
-          let s =
-            { fd = Fd.create (Fd.Kind.Socket `Active) file_descr ~name:"<socket>";
-              typ = t.typ;
-            }
-          in
-          set_close_on_exec s.fd;
-          turn_off_nagle addr s;
-          Ivar.fill i (`Ok (s, Family.addr_of_unix t.typ.Type.family addr))
-        | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
-          (* If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
-             (EINTR), we want to wait for select to tell us when to try again.
+    Deferred.repeat_until_finished () (fun () ->
+      match
+        (* We call [accept] with [~nonblocking:true] because there is no way to use
+           [select] to guarantee that an [accept] will not block (see Stevens' book on
+           Unix Network Programming, p422). *)
+        Fd.with_file_descr t.fd ~nonblocking:true
+          (fun file_descr ->
+            U.accept file_descr)
+      with
+      | `Already_closed -> return (`Finished `Socket_closed)
+      | `Ok (file_descr, sockaddr) ->
+        let address = Family.address_of_sockaddr_exn t.type_.Type.family sockaddr in
+        let fd =
+          Fd.create (Fd.Kind.Socket `Active) file_descr
+            (Info.create "socket"
+               (`listening_on t, `client address)
+               (let sexp_of_address = sexp_of_address t in
+                <:sexp_of<
+                  ([ `listening_on of (__, __) t ]
+                   * [ `client of address ]) >>))
+        in
+        let s = { fd; type_ = t.type_ } in
+        set_close_on_exec s.fd;
+        turn_off_nagle sockaddr s;
+        return (`Finished (`Ok (s, address)))
+      | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
+        (* If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
+           (EINTR), we want to wait for select to tell us when to try again.
 
-             If the kernel returns ECONNABORTED, this means that we first got a connection
-             and therefore woke up in "select" (ready to read).  But due to slowness
-             (e.g. other long async jobs getting to run first) we could not call accept
-             quickly enough, and the other side terminated the connection in the
-             meanwhile.  Though one could imagine weird client/server applications that
-             absolutely need to know that some client aborted the connection before we
-             could accept it, this seems quite contrived and unlikely.  In virtually all
-             cases people just want to continue waiting for a new connection.
+           If the kernel returns ECONNABORTED, this means that we first got a connection
+           and therefore woke up in "select" (ready to read).  But due to slowness
+           (e.g. other long async jobs getting to run first) we could not call accept
+           quickly enough, and the other side terminated the connection in the meanwhile.
+           Though one could imagine weird client/server applications that absolutely need
+           to know that some client aborted the connection before we could accept it, this
+           seems quite contrived and unlikely.  In virtually all cases people just want to
+           continue waiting for a new connection.
 
-             [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
-             standard OCaml I/O-function (e.g. for reading from channels).  *)
-          begin
-            Fd.ready_to_interruptible t.fd `Read ~interrupt
-            >>> function
-              | `Ready -> loop ()
-              | `Interrupted as x -> Ivar.fill i x
-              | `Closed | `Bad_fd ->
-                failwiths "accept on bad file descriptor" t.fd <:sexp_of< Fd.t >>
-          end
-        | `Error exn -> raise exn
-      in
-      loop ())
+           [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
+           standard OCaml I/O-function (e.g. for reading from channels).  *)
+        Fd.ready_to_interruptible t.fd `Read ~interrupt
+        >>| (function
+        | `Ready -> `Repeat ()
+        | `Interrupted as x -> `Finished x
+        | `Closed -> `Finished `Socket_closed
+        | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd <:sexp_of< Fd.t >>)
+      | `Error exn -> raise exn)
   ;;
 
   let accept t =
     accept_interruptible t ~interrupt:(Deferred.never ())
     >>| function
       | `Interrupted -> assert false  (* impossible *)
-      | `Ok x -> x
+      | `Socket_closed | `Ok _ as x -> x
   ;;
 
-  let connect_interruptible t addr ~interrupt =
-    Deferred.create (fun i ->
-      let unix_addr = Address.to_unix addr in
-      turn_off_nagle unix_addr t;
-      let success () =
-        Ivar.fill i (`Ok { fd = Fd.replace t.fd (Fd.Kind.Socket `Active); typ = t.typ })
-      in
-      let fail_closed () = failwiths "connect on closed fd" t.fd <:sexp_of< Fd.t >> in
-      match
-        (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
-           (see Stevens' book on Unix Network Programming, p413).  Once the connect
-           succeeds or fails, [select] on the socket will return it in the writeable
-           set. *)
-        Fd.with_file_descr t.fd ~nonblocking:true
-          (fun file_descr ->
-            Unix.connect file_descr ~addr:unix_addr)
-      with
-      | `Already_closed -> fail_closed ()
-      | `Ok () -> success ()
-      | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) -> begin
-        Fd.ready_to_interruptible t.fd `Write ~interrupt
-        >>> function
-          | `Closed -> fail_closed ()
-          | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd <:sexp_of< Fd.t >>
-          | `Interrupted as interrupt -> Ivar.fill i interrupt
-          | `Ready ->
-              (* We call [getsockopt] to find out whether the connect has succeed or
-                 failed. *)
-            match
-              Fd.with_file_descr t.fd (fun file_descr ->
-                Unix.getsockopt_int file_descr U.SO_ERROR)
-            with
-            | `Already_closed -> fail_closed ()
-            | `Error exn -> raise exn
-            | `Ok err ->
-              if err = 0 then
-                success ()
-              else
-                Unix.unix_error err "connect" (Address.to_string addr)
-      end
-      | `Error e -> raise e)
+  let connect_interruptible t address ~interrupt =
+    let sockaddr = Address.to_sockaddr address in
+    turn_off_nagle sockaddr t;
+    let success () =
+      let sexp_of_address = sexp_of_address t in
+      let info = Info.create "connected to" address (<:sexp_of< address >>) in
+      Fd.replace t.fd (Fd.Kind.Socket `Active) info;
+      `Ok t;
+    in
+    let fail_closed () = failwiths "connect on closed fd" t.fd <:sexp_of< Fd.t >> in
+    match
+      (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
+         (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
+         or fails, [select] on the socket will return it in the writeable set. *)
+      Fd.with_file_descr t.fd ~nonblocking:true
+        (fun file_descr ->
+          Unix.connect file_descr ~addr:sockaddr)
+    with
+    | `Already_closed -> fail_closed ()
+    | `Ok () -> return (success ())
+    | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) -> begin
+      Fd.ready_to_interruptible t.fd `Write ~interrupt
+      >>| function
+      | `Closed -> fail_closed ()
+      | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd <:sexp_of< Fd.t >>
+      | `Interrupted as x -> x
+      | `Ready ->
+        (* We call [getsockopt] to find out whether the connect has succeed or failed. *)
+        match
+          Fd.with_file_descr t.fd (fun file_descr ->
+            Unix.getsockopt_int file_descr U.SO_ERROR)
+        with
+        | `Already_closed -> fail_closed ()
+        | `Error exn -> raise exn
+        | `Ok err ->
+          if err = 0 then
+            success ()
+          else
+            Unix.unix_error err "connect" (Address.to_string address)
+    end
+    | `Error e -> raise e
   ;;
 
   let connect t addr =
@@ -695,17 +786,19 @@ module Socket = struct
   ;;
 
   let getsockname t =
-    Family.addr_of_unix t.typ.Type.family (Unix.getsockname (Fd.file_descr_exn t.fd))
+    Family.address_of_sockaddr_exn t.type_.Type.family
+      (Unix.getsockname (Fd.file_descr_exn t.fd))
   ;;
 
   let getpeername t =
-    Family.addr_of_unix t.typ.Type.family (Unix.getpeername (Fd.file_descr_exn t.fd))
+    Family.address_of_sockaddr_exn t.type_.Type.family
+      (Unix.getpeername (Fd.file_descr_exn t.fd))
   ;;
 end
 
 let socketpair () =
   let (s1, s2) = Unix.socketpair ~domain:U.PF_UNIX ~kind:U.SOCK_STREAM ~protocol:0 in
-  let make_fd s = Fd.create (Fd.Kind.Socket `Active) s ~name:"<socketpair>" in
+  let make_fd s = Fd.create (Fd.Kind.Socket `Active) s (Info.of_string "<socketpair>") in
   (make_fd s1, make_fd s2)
 ;;
 
@@ -719,10 +812,23 @@ module Host = struct
       addresses : Inet_addr.t array;
     }
 
-  let getbyname     n = In_thread.syscall_exn (fun () -> Unix.Host.getbyname     n)
-  let getbyname_exn n = In_thread.syscall_exn (fun () -> Unix.Host.getbyname_exn n)
-  let getbyaddr     a = In_thread.syscall_exn (fun () -> Unix.Host.getbyaddr     a)
-  let getbyaddr_exn a = In_thread.syscall_exn (fun () -> Unix.Host.getbyaddr_exn a)
+  let getbyname n =
+    In_thread.syscall_exn ~name:"gethostbyname" (fun () -> Unix.Host.getbyname     n)
+  ;;
+
+  let getbyname_exn n =
+    In_thread.syscall_exn ~name:"gethostbyname" (fun () -> Unix.Host.getbyname_exn n)
+  ;;
+
+  let getbyaddr a =
+    In_thread.syscall_exn ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr     a)
+  ;;
+
+  let getbyaddr_exn a =
+    In_thread.syscall_exn ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr_exn a)
+  ;;
+
+  let have_address_in_common = Unix.Host.have_address_in_common
 end
 
 let gethostname () = Unix.gethostname ()
@@ -738,11 +844,12 @@ module Terminal_io = struct
   include Unix.Terminal_io
 
   let tcgetattr fd =
-    Fd.syscall_in_thread_exn fd (fun file_descr -> tcgetattr file_descr)
+    Fd.syscall_in_thread_exn fd ~name:"tcgetattr" (fun file_descr -> tcgetattr file_descr)
   ;;
 
   let tcsetattr t fd ~mode =
-    Fd.syscall_in_thread_exn fd (fun file_descr -> tcsetattr t file_descr ~mode)
+    Fd.syscall_in_thread_exn fd ~name:"tcsetattr"
+      (fun file_descr -> tcsetattr t file_descr ~mode)
   ;;
 end
 
@@ -758,10 +865,22 @@ module Passwd = struct
     }
   with fields, sexp
 
-  let getbyname n = In_thread.syscall_exn (fun () -> Unix.Passwd.getbyname n)
-  let getbyname_exn n = In_thread.syscall_exn (fun () -> Unix.Passwd.getbyname_exn n)
-  let getbyuid uid = In_thread.syscall_exn (fun () -> Unix.Passwd.getbyuid uid)
-  let getbyuid_exn uid = In_thread.syscall_exn (fun () -> Unix.Passwd.getbyuid_exn uid)
+  let getbyname n =
+    In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Passwd.getbyname n)
+  ;;
+
+  let getbyname_exn n =
+    In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Passwd.getbyname_exn n)
+  ;;
+
+  let getbyuid uid =
+    In_thread.syscall_exn ~name:"getbyuid" (fun () -> Unix.Passwd.getbyuid uid)
+  ;;
+
+  let getbyuid_exn uid =
+    In_thread.syscall_exn ~name:"getbyuid" (fun () -> Unix.Passwd.getbyuid_exn uid)
+  ;;
+
 end
 
 module Group = struct
@@ -773,12 +892,25 @@ module Group = struct
     }
   with fields, sexp
 
-  let getbyname n = In_thread.syscall_exn (fun () -> Unix.Group.getbyname n)
-  let getbyname_exn n = In_thread.syscall_exn (fun () -> Unix.Group.getbyname_exn n)
-  let getbygid gid = In_thread.syscall_exn (fun () -> Unix.Group.getbygid gid)
-  let getbygid_exn gid = In_thread.syscall_exn (fun () -> Unix.Group.getbygid_exn gid)
+  let getbyname n =
+    In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Group.getbyname n)
+  ;;
+
+  let getbyname_exn n =
+    In_thread.syscall_exn ~name:"getbyname_exn" (fun () -> Unix.Group.getbyname_exn n)
+  ;;
+
+  let getbygid gid =
+    In_thread.syscall_exn ~name:"getbygid" (fun () -> Unix.Group.getbygid gid)
+  ;;
+
+  let getbygid_exn gid =
+    In_thread.syscall_exn ~name:"getbygid_exn" (fun () -> Unix.Group.getbygid_exn gid)
+  ;;
 end
 
-let getlogin () = In_thread.syscall_exn (fun () -> Unix.getlogin ())
+let getlogin () = In_thread.syscall_exn ~name:"getlogin" (fun () -> Unix.getlogin ())
 
-let wordexp ?flags glob = In_thread.syscall_exn (fun () -> Unix.wordexp ?flags glob)
+let wordexp ?flags glob =
+  In_thread.syscall_exn ~name:"wordexp" (fun () -> Unix.wordexp ?flags glob)
+;;

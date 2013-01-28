@@ -3,7 +3,7 @@ open Import
 
 module Fd = Raw_fd
 
-let debug = Debug.debug
+let debug = Debug.interruptor
 
 type t =
   { pipe : Fd.t Read_write.t;
@@ -23,8 +23,12 @@ let read_fd t = Read_write.get t.pipe `Read
 
 let create ~create_fd =
   let (pipe_read, pipe_write) = Unix.pipe () in
-  let pipe_read  = create_fd Fd.Kind.Fifo pipe_read  ~name:"interruptor_pipe_read"  in
-  let pipe_write = create_fd Fd.Kind.Fifo pipe_write ~name:"interruptor_pipe_write" in
+  let pipe_read  =
+    create_fd Fd.Kind.Fifo pipe_read  (Info.of_string "interruptor_pipe_read" )
+  in
+  let pipe_write =
+    create_fd Fd.Kind.Fifo pipe_write (Info.of_string "interruptor_pipe_write")
+  in
   { pipe = Read_write.create ~read:pipe_read ~write:pipe_write;
     already_interrupted = false;
     clearbuffer = String.make 1024 ' ';
