@@ -23,8 +23,6 @@ end
     then waits for pushback on [p]. *)
 val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
-(** CRv201208 sweeks: Change [run] to [run_exn], and add [run] returning an
-    [('a, exn) Result.t Deferred.t]. *)
 (** [run ?priority ?thread ?name f] runs [f()] in another thread and returns the result as a
     Deferred in the Async world.  If [f()] raises an exception (asynchronously, since it
     is another thread) then that exception will be raised to the monitor that called
