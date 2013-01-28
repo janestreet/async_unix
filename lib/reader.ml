@@ -684,13 +684,17 @@ let convert file f annot_sexp =
     | `Result a -> Ok a
     | `Error (exc, bad_annot_sexp) ->
       Error (Error.of_exn (Sexp.Annotated.get_conv_exn ~file ~exc bad_annot_sexp))
-  with Of_sexp_error _ as exn ->
+  with exn ->
     Or_error.error "Reader.load_sexp(s) error" (file, exn) (<:sexp_of< string * exn >>)
 ;;
 
 let gen_load ?exclusive file
     (good : Sexp.t list -> 'a Or_error.t)
     (bad : Sexp.Annotated.t list -> 'a Or_error.t) =
+  let error exn =
+    return (Or_error.error "Reader.load_sexp(s) error" (file, exn)
+              (<:sexp_of< string * exn >>))
+  in
   let load parse f =
     Monitor.try_with
       (fun () ->
@@ -698,14 +702,15 @@ let gen_load ?exclusive file
           Pipe.to_list (gen_read_sexps t parse)))
     >>= function
       | Ok sexps -> f sexps
-      | Error exn ->
-        return (Or_error.error "Reader.load_sexp(s) error" (file, exn)
-                  (<:sexp_of< string * exn >>))
+      | Error exn -> error exn
   in
   load Sexp.parse_bigstring (fun sexps ->
-    try return (good sexps)
-    with Of_sexp_error _ ->
-      load Sexp.Annotated.parse_bigstring (fun sexps -> return (bad sexps)))
+    try
+      return (good sexps)
+    with
+    | Of_sexp_error _ ->
+      load Sexp.Annotated.parse_bigstring (fun sexps -> return (bad sexps))
+    | exn -> error exn)
 ;;
 
 let load_sexp ?exclusive file f =

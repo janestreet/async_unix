@@ -332,9 +332,15 @@ let request_start_watching t fd read_or_write =
     match Read_write.get fd.Fd.watching read_or_write with
     | W.Watching _ -> `Already_watching
     | W.Stop_requested ->
-      (* We don't [inc_num_active_syscalls] in this case, because we already did when
-         we transitioned from [Not_watching] to [Watching]. *)
-      start_watching ()
+      (* We don't [inc_num_active_syscalls] in this case, because we already did when we
+         transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
+         was closed since we transitioned to [Stop_requested], in which case we don't want
+         to [start_watching]; we want to report that it was closed and leave it
+         [Stop_requested] so the the file-descr-watcher will stop watching it and we can
+         actually close it. *)
+      if Fd.is_closed fd
+      then `Already_closed
+      else start_watching ()
     | W.Not_watching ->
       match Fd.inc_num_active_syscalls fd with
       | `Already_closed -> `Already_closed
