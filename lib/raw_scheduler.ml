@@ -39,6 +39,8 @@ let set_max_num_jobs_per_priority_per_cycle i =
   Core_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
 ;;
 
+let force_current_cycle_to_end () = Core_scheduler.(force_current_cycle_to_end (t ()))
+
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
        data structures, which is almost all async code.  The [mutex] is automatically
@@ -394,7 +396,20 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     else begin
       let now = Time.now () in
       match Core_scheduler.next_upcoming_event t.core_scheduler with
-      | None -> `Never
+      | None ->
+        (* Async does not have any scheduled events, so, in principle, we could supply
+           [`Never] as the timeout to select.  We instead supply a small timeout to be
+           more robust to bugs that could prevent async from waking up and servicing
+           events.  For example, as of 2013-01, the OCaml runtime has a bug that causes it
+           to not necessarily run an OCaml signal handler in a timely manner.  This in
+           turn can cause a simple async program that is waiting on a signal to hang, when
+           in fact it should handle the signal.
+
+           We choose 50ms as the timeout, because it is infrequent enough to have a
+           negligible performance impact, and frequent enough that the latency would
+           typically be not noticeable.  Also, 50ms is what the OCaml ticker thread
+           uses. *)
+        `After (sec 0.05)
       | Some time ->
         if Time.(>) time now then
           `After (Time.diff time now)

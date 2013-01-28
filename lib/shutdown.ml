@@ -28,7 +28,4 @@ let shutdown ?(force = after (sec 10.)) status =
       exit 1);
 ;;
 
-let shutdown_and_raise ?force status =
-  shutdown ?force status;
-  raise Async_core.Raw_monitor.Shutdown;
-;;
+let exit ?force status = shutdown ?force status; Deferred.never ()

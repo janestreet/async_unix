@@ -85,6 +85,11 @@ val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 (** [cycle_count ()] returns the total number of async cycles that have happened. *)
 val cycle_count : unit -> int
 
+(** [force_current_cycle_to_end ()] causes no more normal priority jobs to run in the
+    current cycle, and for the end-of-cycle jobs (i.e. writes) to run, and then for the
+    cycle to end. *)
+val force_current_cycle_to_end : unit -> unit
+
 (** [is_running ()] returns true if the scheduler has been started. *)
 val is_running : unit -> bool
 

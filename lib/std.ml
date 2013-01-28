@@ -106,7 +106,4 @@ include struct
   end
 end
 
-(* The standard [exit] function is problematic in Async programs, because it doesn't give
-   us a chance to run Async at_exit handlers.  So, we break [exit] because people need to
-   think about whether they want to use it or Async's [shutdown] function. *)
-let exit (`This_is_async__Think_about_exit as x) = x
+let exit = Shutdown.exit

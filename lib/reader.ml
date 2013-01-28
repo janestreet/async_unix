@@ -125,89 +125,101 @@ let with_file ?buf_len ?(exclusive = false) file ~f =
         f t)
 ;;
 
-let get_data t =
+(* [get_data t] attempts to read data into [t.buf].  If the read gets data, [get_data]
+   returns [`Ok], otherwise it returns [`Eof]. *)
+let get_data t : [ `Ok | `Eof ] Deferred.t  =
+  Deferred.create (fun result ->
+    let eof () = Ivar.fill result `Eof in
+    let ebadf () =
+      (* If the file descriptior has been closed, we will get EBADF from a syscall.  If
+         someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
+         underlying file descriptor got closed in some other way, then something is likely
+         wrong, so we raise. *)
+      failwiths "reader file descriptor was unexpectedly closed" t <:sexp_of< t >>
+    in
+    let finish res handle =
+      match res with
+      | `Already_closed -> eof ()
+      | `Error exn ->
+        begin match exn with
+        | Bigstring.IOError (0, End_of_file) -> eof ()
+        | Unix.Unix_error (Unix.ECONNRESET, _, _) -> eof ()
+        | Unix.Unix_error (Unix.EBADF, _, _) -> ebadf ()
+        | _ -> handle exn
+        end
+      | `Ok (bytes_read, read_time) ->
+        Io_stats.update io_stats ~kind:(Fd.kind t.fd)
+          ~bytes:(Int63.of_int bytes_read);
+        if bytes_read = 0 then
+          eof ()
+        else begin
+          t.pos <- 0;
+          t.available <- t.available + bytes_read;
+          t.last_read_time <- read_time;
+          Ivar.fill result `Ok
+        end
+    in
+    let buf = t.buf in
+    if t.available > 0 && t.pos > 0 then begin
+      Bigstring.blit ~src:buf ~src_pos:t.pos ~dst:buf ~dst_pos:0
+        ~src_len:t.available ();
+      t.pos <- 0;
+    end;
+    let pos = t.available in
+    let len = Bigstring.length buf - pos in
+    let module K = Fd.Kind in
+    if not (Fd.supports_nonblock t.fd) then begin
+      Fd.syscall_in_thread t.fd ~name:"read"
+        (fun file_descr ->
+          let res = Bigstring.read file_descr buf ~pos ~len in
+          res, Time.now ())
+      >>> fun res ->
+      finish res raise
+    end else begin
+      let rec loop () =
+        (* Force the async cycle to end between reads, allowing others to run. *)
+        Fd.ready_to t.fd `Read
+        >>> function
+        | `Bad_fd -> ebadf ()
+        | `Closed -> eof ()
+        | `Ready ->
+          finish
+            (Fd.syscall t.fd ~nonblocking:true
+               (fun file_descr ->
+                 let res =
+                   Bigstring.read_assume_fd_is_nonblocking file_descr buf ~pos ~len
+                 in
+                 res, Scheduler.cycle_start ()))
+            (let module U = Unix in
+             function
+             (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.  But we
+                don't trust the OS.  So, in case it does, we just try again. *)
+             | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> loop ()
+             | exn -> raise exn)
+      in
+      loop ()
+    end)
+;;
+
+(* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok]. If
+   no data can be read, then [with_nonempty_buffer] returns [f `Eof]. *)
+let with_nonempty_buffer (type a) t (f : [ `Ok | `Eof ] -> a) : a Deferred.t =
   if t.available > 0 then
-    `Available
+    return (f `Ok)
   else
-    `Wait
-      (Deferred.create (fun result ->
-        let eof () = Ivar.fill result `Eof in
-        let ebadf () =
-          (* If the file descriptior has been closed, we will get EBADF from a syscall.
-             If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
-             underlying file descriptor got closed in some other way, then something is
-             likely wrong, so we raise. *)
-          failwiths "reader file descriptor was unexpectedly closed" t <:sexp_of< t >>
-        in
-        let finish res handle =
-          match res with
-          | `Already_closed -> eof ()
-          | `Error exn ->
-            begin match exn with
-            | Bigstring.IOError (0, End_of_file) -> eof ()
-            | Unix.Unix_error (Unix.ECONNRESET, _, _) -> eof ()
-            | Unix.Unix_error (Unix.EBADF, _, _) -> ebadf ()
-            | _ -> handle exn
-            end
-          | `Ok (bytes_read, read_time) ->
-            Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:(Int63.of_int bytes_read);
-            if bytes_read = 0 then
-              eof ()
-            else begin
-              t.pos <- 0;
-              t.available <- bytes_read;
-              t.last_read_time <- read_time;
-              Ivar.fill result `Ok
-            end
-        in
-        let buf = t.buf in
-        let pos = 0 in
-        let len = Bigstring.length buf in
-        let module K = Fd.Kind in
-        if not (Fd.supports_nonblock t.fd) then begin
-          Fd.syscall_in_thread t.fd ~name:"read"
-            (fun file_descr ->
-              let res = Bigstring.read file_descr buf ~pos ~len in
-              res, Time.now ())
-          >>> fun res ->
-          finish res raise
-        end else begin
-          let rec loop () =
-            (* Force the async cycle to end between reads, allowing others to run. *)
-            Fd.ready_to t.fd `Read
-            >>> function
-              | `Bad_fd -> ebadf ()
-              | `Closed -> eof ()
-              | `Ready ->
-                finish
-                  (Fd.syscall t.fd ~nonblocking:true
-                     (fun file_descr ->
-                       let res =
-                         Bigstring.read_assume_fd_is_nonblocking file_descr buf ~pos ~len
-                       in
-                       res, Scheduler.cycle_start ()))
-                  (let module U = Unix in
-                   function
-                   (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
-                      But we don't trust the OS.  So, in case it does, we just try
-                      again. *)
-                   | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> loop ()
-                   | exn -> raise exn)
-          in
-          loop ()
-        end))
+    get_data t >>| f
 ;;
 
-let nonempty_buffer t f =
-  match get_data t with
-  | `Available -> f `Ok
-  | `Wait d -> d >>> f
-;;
+(* [with_nonempty_buffer' t f] is an optimized version of
+   [don't_wait_for (with_nonempty_buffer t f)].
 
-let get_data t f =
-  match get_data t with
-  | `Available -> return (f `Ok)
-  | `Wait d -> d >>| f
+   With [force_refill = true], [with_nonempty_buffer'] will do a read, whether or not
+   there is already data available in [t.buf]. *)
+let with_nonempty_buffer' ?(force_refill = false) t (f : [ `Ok | `Eof ] -> unit) : unit =
+  if not force_refill && t.available > 0 then
+    f `Ok
+  else
+    get_data t >>> f
 ;;
 
 let consume t amount =
@@ -216,21 +228,78 @@ let consume t amount =
   t.available <- t.available - amount;
 ;;
 
+type 'a read_one_chunk_at_a_time_until_eof_result =
+[ `Eof
+| `Stopped of 'a
+| `Eof_with_unconsumed_data of string
+]
+with sexp_of
+
+type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] with sexp_of
+
 let read_one_chunk_at_a_time_until_eof t ~handle_chunk =
   Deferred.create (fun final_result ->
-    let rec loop () =
-      nonempty_buffer t
-        (function
-        | `Eof -> Ivar.fill final_result `Eof
-        | `Ok ->
-          handle_chunk t.buf ~pos:t.pos ~len:t.available
-          >>> fun result ->
-          consume t t.available;
-          match result with
-          | `Stop a -> Ivar.fill final_result (`Stopped a)
-          | `Continue -> loop ())
+    let rec loop ~force_refill =
+      with_nonempty_buffer' t ~force_refill (function
+      | `Eof ->
+        let result =
+          if t.available > 0 then
+            `Eof_with_unconsumed_data
+              (Bigstring.to_string t.buf ~pos:t.pos ~len:t.available)
+          else
+            `Eof
+        in
+        Ivar.fill final_result result
+      | `Ok ->
+        let len = t.available in
+        let continue = function
+          | `Stop a -> consume t len; Ivar.fill final_result (`Stopped a)
+          | `Continue -> consume t len; loop ~force_refill:true
+          | `Consumed (consumed, need) as c ->
+            if consumed < 0 || consumed > len
+              || (match need with
+                | `Need_unknown -> false
+                | `Need need -> need < 0 || consumed + need <= len)
+            then
+              failwiths "handle_chunk returned invalid `Consumed" (c, `len len, t)
+                (<:sexp_of< consumed * [ `len of int ] * t >>);
+            consume t consumed;
+            let buf_len = Bigstring.length t.buf in
+            let new_len =
+              match need with
+              | `Need_unknown ->
+                if t.available = buf_len then
+                  (* The buffer is full and the client doesn't know how much to expect:
+                     double the buffer size. *)
+                  buf_len * 2
+                else
+                  buf_len
+              | `Need need ->
+                if need > buf_len then
+                  Int.max need (buf_len * 2)
+                else
+                  buf_len
+            in
+            if new_len < 0 then
+              failwiths "read_one_chunk_at_a_time_until_eof got overflow in buffer len" t
+                (<:sexp_of< t >>);
+            (* Grow the internal buffer if needed. *)
+            if new_len > buf_len then begin
+              let new_buf = Bigstring.create new_len in
+              if t.available > 0 then
+                Bigstring.blit ~src:t.buf ~src_pos:t.pos ~src_len:t.available
+                  ~dst:new_buf ~dst_pos:0 ();
+              t.buf <- new_buf;
+              t.pos <- 0;
+            end;
+            loop ~force_refill:true
+        in
+        let deferred = handle_chunk t.buf ~pos:t.pos ~len in
+        match Deferred.peek deferred with
+        | None -> deferred >>> continue
+        | Some result -> continue result)
     in
-    loop ())
+    loop ~force_refill:false)
 ;;
 
 module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
@@ -244,7 +313,7 @@ module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
   let read t s =
     if S.length s = 0 then
       invalid_argf "Reader.read_%s with empty string" Name.name ();
-    get_data t (function
+    with_nonempty_buffer t (function
     | `Ok -> read_available t s
     | `Eof -> `Eof)
   ;;
@@ -286,7 +355,7 @@ let really_read t ?pos ?len s =
 ;;
 
 let read_char t =
-  get_data t (function
+  with_nonempty_buffer t (function
   | `Eof -> `Eof
   | `Ok ->
     let c = t.buf.{t.pos} in
@@ -323,7 +392,7 @@ let first_char t p =
 let read_until_gen t p ~keep_delim ~max k =
   Deferred.create (fun result ->
     let rec loop ac total =
-      nonempty_buffer t (function
+      with_nonempty_buffer' t (function
       | `Eof ->
         Ivar.fill result
           (k (if ac = [] then `Eof
@@ -411,7 +480,7 @@ let space = Bigstring.of_string " "
 let gen_read_sexp ?parse_pos t parse =
   Deferred.create (fun result ->
     let rec loop parse_fun =
-      nonempty_buffer t (function
+      with_nonempty_buffer' t (function
       | `Eof ->
         (* The sexp parser doesn't know that a token ends at EOF, so we add a space to
            be sure. *)
@@ -613,7 +682,7 @@ let transfer t pipe_w =
   Deferred.create
     (fun finished ->
       let rec loop () =
-        nonempty_buffer t (function
+        with_nonempty_buffer' t (function
         | `Eof -> Ivar.fill finished ()
         | `Ok ->
           if Pipe.is_closed pipe_w then

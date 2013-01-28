@@ -14,13 +14,29 @@ open Import
     raise. *)
 val shutdown : ?force:unit Deferred.t -> int -> unit
 
+(** [exit ?force status] is [shutdown ?force status; Deferred.never ()].
+
+    We do not have an exit function that returns a non-deferred:
+
+    {[
+      val exit : ?force:unit Deferred.t -> int -> _
+    ]}
+
+    Such a function should not exist, for the same reason that we do not have:
+
+    {[
+      val block : 'a Deferred.t -> 'a
+    ]}
+
+    The semantics of such an exit function would allow one to block a running async job,
+    and to switch to another one (to run the [at_shutdown] handlers), without expressing
+    that switch in the type system via a [Deferred.t].  That would eliminate all the nice
+    reasoning guarantees that async gives about concurrent jobs. *)
+val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
+
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
     what status. *)
 val shutting_down : unit -> [ `No | `Yes of int ]
-
-
-(** [shutdown_and_raise ?force status] initiates shutdown and immediately raises. *)
-val shutdown_and_raise : ?force:unit Deferred.t -> int -> never_returns
 
 (** [at_shutdown f] causes [f ()] to be run when [shutdown] is called, and for [shutdown]
     to wait until the returned deferred finishes. *)
