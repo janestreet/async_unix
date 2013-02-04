@@ -920,19 +920,14 @@ let apply_umask perm =
   perm land (lnot umask)
 ;;
 
-let with_file_atomic ?temp_prefix ?perm ?fsync:(do_fsync = false) file ~f =
+let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
   Async_sys.file_exists file
   >>= fun file_exists ->
   (match file_exists with
   | `Yes -> (Unix.stat file >>| fun stats -> Some stats.Unix.Stats.perm)
   | `No | `Unknown -> return None)
   >>= fun current_file_permissions ->
-  let prefixed_temp_file =
-    match temp_prefix with
-    | None -> file
-    | Some temp_prefix -> temp_prefix ^ file
-  in
-  Unix.mkstemp prefixed_temp_file
+  Unix.mkstemp (Option.value temp_file ~default:file)
   >>= fun (temp_file, fd) ->
   let t = create fd in
   with_close t (fun () ->
@@ -963,8 +958,8 @@ let with_file_atomic ?temp_prefix ?perm ?fsync:(do_fsync = false) file ~f =
         (file, exn) <:sexp_of< string * exn >>
 ;;
 
-let save ?temp_prefix ?perm ?fsync file ~contents =
-  with_file_atomic ?temp_prefix ?perm ?fsync file ~f:(fun t ->
+let save ?temp_file ?perm ?fsync file ~contents =
+  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     write t contents;
     Deferred.unit)
 ;;
@@ -976,11 +971,11 @@ let sexp_to_buffer ?(hum = true) ~buf sexp =
     Sexp.to_buffer_mach ~buf sexp
 ;;
 
-let save_sexp ?temp_prefix ?perm ?fsync ?hum file sexp =
+let save_sexp ?temp_file ?perm ?fsync ?hum file sexp =
   let buf = Buffer.create 1 in
   sexp_to_buffer ?hum ~buf sexp;
   Buffer.add_char buf '\n';
-  save ?temp_prefix ?perm ?fsync file ~contents:(Buffer.contents buf);
+  save ?temp_file ?perm ?fsync file ~contents:(Buffer.contents buf);
 ;;
 
 let transfer t pipe_r write_f =

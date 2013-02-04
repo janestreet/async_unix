@@ -11,12 +11,14 @@
     below, [Fd] guarantees that the file descriptor will not have been closed/reused and
     will correspond to the same file that it did when the [Fd.t] was created:
 
-    with_file_descr
-    with_file_descr_deferred
-    syscall
-    syscall_exn
-    syscall_in_thread
-    syscall_in_thread_exn
+    {v
+      with_file_descr
+      with_file_descr_deferred
+      syscall
+      syscall_exn
+      syscall_in_thread
+      syscall_in_thread_exn
+    v}
 
     The [Fd] module keeps track of which of these functions that are currently accessing
     the file descriptor, and ensures that any close happens after they complete.  Also,
@@ -57,8 +59,8 @@ val to_string : t -> string
 (** [create kind file_descr] creates a new [t] of the underlying kind and file
     descriptor.
 
-    We thought about using fstat() rather than requiring the user to supply the kind.  But
-    fstat can block, which would require putting this in a thread, which has some
+    We thought about using [fstat()] rather than requiring the user to supply the kind.
+    But [fstat] can block, which would require putting this in a thread, which has some
     consequences, and it isn't clear that it gets us that much.  Also, [create] is mostly
     used within the Async implementation -- clients shouldn't need it unless they are
     mixing Async and non-Async code. *)
@@ -72,17 +74,17 @@ val supports_nonblock : t -> bool
 
 (** [close t] prevents further use of [t], and closes the underlying file descriptor once
     all the current uses are finished.  The result of [close] becomes determined once the
-    underlying file descriptor has been closed, i.e. once the close() system call returns.
-    It is ok to call [close] multiple times on the same [t]; calls subsequent to the
-    initial call will have no effect, but will return the same deferred as the original
-    call.
+    underlying file descriptor has been closed, i.e. once the [close()] system call
+    returns.  It is ok to call [close] multiple times on the same [t]; calls subsequent to
+    the initial call will have no effect, but will return the same deferred as the
+    original call.
 
     In some situations, one may need to cause async to release an fd that it is managing
     without closing the underlying file descriptor.  In that case, one should supply
-    [~should_close_file_descriptor:false], which will skip the underlying close() system
+    [~should_close_file_descriptor:false], which will skip the underlying [close()] system
     call.
 
-    [close_finished t] becomes determined after the close() system call on [t]'s
+    [close_finished t] becomes determined after the [close()] system call on [t]'s
     underlying file descriptor returns.  [close_finished] differs from [close] in that it
     does not have the side effect of initiating a close.
 

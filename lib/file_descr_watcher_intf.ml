@@ -37,7 +37,7 @@ module type S = sig
       descriptor is not being watched for neither, it is not in the map. *)
   type t with sexp_of
 
-  val invariant : t -> unit
+  include Invariant.S with type t := t
 
   (** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
       file descriptors in {[ [0, num_file_descrs) ]}. *)

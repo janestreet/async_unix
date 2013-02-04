@@ -1,8 +1,8 @@
 (** [Reader] is Async's main API for buffered input from a file descriptor.  It is the
     analog of [Core.Std.In_channel].
 
-    Each reader has an internal buffer, which is filled via read() system calls when data
-    is needed to satisfy a [Reader.read*] call.
+    Each reader has an internal buffer, which is filled via [read()] system calls when
+    data is needed to satisfy a [Reader.read*] call.
 
     Each of the read functions returns a deferred that will become determined when the
     read completes.  It is an error to have two simultaneous reads.  That is, if one calls
@@ -16,7 +16,9 @@
     the monitor in effect when [read] was called.  Such exceptions can be handled in the
     usual way by using [try_with], e.g.:
 
-    | try_with (fun () -> Reader.read reader ...)
+    {[
+      try_with (fun () -> Reader.read reader ...)
+    ]}
 *)
 
 open Core.Std
@@ -31,6 +33,8 @@ end
 module Id : Unique_id
 
 type t with sexp_of
+
+include Invariant.S with type t := t
 
 (** [io_stats] Overall IO statistics for all readers *)
 val io_stats : Io_stats.t
@@ -133,14 +137,14 @@ val read_one_chunk_at_a_time_until_eof
                    -> pos:int
                    -> len:int
                    -> [ `Stop of 'a
-                      (* [`Continue] means that [handle_chunk] has consumed all [len]
-                         bytes. *)
+                      (** [`Continue] means that [handle_chunk] has consumed all [len]
+                          bytes. *)
                       | `Continue
-                      (* [`Consumed (c, need)] means that [c] bytes were consumed and
-                         [need] says how many bytes are needed (including the data
-                         remaining in the buffer after the [c] were already consumed).  It
-                         is an error if [c < 0 || c > len].  For [`Need n], it is an error
-                         if [n < 0 || c + n <= len]. *)
+                      (** [`Consumed (c, need)] means that [c] bytes were consumed and
+                          [need] says how many bytes are needed (including the data
+                          remaining in the buffer after the [c] were already consumed).
+                          It is an error if [c < 0 || c > len].  For [`Need n], it is an
+                          error if [n < 0 || c + n <= len]. *)
                       | `Consumed of int * [ `Need of int
                                            | `Need_unknown
                                            ]
@@ -275,9 +279,15 @@ val file_contents : string -> string Deferred.t
     or [Error exn] otherwise.  This function provides accurate error locations for failed
     conversions. *)
 val load_sexp
-  : ?exclusive:bool (* defaults to false *) -> string -> (Sexp.t -> 'a) -> 'a Or_error.t Deferred.t
+  : ?exclusive:bool (* defaults to false *)
+  -> string
+  -> (Sexp.t -> 'a)
+  -> 'a Or_error.t Deferred.t
 val load_sexp_exn
-  : ?exclusive:bool (* defaults to false *) -> string -> (Sexp.t -> 'a) -> 'a            Deferred.t
+  : ?exclusive:bool (* defaults to false *)
+  -> string
+  -> (Sexp.t -> 'a)
+  -> 'a Deferred.t
 
 (** [load_sexps file ~f] load and convert the S-expressions in a given [file] using [f],
     and return the deferred list of conversion results as variants of either [Ok res] or
@@ -295,5 +305,3 @@ val load_sexps_exn
   -> string
   -> (Sexp.t -> 'a)
   -> 'a list Deferred.t
-
-val invariant : t -> unit

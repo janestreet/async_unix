@@ -1,12 +1,12 @@
-(* An interruptor provides a file descriptor that can be used to cause a
-   file-descr-watcher to detect the file descriptor is ready for reading.  We use an
-   interruptor when a thread needs the async scheduler to service a request. *)
+(** An interruptor provides a file descriptor that can be used to cause a
+    file-descr-watcher to detect the file descriptor is ready for reading.  We use an
+    interruptor when a thread needs the async scheduler to service a request. *)
 
 open Core.Std
 
 type t with sexp_of
 
-val invariant : t -> unit
+include Invariant.S with type t := t
 
 val create
   :  create_fd:(Raw_fd.Kind.t -> Unix.File_descr.t -> Info.t -> Raw_fd.t)

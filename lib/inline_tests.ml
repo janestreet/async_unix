@@ -11,6 +11,7 @@ let tests () = OUnit.TestList [
     Interruptor.ounit_tests ();
     In_thread.ounit_tests ();
     Io_stats.ounit_tests ();
+    Process.ounit_tests ();
     Raw_fd.ounit_tests ();
     Raw_scheduler.ounit_tests ();
     Raw_signal_manager.ounit_tests ();

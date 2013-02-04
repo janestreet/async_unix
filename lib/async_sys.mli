@@ -30,4 +30,3 @@ val readdir : string -> string array Deferred.t
 val interactive : bool ref
 val os_type : string
 val word_size : int
-

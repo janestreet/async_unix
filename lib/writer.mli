@@ -2,7 +2,7 @@
     [Core.Std.Out_channel].
 
     Each writer has an internal buffer, to which [Writer.write*] adds data.  Each writer
-    uses an async microthread that makes write() system calls to move the data from the
+    uses an async microthread that makes [write()] system calls to move the data from the
     writer's buffer to an OS buffer via the file descriptor.  There is no guarantee that
     the data sync on the other side of the writer can keep up with the rate at which you
     are writing.  If it cannot, the OS buffer will fill up and the writer's micro-thread
@@ -15,7 +15,7 @@
 
     There are two kinds of errors that one can handle with writers.  First, a writer can
     be [close]d, which will cause future [write]s (and other operations) to synchronously
-    raise an excecption.  Second, the writer's microthread can fail due to a write()
+    raise an excecption.  Second, the writer's microthread can fail due to a [write()]
     system call failing.  This will cause an exception to be sent to the writer's monitor,
     which will be a child of the monitor in effect when the writer is created.  One can
     deal with such asynchronous exceptions in the usual way, by handling the stream
@@ -27,6 +27,8 @@ open Import
 module Id : Unique_id
 
 type t with sexp_of
+
+include Invariant.S with type t := t
 
 (** [io_stats] Overall IO statistics for all writers *)
 val io_stats : Io_stats.t
@@ -180,7 +182,7 @@ val schedule_iovec : t -> Bigstring.t Unix.IOVec.t -> unit
 val schedule_iovecs : t -> Bigstring.t Unix.IOVec.t Queue.t -> unit
 
 (** [flushed t] returns a deferred that will become determined when all prior writes
-    complete (i.e. the write() system call returns).  If a prior write fails, then the
+    complete (i.e. the [write()] system call returns).  If a prior write fails, then the
     deferred will never become determined.
 
     It is OK to call [flushed t] after [t] has been closed. *)
@@ -235,14 +237,13 @@ val bytes_to_write : t -> int
 (** [bytes_written t] returns how many bytes have been written. *)
 val bytes_written : t -> Int63.t
 
-(** [with_file_atomic ?temp_prefix ?perm ?fsync file ~f] creates a writer to a temp file,
-    feeds that writer to [f], and when [f] finishes, atomically moves (i.e. uses
-    [Unix.rename]) the temp file to [file].  If [file] currently exists, it will be
-    replaced, even if it is read only.  The temp file will be prefixed by [temp_prefix]
-    (prefix may refer to a different directory!) if given, and suffixed by a unique random
-    sequence of six characters.  The temp file may need to be removed in case of a crash
-    so it may be prudent to choose a [temp_prefix] that can be easily found by cleanup
-    tools.
+(** [with_file_atomic ?temp_file ?perm ?fsync file ~f] creates a writer to a temp file,
+    feeds that writer to [f], and when the result of [f] becomes determined, atomically
+    moves (i.e. uses [Unix.rename]) the temp file to [file].  If [file] currently exists,
+    it will be replaced, even if it is read only.  The temp file will be [file] (or
+    [temp_file] if supplied) suffixed by a unique random sequence of six characters.  The
+    temp file may need to be removed in case of a crash so it may be prudent to choose a
+    temp file that can be easily found by cleanup tools.
 
     If [fsync] is [true], the temp file will be flushed to disk before it takes the place
     of the target file, thus guaranteeing that the target file will always be in a sound
@@ -251,11 +252,8 @@ val bytes_written : t -> Int63.t
     may need this option!
 
     We intend for [with_file_atomic] to preserve the behavior of the [open] system call,
-    so if [file] does not exist, we will apply the umask to [perm].  If it does exist,
+    so if [file] does not exist, we will apply the umask to [perm].  If [file] does exist,
     [perm] will default to the file's current permissions rather than 0o666.
-
-    @param temp_prefix default = no prefix
-    @param perm default = [0o666]
 
     [save] is a special case of [with_file_atomic] that atomically writes the given
     string to the specified file.
@@ -264,7 +262,7 @@ val bytes_written : t -> Int63.t
     given sexp to the specified file. *)
 
 val with_file_atomic
-  :  ?temp_prefix:string
+  :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (* defaults to false *)
   -> string
@@ -272,7 +270,7 @@ val with_file_atomic
   -> 'a Deferred.t
 
 val save
-  :  ?temp_prefix:string
+  :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (* defaults to false *)
   -> string
@@ -280,7 +278,7 @@ val save
   -> unit Deferred.t
 
 val save_sexp
-  :  ?temp_prefix:string
+  :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (* defaults to false *)
   -> ?hum:bool (* defaults to true *)
@@ -301,6 +299,3 @@ val transfer : t -> 'a Pipe.Reader.t -> ('a -> unit) -> unit Deferred.t
 (** [pipe t] returns the writing end of a pipe attached to [t] that pushes back when [t]
     cannot keep up with the data being pushed in.  Closing the pipe will close [t]. *)
 val pipe : t -> string Pipe.Writer.t
-
-(** [invariant t] raises an exception if the writer is in a bad state *)
-val invariant : t -> unit

@@ -1,7 +1,7 @@
-(** Unix_syscalls provides an interface to many of the functions in OCaml's standard Unix
-    module.  It uses a deferred in the return type of functions that would block.  The
-    idea is that in an async program one does not use the standard Unix module, since in
-    doing so one could accidentally block the whole program.
+(** [Unix_syscalls] provides an interface to many of the functions in OCaml's standard
+    Unix module.  It uses a deferred in the return type of functions that would block.
+    The idea is that in an async program one does not use the standard Unix module, since
+    in doing so one could accidentally block the whole program.
 
     There are also a number of cosmetic changes (e.g. polymorphic variants) and other
     improvements (e.g. phantom types on sockets) over the standard Unix module. *)
@@ -24,8 +24,8 @@ val getppid_exn : unit -> Pid.t
     the current process becomes a child of init(8).  This is useful to determine if one's
     parent has died, because in that case init will becomes one's parent.
 
-    See Linux_ext.pr_set_pdeathsig : Signal.t -> unit for related way to
-    get information about parent death
+    See [Linux_ext.pr_set_pdeathsig : Signal.t -> unit] for related way to get information
+    about parent death.
 
     @poll_delay controls how often to check *)
 val this_process_became_child_of_init : ?poll_delay:Time.Span.t -> unit -> unit Deferred.t
@@ -281,13 +281,13 @@ module Inet_addr : sig
 
   include Comparable.S with type t := t
 
-  (* same as Core.Unix *)
+  (** same as [Core.Unix] *)
   val of_string : string -> t
   val to_string : t -> string
   val bind_any       : t
   val bind_any_inet6 : t
-  val localhost       : t (* [127.0.0.1] *)
-  val localhost_inet6 : t (* ([::1]) *)
+  val localhost       : t (** [127.0.0.1] *)
+  val localhost_inet6 : t (** ([::1]) *)
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
       resulting IP address.  The implemenation sequentializes all calls so that only a
@@ -342,9 +342,11 @@ module Socket : sig
       socket functions are called, they return a socket with a new phantom state.
       Here is a chart of the allowed state transitions.
 
-      Unconnected ---connect--> Active
-      |
-      | ---bind--> Bound ---listen--> Passive ---accept---> Active
+      {v
+        Unconnected ---connect--> Active
+        |
+        | ---bind--> Bound ---listen--> Passive ---accept---> Active
+      v}
   *)
   type ('a, 'b) t
   constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
@@ -374,7 +376,7 @@ module Socket : sig
        | `Interrupted
        ] Deferred.t
 
-  (* [bind socket addr] sets close_on_exec for the fd of [socket].  *)
+  (** [bind socket addr] sets close_on_exec for the fd of [socket]. *)
   val bind : ([ `Unconnected ], 'addr) t -> 'addr -> ([ `Bound ], 'addr) t Deferred.t
 
   val listen
@@ -574,9 +576,8 @@ end
 
 (** Return the login name of the user executing the process.
 
-    This returns a deferred because the username may need to be looked up in
-    what is essentially a database elsewhere on the network (winbound user, or
-    NIS). *)
+    This returns a deferred because the username may need to be looked up in what is
+    essentially a database elsewhere on the network (winbound user, or NIS). *)
 val getlogin : unit -> string Deferred.t
 
 val wordexp

@@ -9,7 +9,7 @@ open Core.Std
 
 type t with sexp_of
 
-val invariant : t -> unit
+include Invariant.S with type t := t
 
 (** [create] creates and returns a signal manager [t].  Whenever a signal that [t] is
     managing is delivered, it will call [thread_safe_notify_signal_delivered] from within

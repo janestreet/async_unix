@@ -2,6 +2,7 @@ module Fd          = Fd
 module In_thread   = In_thread
 module Io_stats    = Io_stats
 module Print       = Async_print
+module Process     = Process
 module Reader      = Reader
 module Scheduler   = Scheduler
 module Shutdown    = Shutdown

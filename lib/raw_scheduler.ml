@@ -558,3 +558,23 @@ let report_long_cycle_times ?(cutoff = sec 1.) () =
           (Error.to_string_hum
              (Error.create "long async cycle" span <:sexp_of< Time.Span.t >>)))
 ;;
+
+type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
+
+let t () = the_one_and_only ~should_lock:true
+
+let fold_fields ~init folder =
+  let t = t () in
+  let f ac field = folder.folder ac t field in
+  Fields.fold ~init
+    ~mutex:f
+    ~is_running:f
+    ~fds_whose_watching_has_changed:f
+    ~file_descr_watcher:f
+    ~fd_by_descr:f
+    ~scheduler_thread_id:f
+    ~interruptor:f
+    ~signal_manager:f
+    ~thread_pool:f
+    ~core_scheduler:f
+;;

@@ -10,6 +10,12 @@
 open Core.Std
 open Import
 
+type t = Raw_scheduler.t with sexp_of
+
+(** [t ()] returns the async scheduler.  If the scheduler hasn't been created yet, this
+    will create it and acquire the async lock. *)
+val t : unit -> t
+
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
     running handlers, one by one without interruption, until there are no more handlers to
     run.  When Async is out of handlers it blocks until the outside world schedules more
@@ -96,6 +102,13 @@ val is_running : unit -> bool
 (** [set_max_num_jobs_per_priority_per_cycle int] sets the maximum number of jobs that
     will be done at each priority within each async cycle.  The default is [500]. *)
 val set_max_num_jobs_per_priority_per_cycle : int -> unit
+
+(** [fold_fields ~init folder] folds [folder] over each field in the scheduler.  The
+    fields themselves are not exposed -- [folder] must be a polymorphic function that
+    can work on any field.  So, it's only useful for generic operations, e.g. getting
+    the size of each field. *)
+type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
+val fold_fields : init:'b -> 'b folder -> 'b
 
 val is_ready_to_initialize : unit -> bool
 

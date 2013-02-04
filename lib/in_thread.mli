@@ -1,4 +1,4 @@
-(** The In_thread module has functions for interaction between the Async world and other
+(** The [In_thread] module has functions for interaction between the Async world and other
     (kernel) threads.  The name is to remind us to think about threads and race
     conditions. *)
 
@@ -13,8 +13,9 @@ module Helper_thread : sig
       collections of computations run in the same thread. *)
   type t
 
-  (* [create ?name ()] creates a new helper thread.  The [name] will be used as the thread
-     name for any work that that is done by the thread that doesn't get its own name. *)
+  (** [create ?name ()] creates a new helper thread.  The [name] will be used as the
+      thread name for any work that that is done by the thread that doesn't get its own
+      name. *)
   val create : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
 end
 
@@ -42,11 +43,14 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     in sequence, in the order in which they are supplied to [run].  Each [f()] will
     complete (return or raise) before another [f()] starts.
 
-    For example, if you call:
+    For example, if you do:
 
-    [run ~thread f1]
-    [run ~thread f2]
-    [run ~thread f3]
+    {[
+      let () =
+        run ~thread f1;
+        run ~thread f2;
+        run ~thread f3;
+    ]}
 
     Then the thread will run [f1 ()] to completion, then [f2 ()] to completion, then
     [f3 ()] to completion.
