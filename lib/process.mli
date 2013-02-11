@@ -13,7 +13,7 @@ val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
 (** [env] specifies how to construct the environment that the child process will start
-    with.  With [`Extend [ x1,v1; x2,v2; ... ], the child's environment will be the same
+    with.  With [`Extend [ x1,v1; x2,v2; ... ]], the child's environment will be the same
     as the parent's, except for [xi] will have value [vi].  With [`Replace], the only
     variables in the child's environment will be the [xi].  In either case, the child's
     environment is established by first clearing [environ] and then repeatedly calling

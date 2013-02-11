@@ -10,6 +10,7 @@ module Socket      = Unix_syscalls.Socket
 module Signal      = Signal
 module Sys         = Async_sys
 module Thread_safe = Thread_safe
+module Thread_safe_pipe = Thread_safe_pipe
 module Work_group  = Work_group
 module Writer      = Writer
 

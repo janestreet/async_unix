@@ -588,7 +588,7 @@ module Socket = struct
       Fd.create (Fd.Kind.Socket `Unconnected)
         (Unix.socket ~domain:type_.Type.family.Family.family
            ~kind:type_.Type.socket_type ~protocol:0)
-        (Info.create "socket" type_ <:sexp_of< __ Type.t >>)
+        (Info.create "socket" type_ <:sexp_of< _ Type.t >>)
     in
     { type_; fd }
   ;;
@@ -691,7 +691,7 @@ module Socket = struct
                (`listening_on t, `client address)
                (let sexp_of_address = sexp_of_address t in
                 <:sexp_of<
-                  ([ `listening_on of (__, __) t ]
+                  ([ `listening_on of (_, _) t ]
                    * [ `client of address ]) >>))
         in
         let s = { fd; type_ = t.type_ } in
