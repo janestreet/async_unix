@@ -41,3 +41,9 @@ val shutting_down : unit -> [ `No | `Yes of int ]
 (** [at_shutdown f] causes [f ()] to be run when [shutdown] is called, and for [shutdown]
     to wait until the returned deferred finishes. *)
 val at_shutdown : (unit -> unit Deferred.t) -> unit
+
+(** [don't_finish_before d] causes [shutdown] to wait until [d] becomes determined before
+    finishing.  It is like [at_shutdown (fun _ -> d)], except it is more efficient, and
+    will not take any space once [d] is determined.  There is a a single [at_shutdown]
+    shared among all deferreds supplied to [don't_finish_before]. *)
+val don't_finish_before : unit Deferred.t -> unit
