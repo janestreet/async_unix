@@ -53,6 +53,7 @@ type t =
     mutex : Nano_mutex.t;
 
     mutable is_running : bool;
+    mutable have_called_go : bool;
 
     (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
        the last time their desired state was set in the [file_descr_watcher]. *)
@@ -206,6 +207,7 @@ let invariant t : unit =
     Fields.iter
       ~mutex:ignore
       ~is_running:ignore
+      ~have_called_go:ignore
       ~fds_whose_watching_has_changed:(check (fun fds_whose_watching_has_changed ->
         List.iter fds_whose_watching_has_changed ~f:(fun fd ->
           assert fd.Fd.watching_has_changed;
@@ -255,6 +257,7 @@ let create () =
   let t =
     { mutex = Nano_mutex.create ();
       is_running = false;
+      have_called_go = false;
       fds_whose_watching_has_changed = [];
       file_descr_watcher = File_descr_watcher.create ~num_file_descrs;
       fd_by_descr;
@@ -528,6 +531,8 @@ let go ?raise_unhandled_exn () =
      not already done so implicitly via use of an async operation that uses
      [the_one_and_only]. *)
   if not (am_holding_lock t) then lock t;
+  if t.have_called_go then failwith "cannot Scheduler.go more than once";
+  t.have_called_go <- true;
   if not t.is_running then begin
     t.is_running <- true;
     be_the_scheduler t ?raise_unhandled_exn;
@@ -569,6 +574,7 @@ let fold_fields ~init folder =
   Fields.fold ~init
     ~mutex:f
     ~is_running:f
+    ~have_called_go:f
     ~fds_whose_watching_has_changed:f
     ~file_descr_watcher:f
     ~fd_by_descr:f
