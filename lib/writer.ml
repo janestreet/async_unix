@@ -870,6 +870,13 @@ let schedule_bigstring t ?pos ?len bstr =
   schedule_iovec t (IOVec.of_bigstring ?pos ?len bstr)
 ;;
 
+let schedule_bigsubstring t bigsubstring =
+  schedule_bigstring t
+    (Bigsubstring.base bigsubstring)
+    ~pos:(Bigsubstring.pos bigsubstring)
+    ~len:(Bigsubstring.length bigsubstring)
+;;
+
 (* The code below ensures that no calls happen on a closed writer. *)
 
 let fsync t   = ensure_can_write t; flushed t >>= fun _ -> Unix.fsync t.fd

@@ -4,12 +4,10 @@ open Import
 let argv = Sys.argv
 let executable_name = Sys.executable_name
 
-let run = In_thread.run
+let wrap1 f x1    = In_thread.run (fun () -> f x1)
+let wrap2 f x1 x2 = In_thread.run (fun () -> f x1 x2)
 
-let wrap1 f x1 = run (fun () -> f x1)
-let wrap2 f x1 x2 = run (fun () -> f x1 x2)
-
-let file_exists = wrap1 Sys.file_exists
+let file_exists     = wrap1 Sys.file_exists
 let file_exists_exn = wrap1 Sys.file_exists_exn
 
 let when_file_exists ?(poll_delay = sec 0.5) file =

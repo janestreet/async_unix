@@ -22,7 +22,7 @@ module Helper_thread = struct
   ;;
 end
 
-let run_no_exn ?priority ?thread ?name f =
+let run ?priority ?thread ?name f =
   let t = the_one_and_only ~should_lock:true in
   let doit () =
     let execution_context = current_execution_context t in
@@ -47,6 +47,7 @@ let run_no_exn ?priority ?thread ?name f =
         let work_group = Execution_context.work_group execution_context in
         ok_exn
           (Thread_pool.add_work_for_group t.thread_pool work_group doit ?name ?priority))
+    >>| Result.ok_exn
   in
   if t.is_running then
     doit ()
@@ -59,10 +60,7 @@ let run_no_exn ?priority ?thread ?name f =
     Deferred.bind Deferred.unit doit
 ;;
 
-let run ?priority ?thread ?name f = run_no_exn ?priority ?thread ?name f >>| Result.ok_exn
-
-let syscall ~name f = run ~name (fun () -> Syscall.syscall f)
-
+let syscall     ~name f = run ~name (fun () ->                Syscall.syscall f )
 let syscall_exn ~name f = run ~name (fun () -> Result.ok_exn (Syscall.syscall f))
 
 let pipe_of_squeue sq =

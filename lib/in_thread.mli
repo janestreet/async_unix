@@ -24,10 +24,10 @@ end
     then waits for pushback on [p]. *)
 val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
-(** [run ?priority ?thread ?name f] runs [f()] in another thread and returns the result as a
-    Deferred in the Async world.  If [f()] raises an exception (asynchronously, since it
-    is another thread) then that exception will be raised to the monitor that called
-    [run()].
+(** [run ?priority ?thread ?name f] runs [f ()] in another thread and returns the result
+    as a Deferred in the Async world.  If [f ()] raises an exception (asynchronously,
+    since it is another thread) then that exception will be raised to the monitor that
+    called [run].
 
     Async code should not be used from within [f].
 
@@ -36,12 +36,12 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     Sqlite), you should create a helper thread and supply it to [run].
 
     If [priority] is supplied, the priority of the thread in the linux scheduler will be
-    set to [priority] for the duration of [f()], provided the thread is allowed to do so,
+    set to [priority] for the duration of [f ()], provided the thread is allowed to do so,
     see `man setpriority`.
 
-    If you call [run] several times with the same helper thread, the [f()] calls will run
-    in sequence, in the order in which they are supplied to [run].  Each [f()] will
-    complete (return or raise) before another [f()] starts.
+    If you call [run] several times with the same helper thread, the [f ()] calls will run
+    in sequence, in the order in which they are supplied to [run].  Each [f ()] will
+    complete (return or raise) before another [f ()] starts.
 
     For example, if you do:
 

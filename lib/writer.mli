@@ -168,6 +168,7 @@ val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
     It is not safe to change the bigstring until the writer has been
     successfully flushed or closed after this operation. *)
 val schedule_bigstring : t -> ?pos:int -> ?len:int -> Bigstring.t -> unit
+val schedule_bigsubstring : t -> Bigsubstring.t -> unit
 
 (** [schedule_iovec t iovec] schedules a write of I/O-vector [iovec].  It is not safe to
     change the bigstrings underlying the I/O-vector until the writer has been successfully
