@@ -85,11 +85,12 @@ val consumer_left : t -> unit Deferred.t
 
 val of_out_channel : out_channel -> Fd.Kind.t -> t
 
-(** [open_file ?append file] opens [file] for writing and returns a writer for it.  It
-    uses [Unix_syscalls.open_write] to open the file.  *)
+(** [open_file file] opens [file] for writing and returns a writer for it.  It uses
+    [Unix_syscalls.openfile] to open the file.  *)
 val open_file
-  :  ?perm:int (* defaults to 0o666 *)
-  -> ?append:bool (* defaults to false *)
+  :  ?append:bool (* defaults to false *)
+  -> ?close_on_exec:bool (* defaults to true *)
+  -> ?perm:int (* defaults to 0o666 *)
   -> string
   -> t Deferred.t
 
@@ -138,7 +139,11 @@ val to_formatter : t -> Format.formatter
 (** [write_char t c] writes the character *)
 val write_char : t -> char -> unit
 
+(** [newline t] is [write_char t '\n'] *)
 val newline : t -> unit
+
+(** [write_line t s] is [write t s; newline t]. *)
+val write_line : t -> string -> unit
 
 (** [write_byte t i] writes one 8-bit integer (as the single character with that code).
     The given integer is taken modulo 256. *)

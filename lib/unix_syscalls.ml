@@ -55,18 +55,18 @@ let cores =
 (* basic input/output *)
 
 let convert_open_flag = function
-  | `Rdonly -> U.O_RDONLY
-  | `Wronly -> U.O_WRONLY
-  | `Rdwr -> U.O_RDWR
+  | `Rdonly   -> U.O_RDONLY
+  | `Wronly   -> U.O_WRONLY
+  | `Rdwr     -> U.O_RDWR
   | `Nonblock -> U.O_NONBLOCK
-  | `Append -> U.O_APPEND
-  | `Creat -> U.O_CREAT
-  | `Trunc -> U.O_TRUNC
-  | `Excl -> U.O_EXCL
-  | `Noctty -> U.O_NOCTTY
-  | `Dsync -> U.O_DSYNC
-  | `Sync -> U.O_SYNC
-  | `Rsync -> U.O_RSYNC
+  | `Append   -> U.O_APPEND
+  | `Creat    -> U.O_CREAT
+  | `Trunc    -> U.O_TRUNC
+  | `Excl     -> U.O_EXCL
+  | `Noctty   -> U.O_NOCTTY
+  | `Dsync    -> U.O_DSYNC
+  | `Sync     -> U.O_SYNC
+  | `Rsync    -> U.O_RSYNC
 ;;
 
 type open_flag =
@@ -86,9 +86,12 @@ type open_flag =
 
 type file_perm = int with sexp
 
-let openfile ?perm file ~mode =
+let openfile ?perm ?(close_on_exec = false) file ~mode =
   let mode = List.map mode ~f:convert_open_flag in
-  In_thread.syscall_exn ~name:"openfile" (fun () -> Unix.openfile ?perm file ~mode)
+  In_thread.syscall_exn ~name:"openfile" (fun () ->
+    let file_descr = Unix.openfile ?perm file ~mode in
+    if close_on_exec then Unix.set_close_on_exec file_descr;
+    file_descr)
   >>| fun file_descr ->
   Fd.create Fd.Kind.File file_descr (Info.of_string file)
 ;;

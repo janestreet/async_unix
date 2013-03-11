@@ -52,7 +52,12 @@ type open_flag =
 
 type file_perm = int
 
-val openfile : ?perm:file_perm -> string -> mode:open_flag list -> Fd.t Deferred.t
+val openfile
+  :  ?perm:file_perm
+  -> ?close_on_exec:bool (* default: false *)
+  -> string
+  -> mode:open_flag list
+  -> Fd.t Deferred.t
 
 (** [with_file file ~mode ~perm ~f ?exclusive] opens [file], and applies [f] to the
     resulting file descriptor.  When the result of [f] becomes determined, it closes the
@@ -312,7 +317,7 @@ module Socket : sig
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp
+      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp, compare
 
       val create : Inet_addr.t -> port:int -> t
       val create_bind_any : port:int -> t

@@ -48,7 +48,11 @@ val last_read_time : t -> Time.t
 val stdin : t Lazy.t
 
 (** [open_file file] opens [file] for reading and returns a reader reading from it. *)
-val open_file : ?buf_len:int -> string -> t Deferred.t
+val open_file
+  :  ?close_on_exec:bool (* defaults to true *)
+  -> ?buf_len:int
+  -> string
+  -> t Deferred.t
 
 (** [transfer t pipe_w] transfers data from [t] into [pipe_w] one chunk at a time
     (whatever is read from the underlying file descriptor without post-processing).  The

@@ -80,8 +80,8 @@ let create ?buf_len fd =
 
 let of_in_channel ic kind = create (Fd.of_in_channel ic kind)
 
-let open_file ?buf_len file =
-  Unix.openfile file ~mode:[`Rdonly] ~perm:0o000
+let open_file ?(close_on_exec = true) ?buf_len file =
+  Unix.openfile file ~mode:[`Rdonly] ~perm:0o000 ~close_on_exec
   >>| fun fd ->
   create fd ?buf_len
 ;;

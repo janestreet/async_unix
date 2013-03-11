@@ -448,12 +448,12 @@ let ensure_can_write t =
   | `Closed -> failwiths "attempt to use closed writer" t <:sexp_of< t >>
 ;;
 
-let open_file ?(perm = 0o666) ?(append = false) file =
+let open_file ?(append = false) ?(close_on_exec = true) ?(perm = 0o666) file =
   (* Writing to /dropoff needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm >>| create
+  Unix.openfile file ~mode ~perm ~close_on_exec >>| create
 ;;
 
 let with_close t f = Monitor.protect f ~finally:(fun () -> close t)
@@ -782,6 +782,11 @@ let write_char t c =
 
 let newline t = write_char t '\n'
 
+let write_line t s =
+  write t s;
+  newline t;
+;;
+
 let write_byte t i = write_char t (char_of_int (i % 256))
 
 let write_sexp =
@@ -890,6 +895,7 @@ let schedule_iovecs t iovecs  = ensure_can_write t; schedule_iovecs t iovecs
 let schedule_bigstring t ?pos ?len bstr =
   ensure_can_write t; schedule_bigstring t ?pos ?len bstr
 let write ?pos ?len t s = ensure_can_write t; write ?pos ?len t s
+let write_line t s            = ensure_can_write t; write_line t s
 let writef t                  = ensure_can_write t; writef t
 let write_marshal t ~flags v  = ensure_can_write t; write_marshal t ~flags v
 let write_sexp ?hum t s       = ensure_can_write t; write_sexp ?hum t s
