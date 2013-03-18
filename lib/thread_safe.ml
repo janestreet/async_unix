@@ -6,15 +6,20 @@ open Raw_scheduler
 let debug = Debug.thread_safe
 
 let run_holding_async_lock
-    (type a) (type b) t (f : unit -> a) ~(finish : (a, exn) Result.t -> b) : b =
+    (type a) (type b)
+    ?(wakeup_scheduler = true)
+    t (f : unit -> a) ~(finish : (a, exn) Result.t -> b) : b =
   if debug then Debug.log "run_holding_async_lock" t <:sexp_of< t >>;
   if not (am_holding_lock t) then lock t;
-  protect ~finally:(fun () -> thread_safe_wakeup_scheduler t; unlock t) ~f:(fun () ->
+  protect ~finally:(fun () ->
+    if wakeup_scheduler then thread_safe_wakeup_scheduler t;
+    unlock t)
+    ~f:(fun () ->
     (* We run [f] within the [main_execution_context] so that any errors are sent to its
        monitor, rather than whatever random monitor happened to be in effect. *)
-    finish
-      (with_execution_context t Core_scheduler.main_execution_context
-         ~f:(fun () -> Result.try_with f)));
+      finish
+        (with_execution_context t Core_scheduler.main_execution_context
+           ~f:(fun () -> Result.try_with f)));
 ;;
 
 let ensure_in_a_thread t name =
@@ -22,10 +27,10 @@ let ensure_in_a_thread t name =
   if am_holding_lock t then failwithf "called %s while holding the async lock" name ();
 ;;
 
-let run_in_async_with_optional_cycle t f =
+let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
   if debug then Debug.log "run_in_async_with_optional_cycle" t <:sexp_of< t >>;
   ensure_in_a_thread t "run_in_async_with_optional_cycle";
-  run_holding_async_lock t f
+  run_holding_async_lock ?wakeup_scheduler t f
     ~finish:(function
     | Error exn -> Error exn
     | Ok (maybe_run_a_cycle, a) ->
@@ -93,13 +98,15 @@ let block_on_async t f =
 
 let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
 
-let run_in_async t f =
+let run_in_async ?wakeup_scheduler t f =
   if debug then Debug.log "run_in_async" t <:sexp_of< t >>;
   ensure_in_a_thread t "run_in_async";
-  run_holding_async_lock t f ~finish:Fn.id;
+  run_holding_async_lock ?wakeup_scheduler t f ~finish:Fn.id;
 ;;
 
-let run_in_async_exn t f = Result.ok_exn (run_in_async t f)
+let run_in_async_exn ?wakeup_scheduler t f =
+  Result.ok_exn (run_in_async ?wakeup_scheduler t f)
+;;
 
 let run_in_async_wait t f =
   if debug then Debug.log "run_in_async_wait" t <:sexp_of< t >>;
@@ -123,11 +130,18 @@ let deferred t =
 let t () = the_one_and_only ~should_lock:false
 
 let am_holding_async_lock () = am_holding_lock (t ())
+
 let deferred () = deferred (t ())
-let run_in_async_with_optional_cycle f = run_in_async_with_optional_cycle (t ()) f
-let run_in_async f = run_in_async (t ()) f
-let run_in_async_exn f = run_in_async_exn (t ()) f
-let block_on_async f = block_on_async (t ()) f
+
+let run_in_async_with_optional_cycle ?wakeup_scheduler f =
+  run_in_async_with_optional_cycle ?wakeup_scheduler (t ()) f
+;;
+
+let run_in_async     ?wakeup_scheduler f = run_in_async     ?wakeup_scheduler (t ()) f
+let run_in_async_exn ?wakeup_scheduler f = run_in_async_exn ?wakeup_scheduler (t ()) f
+
+let block_on_async     f = block_on_async     (t ()) f
 let block_on_async_exn f = block_on_async_exn (t ()) f
-let run_in_async_wait f = run_in_async_wait (t ()) f
+
+let run_in_async_wait     f = run_in_async_wait     (t ()) f
 let run_in_async_wait_exn f = run_in_async_wait_exn (t ()) f

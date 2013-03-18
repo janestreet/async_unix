@@ -977,6 +977,12 @@ let save ?temp_file ?perm ?fsync file ~contents =
     Deferred.unit)
 ;;
 
+let save_lines ?temp_file ?perm ?fsync file lines =
+  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+    List.iter lines ~f:(fun line -> write t line; newline t);
+    Deferred.unit)
+;;
+
 let sexp_to_buffer ?(hum = true) ~buf sexp =
   if hum then
     Sexp.to_buffer_hum ~buf sexp

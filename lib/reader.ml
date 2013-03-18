@@ -588,12 +588,15 @@ let read_bin_prot ?(max_len = 100 * 1024 * 1024) t bin_prot_reader =
       | `Eof n -> handle_eof n
       | `Ok ->
         let pos_ref = ref 0 in
-        let v =
-          bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref
-        in
-        if !pos_ref <> len then
-          error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
-        Ivar.fill result (`Ok v))
+        match
+          Result.try_with (fun () ->
+            bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref)
+        with
+        | Error exn -> Ivar.fill result (`Error exn)
+        | Ok v ->
+          if !pos_ref <> len then
+            error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+          Ivar.fill result (`Ok v))
 ;;
 
 let read_marshal_raw t =
@@ -660,6 +663,8 @@ let contents t =
 
 let file_contents file = with_file file ~f:contents
 
+let file_lines file = open_file file >>= fun t -> Pipe.to_list (lines t)
+
 let recv t =
   Deferred.create (fun i ->
     read_line t
@@ -706,45 +711,90 @@ let use t =
   | `Not_in_use -> t.state <- `In_use
 ;;
 
-let do_read t f =
+let finished_read t =
+  match t.state with
+  | `Closed -> () (* [f ()] closed it.  Leave it closed. *)
+  | `Not_in_use -> assert false  (* we're using it *)
+  | `In_use -> t.state <- `Not_in_use
+;;
+
+(* [do_read t ~recover f] has a fast path, [recover:false], for when [f] doesn't include a
+   call to a user-supplied function, and hence doesn't need to recover and keep the reader
+   alive if [f] fails (since if [f] fails it indicates a bug in the reader itself).
+   [do_read] has a slow path, [recover:true], for read functions that take user-supplied
+   functions, and need to call [finished_read] even if [f] fails. *)
+let do_read t ~recover f =
   use t;
-  let finally () =
-    begin match t.state with
-    | `Closed -> () (* [f ()] closed it.  Leave it closed. *)
-    | `Not_in_use -> assert false  (* we're using it *)
-    | `In_use -> t.state <- `Not_in_use
-    end;
-    Deferred.unit
-  in
-  Monitor.protect f ~finally;
+  if not recover then
+    (f () >>| fun x -> finished_read t; x)
+  else
+    (* This is a specialized [Monitor.protect]. *)
+    Deferred.create (fun result_ivar ->
+      let finish result =
+        if not (Ivar.is_full result_ivar) then begin
+          finished_read t;
+          Ivar.fill result_ivar (Result.ok_exn result);
+        end
+      in
+      let monitor = Monitor.create () in
+      upon (Stream.next (Monitor.errors monitor))
+        (function
+        | Stream.Nil -> ()
+        | Stream.Cons (exn, _) -> finish (Error exn));
+      upon (within' ~monitor f) (fun a -> finish (Ok a)))
 ;;
 
 (* The code below dynamically checks to make sure that there aren't simultaneous
    reads. *)
-let read t ?pos ?len s = do_read t (fun () -> read t ?pos ?len s)
-let read_char t = do_read t (fun () -> read_char t)
-let read_substring t s = do_read t (fun () -> read_substring t s)
-let read_bigsubstring t s = do_read t (fun () -> read_bigsubstring t s)
-let really_read t ?pos ?len s = do_read t (fun () -> really_read t ?pos ?len s)
-let really_read_substring t s = do_read t (fun () -> really_read_substring t s)
-let really_read_bigsubstring t s =
-  do_read t (fun () -> really_read_bigsubstring t s)
-let read_until t f ~keep_delim =
-  do_read t (fun () -> read_until t f ~keep_delim Fn.id)
-let read_until_max t f ~keep_delim ~max =
-  do_read t (fun () -> read_until_max t f ~keep_delim ~max)
-let read_line t = do_read t (fun () -> read_line t)
+let read t ?pos ?len s    = do_read t ~recover:false (fun () -> read t ?pos ?len s)
+let read_char t           = do_read t ~recover:false (fun () -> read_char t)
+let read_substring t s    = do_read t ~recover:false (fun () -> read_substring t s)
+let read_bigsubstring t s = do_read t ~recover:false (fun () -> read_bigsubstring t s)
 
-let read_sexp ?parse_pos t = do_read t (fun () -> read_sexp ?parse_pos t)
+let really_read t ?pos ?len s =
+  do_read t ~recover:false (fun () -> really_read t ?pos ?len s)
+;;
+
+let really_read_substring t s =
+  do_read t ~recover:false (fun () -> really_read_substring t s)
+;;
+
+let really_read_bigsubstring t s =
+  do_read t ~recover:false (fun () -> really_read_bigsubstring t s)
+;;
+
+let read_until t f ~keep_delim =
+  do_read t ~recover:true (fun () -> read_until t f ~keep_delim Fn.id)
+;;
+
+let read_until_max t f ~keep_delim ~max =
+  do_read t ~recover:true (fun () -> read_until_max t f ~keep_delim ~max)
+;;
+
+let read_line t = do_read t ~recover:false (fun () -> read_line t)
+
+let read_sexp ?parse_pos t = do_read t ~recover:true (fun () -> read_sexp ?parse_pos t)
+
 let read_sexps ?parse_pos t = use t; read_sexps ?parse_pos t
 
 let read_bin_prot ?max_len t reader =
-  do_read t (fun () -> read_bin_prot ?max_len t reader)
-let read_marshal_raw t = do_read t (fun () -> read_marshal_raw t)
-let read_marshal t = do_read t (fun () -> read_marshal t)
-let recv t = do_read t (fun () -> recv t)
+  (* [read_bin_prot] above wraps the [reader.read] call in a try-with, and returns
+     [`Error] if it fails.  So, we can use [~recover:false] and manually reraise the
+     error. *)
+  do_read t ~recover:false (fun () -> read_bin_prot ?max_len t reader)
+  >>| function
+  | `Ok _ | `Eof as x -> x
+  | `Error exn -> raise exn
+;;
+
+let read_marshal_raw t = do_read t ~recover:false (fun () -> read_marshal_raw t)
+let read_marshal t     = do_read t ~recover:false (fun () -> read_marshal t)
+let recv t             = do_read t ~recover:false (fun () -> recv t)
+
 let lines t = use t; lines t
-let contents t = do_read t (fun () -> contents t)
+
+let contents t = do_read t ~recover:false (fun () -> contents t)
+
 let transfer t = use t; transfer t
 
 let convert file f annot_sexp =

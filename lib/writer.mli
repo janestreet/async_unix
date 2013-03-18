@@ -283,6 +283,16 @@ val save
   -> contents:string
   -> unit Deferred.t
 
+(** [save_lines file lines] writes all lines in [lines] to [file], with each line followed
+    by a newline. *)
+val save_lines
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (* defaults to false *)
+  -> string
+  -> string list
+  -> unit Deferred.t
+
 val save_sexp
   :  ?temp_file:string
   -> ?perm:Unix.file_perm

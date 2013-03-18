@@ -267,8 +267,9 @@ val recv : t -> string Read_result.t Deferred.t
 val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
 
 (** [lines t] reads all the lines from [t] and puts them in the pipe, one line per pipe
-    element.  When the reader reaches EOF or the pipe is closed, [lines] closes the the
-    reader, and then after the reader close is finished, closes the pipe. *)
+    element.  The lines do not contain the trailing newline.  When the reader reaches EOF
+    or the pipe is closed, [lines] closes the the reader, and then after the reader close
+    is finished, closes the pipe. *)
 val lines : t -> string Pipe.Reader.t
 
 (** [contents t] returns the string corresponding to the full contents (up to EOF) of the
@@ -277,6 +278,10 @@ val contents : t -> string Deferred.t
 
 (** [file_contents file] returns the string with the full contents of the file *)
 val file_contents : string -> string Deferred.t
+
+(** [file_lines file] returns a list of the lines in the file.  The lines do not contain
+    the trailing newline. *)
+val file_lines : string -> string list Deferred.t
 
 (** [load_sexp ?exclusive file ~f] loads and convert the S-expression in a given [file]
     using [f], and returns the deferred conversion result as a variant of either [Ok res]

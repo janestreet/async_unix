@@ -4,7 +4,8 @@
 
     For [Pipe] functions that return a [unit Deferred.t], the analog in [Thread_safe_pipe]
     blocks.
-*)
+
+    For documentation of [wakeup_scheduler], see the {!Thread_safe} module. *)
 
 open Core.Std
 open Import
@@ -23,8 +24,16 @@ val pushback : _ t -> unit
 
 (** [write_without_pushback'] and [write_without_pushback] transfer the element(s) into
     the pipe and return immediately. *)
-val write_without_pushback' : 'a t -> 'a Queue.t -> unit
-val write_without_pushback  : 'a t -> 'a         -> unit
+val write_without_pushback'
+  :  ?wakeup_scheduler:bool  (* default is true *)
+  -> 'a t
+  -> 'a Queue.t
+  -> unit
+val write_without_pushback
+  :  ?wakeup_scheduler:bool  (* default is true *)
+  -> 'a t
+  -> 'a
+  -> unit
 
 (** [write'] and [write] transfer the element(s) into the pipe and block the current
     thread until the pipe is empty or closed (like {!pushback}). *)

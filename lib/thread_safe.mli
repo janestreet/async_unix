@@ -3,8 +3,10 @@
 
     All the [Thread_safe.block*] and [Thread_safe.run*] functions wake up the async
     scheduler to ensure that it continues in a timely manned with whatever jobs got
-    started.
-*)
+    started.  Some functions take an optional [?wakeup_scheduler:bool] argument, which
+    defaults to [true].  One can cause the scheduler to not be woken up by supplying
+    [~wakeup_scheduler:false], which can reduce CPU use, but increase latency, because the
+    scheduler may not wake up for a while to process jobs. *)
 
 open Core.Std
 open Async_core
@@ -23,7 +25,8 @@ val deferred : unit -> 'a Deferred.t * ('a -> unit)
 (** [run_in_async_with_optional_cycle f] acquires the async lock and runs [f ()] while
     holding the lock.  Depending on the result of [f], it may also run a cycle. *)
 val run_in_async_with_optional_cycle
-  :  (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
+  :  ?wakeup_scheduler:bool  (* default is true *)
+  -> (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
   -> ('a, exn) Result.t
 
 (** [run_in_async f] acquires the async lock and runs [f ()] while holding the lock. It
@@ -34,8 +37,14 @@ val run_in_async_with_optional_cycle
 
     [run_in_async] does not automatically start the async scheduler.  You still need to
     call [Scheduler.go] elsewhere in your program. *)
-val run_in_async     : (unit -> 'a) -> ('a, exn) Result.t
-val run_in_async_exn : (unit -> 'a) ->  'a
+val run_in_async
+  :  ?wakeup_scheduler:bool  (* default is true *)
+  -> (unit -> 'a)
+  -> ('a, exn) Result.t
+val run_in_async_exn
+  :  ?wakeup_scheduler:bool  (* default is true *)
+  -> (unit -> 'a)
+  ->  'a
 
 (** [block_on_async f] runs [f ()] in the async world and blocks until the result becomes
     determined.  This function can be called from the main thread or from a thread outside
