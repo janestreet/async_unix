@@ -35,16 +35,17 @@ val go
 
 (** [go_main] is like [go], except that one supplies a [main] function that will be run to
     initialize the async computation, and that [go_main] will fail if any async has been
-    used prior to [go_main] being called. *)
+    used prior to [go_main] being called.  Moreover it allows to configure more static
+    options of the scheduler. *)
 val go_main
   :  ?raise_unhandled_exn:bool (* defaults to false *)
+  -> ?file_descr_watcher:Config.File_descr_watcher.t (* default to the value in [Config] *)
   -> main:(unit -> unit)
   -> unit
   -> never_returns
 
 type 'a with_options =
-  ?work_group:Work_group.t
-  -> ?monitor:Monitor.t
+  ?monitor:Monitor.t
   -> ?priority:Priority.t
   -> 'a
 
@@ -55,7 +56,7 @@ type 'a with_options =
     [Error ()] is returned. *)
 val within_context : Execution_context.t -> (unit -> 'a) -> ('a, unit) Result.t
 
-(** [within' f ~work_group ~monitor ~priority] runs [f ()] right now, with the specified
+(** [within' f ~monitor ~priority] runs [f ()] right now, with the specified
     block group, monitor, and priority set as specified.  They will be reset to their
     original values when [f] returns.  If [f] raises, then the result of [within'] will
     never become determined, but the exception will end up in the specified monitor. *)

@@ -39,6 +39,8 @@ module type S = sig
 
   include Invariant.S with type t := t
 
+  val backend : Config.File_descr_watcher.t
+
   (** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
       file descriptors in {[ [0, num_file_descrs) ]}. *)
   val create : num_file_descrs:int -> t

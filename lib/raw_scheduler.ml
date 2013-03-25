@@ -5,19 +5,29 @@ module Core_scheduler = Async_core.Scheduler
 module Fd = Raw_fd
 module Watching = Fd.Watching
 module Signal = Core.Std.Signal
+module Timerfd = Linux_ext.Timerfd
 
 let debug = Debug.scheduler
 
-module type File_descr_watcher = File_descr_watcher_intf.S
+module File_descr_watcher = struct
+  (* A file descriptor watcher implementation + a watcher.  We need the file-descr watcher
+     as a first-class value to support choosing which file-descr watcher to use in
+     [go_main].  We could define [t] as [Epoll of ... | Select of ...] and dispatch every
+     call, but it is simpler to just pack the file descriptor watcher with its associated
+     functions (OO-programming with modules...). *)
+  module type S = sig
+    include File_descr_watcher_intf.S
+    val watcher : t
+  end
 
-let file_descr_watcher =
-  let module F = Config.File_descr_watcher in
-  match Config.file_descr_watcher with
-  | F.Select -> (module Select_file_descr_watcher : File_descr_watcher)
-  | F.Epoll  -> (module Epoll_file_descr_watcher  : File_descr_watcher)
-;;
+  type t = (module S)
 
-module File_descr_watcher = (val file_descr_watcher : File_descr_watcher)
+  let sexp_of_t t =
+    let module F = (val t : S) in
+    (* Include the backend information so we know which one it is. *)
+    <:sexp_of< Config.File_descr_watcher.t * F.t >> (F.backend, F.watcher)
+  ;;
+end
 
 type 'a with_options = 'a Core_scheduler.with_options
 
@@ -41,6 +51,10 @@ let set_max_num_jobs_per_priority_per_cycle i =
 
 let force_current_cycle_to_end () = Core_scheduler.(force_current_cycle_to_end (t ()))
 
+(* Default file descr watcher backend.  It is global so it can be reused after a fork.  It
+   is set by [go_main]. *)
+let file_descr_watcher_backend = ref Config.file_descr_watcher
+
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
        data structures, which is almost all async code.  The [mutex] is automatically
@@ -63,6 +77,10 @@ type t =
     (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
        when they are created, and removed when they transition to [Closed]. *)
     fd_by_descr : Fd_by_descr.t;
+
+    (* If we are using a file descriptor watcher that does not support sub-millisecond
+       timeout, this contains a timerfd used to handle the next expiration. *)
+    mutable timerfd : Linux_ext.Timerfd.t option;
 
     (* A distinguished thread, called the "scheduler" thread, is continually looping,
        checking file descriptors for I/O and then running a cycle.  It manages
@@ -216,8 +234,9 @@ let invariant t : unit =
           | Some fd' -> assert (phys_equal fd fd')
           end)))
       ~file_descr_watcher:(check (fun file_descr_watcher ->
-        File_descr_watcher.invariant file_descr_watcher;
-        File_descr_watcher.iter t.file_descr_watcher ~f:(fun file_descr _ ->
+        let module F = (val file_descr_watcher : File_descr_watcher.S) in
+        F.invariant F.watcher;
+        F.iter F.watcher ~f:(fun file_descr _ ->
           try
             match Fd_by_descr.find t.fd_by_descr file_descr with
             | None -> failwith "missing from fd_by_descr"
@@ -230,6 +249,7 @@ let invariant t : unit =
           if fd.Fd.watching_has_changed then
             assert (List.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
               phys_equal fd fd')))))
+      ~timerfd:ignore
       ~scheduler_thread_id:ignore
       ~interruptor:(check Interruptor.invariant)
       ~signal_manager:(check Raw_signal_manager.invariant)
@@ -239,12 +259,30 @@ let invariant t : unit =
     failwiths "Scheduler.invariant failed" (exn, t) <:sexp_of< exn * t >>
 ;;
 
+(* Try to create a timerfd.  It returns [None] if [Core] is not built with timerfd support
+   or if it is not available on the current system. *)
+let try_create_timerfd () =
+  match Timerfd.create with
+  | Result.Error _ -> None
+  | Result.Ok create ->
+    let clock = Timerfd.Clock.realtime in
+    try
+      Some (create clock ~flags:Timerfd.Flags.(nonblock + cloexec))
+    with
+    | Unix.Unix_error (Unix.ENOSYS, _, _) ->
+      (* Kernel too old. *)
+      None
+    | Unix.Unix_error (Unix.EINVAL, _, _) ->
+      (* Flags are only supported with Linux >= 2.6.27, try without them. *)
+      let timerfd = create clock in
+      Unix.set_close_on_exec (timerfd : Timerfd.t :> Unix.File_descr.t);
+      Unix.set_nonblock (timerfd : Timerfd.t :> Unix.File_descr.t);
+      Some timerfd
+;;
+
 let create () =
   if debug then Debug.log_string "creating scheduler";
   let thread_pool = ok_exn (Thread_pool.create ~max_num_threads:Config.max_num_threads) in
-  let main_work_group = ok_exn (Thread_pool.create_work_group thread_pool) in
-  ok_exn (Async_core.Execution_context.(Backpatched.Hole.fill main_work_group_hole)
-            main_work_group);
   let num_file_descrs = Config.max_num_open_file_descrs in
   let fd_by_descr = Fd_by_descr.create ~num_file_descrs in
   let create_fd kind file_descr info =
@@ -253,14 +291,47 @@ let create () =
     fd
   in
   let interruptor = Interruptor.create ~create_fd in
+  let file_descr_watcher, timerfd =
+    let module F = Config.File_descr_watcher in
+    match !file_descr_watcher_backend with
+    | F.Select ->
+      let watcher = Select_file_descr_watcher.create ~num_file_descrs in
+      let module W = struct
+        include Select_file_descr_watcher
+        let watcher = watcher
+      end in
+      ((module W : File_descr_watcher.S), None)
+    | F.Epoll ->
+      let watcher = Epoll_file_descr_watcher.create ~num_file_descrs in
+      let timerfd = try_create_timerfd () in
+      (* Start watching the timerfd. *)
+      begin match timerfd with
+      | None ->
+        failwith "\
+Async refuses to run using epoll on a system that doesn't support timer FDs, since
+Async will be unable to timeout with sub-millisecond precision."
+      | Some tfd ->
+        let module Epoll = Linux_ext.Epoll in
+        let epoll = Epoll_file_descr_watcher.epoll watcher in
+        (* Use the edge-triggered behavior so we don't have to reset the timerfd when it
+           expires. *)
+        Epoll.set epoll (tfd : Timerfd.t :> Unix.File_descr.t) Epoll.Flags.(in_ + et);
+      end;
+      let module W = struct
+        include Epoll_file_descr_watcher
+        let watcher = watcher
+      end in
+      ((module W : File_descr_watcher.S), timerfd)
+  in
   let core_scheduler = Core_scheduler.t () in
   let t =
     { mutex = Nano_mutex.create ();
       is_running = false;
       have_called_go = false;
       fds_whose_watching_has_changed = [];
-      file_descr_watcher = File_descr_watcher.create ~num_file_descrs;
+      file_descr_watcher;
       fd_by_descr;
+      timerfd;
       scheduler_thread_id = -1; (* set when [be_the_scheduler] is called *)
       interruptor;
       signal_manager =
@@ -285,6 +356,12 @@ let init () = the_one_and_only_ref := Ready_to_initialize create
 let () = init ()
 
 let reset_in_forked_process () =
+  begin match !the_one_and_only_ref with
+  | Initialized { timerfd = Some tfd; _ } ->
+    Unix.close (tfd :> Unix.File_descr.t)
+  | _ ->
+    ()
+  end;
   Async_core.Scheduler.reset_in_forked_process ();
   init ();
 ;;
@@ -360,6 +437,7 @@ let request_stop_watching t fd read_or_write value =
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
+  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   let make_file_descr_watcher_agree_with fd =
     fd.Fd.watching_has_changed <- false;
     let desired =
@@ -374,9 +452,9 @@ let sync_changed_fds_to_file_descr_watcher t =
           false)
     in
     if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.set" (fd.Fd.file_descr, desired, t.file_descr_watcher)
-        (<:sexp_of< File_descr.t * bool Read_write.t * File_descr_watcher.t >>);
-    File_descr_watcher.set t.file_descr_watcher fd.Fd.file_descr desired
+      Debug.log "File_descr_watcher.set" (fd.Fd.file_descr, desired, F.watcher)
+        (<:sexp_of< File_descr.t * bool Read_write.t * F.t >>);
+    F.set F.watcher fd.Fd.file_descr desired
   in
   let changed = t.fds_whose_watching_has_changed in
   t.fds_whose_watching_has_changed <- [];
@@ -384,6 +462,7 @@ let sync_changed_fds_to_file_descr_watcher t =
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
+  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   Core_scheduler.set_thread_safe_finalizer_hook t.core_scheduler
     (fun () -> thread_safe_wakeup_scheduler t);
   t.scheduler_thread_id <- current_thread_id ();
@@ -397,9 +476,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
          immediately come back and start running them after checking for I/O. *)
       `Immediately
     else begin
-      let now = Time.now () in
-      match Core_scheduler.next_upcoming_event t.core_scheduler with
-      | None ->
+      let max_timeout_after =
         (* Async does not have any scheduled events, so, in principle, we could supply
            [`Never] as the timeout to select.  We instead supply a small timeout to be
            more robust to bugs that could prevent async from waking up and servicing
@@ -412,10 +489,25 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
            negligible performance impact, and frequent enough that the latency would
            typically be not noticeable.  Also, 50ms is what the OCaml ticker thread
            uses. *)
-        `After (sec 0.05)
+        sec 0.05
+      in
+      let timeout_after span =
+        match t.timerfd with
+        | None ->
+          (* There is no timerfd, use the file descriptor watcher timeout. *)
+          `After span
+        | Some timerfd ->
+          Linux_ext.Timerfd.set timerfd (`After span);
+          (* Since the timerfd will handle the wakeup, the file-descr watcher doesn't have
+             to. *)
+          `Never
+      in
+      match Core_scheduler.next_upcoming_event t.core_scheduler with
+      | None -> timeout_after max_timeout_after
       | Some time ->
+        let now = Time.now () in
         if Time.(>) time now then
-          `After (Time.diff time now)
+          timeout_after (Time.Span.min (Time.diff time now) max_timeout_after)
         else
           `Immediately
     end
@@ -431,9 +523,23 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       let fill zs value =
         List.iter zs ~f:(fun file_descr ->
           match Fd_by_descr.find t.fd_by_descr file_descr with
-          | None ->
-            failwiths "File_descr_watcher returned unknown file descr" file_descr
-              (<:sexp_of< File_descr.t >>)
+          | None -> begin
+            match t.timerfd with
+            | Some tfd when file_descr = (tfd :> Unix.File_descr.t) -> begin
+              match read_or_write with
+              | `Read ->
+                (* We don't need to actually call [read] since we are using the
+                   edge-triggered behavior. *)
+                ()
+              | `Write ->
+                failwiths
+                  "File_descr_watcher returned the timerfd as ready to be written to"
+                  file_descr (<:sexp_of< File_descr.t >>)
+            end
+            | _ ->
+              failwiths "File_descr_watcher returned unknown file descr" file_descr
+                (<:sexp_of< File_descr.t >>)
+          end
           | Some fd ->
             let module W = Fd.Watching in
             match Read_write.get fd.Fd.watching read_or_write with
@@ -463,7 +569,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       sync_changed_fds_to_file_descr_watcher t;
       if Debug.file_descr_watcher then
         Debug.log "File_descr_watcher.pre_check" t (<:sexp_of< t >>);
-      let pre = File_descr_watcher.pre_check t.file_descr_watcher in
+      let pre = F.pre_check F.watcher in
       (* [compute_timeout] must be the last thing before [thread_safe_check], because we
          want to make sure the timeout is zero if there are any scheduled jobs. *)
       let timeout = compute_timeout () in
@@ -471,9 +577,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       if Debug.file_descr_watcher then
         Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
           (<:sexp_of< File_descr_watcher_intf.Timeout.t * t >>);
-      let check_result =
-        File_descr_watcher.thread_safe_check t.file_descr_watcher pre ~timeout
-      in
+      let check_result = F.thread_safe_check F.watcher pre ~timeout in
       lock t;
       (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
          processing that needs to happen in response to [thread_safe_interrupt].  That
@@ -483,8 +587,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       Interruptor.clear t.interruptor;
       if Debug.file_descr_watcher then
         Debug.log "File_descr_watcher.post_check" (check_result, t)
-          (<:sexp_of< File_descr_watcher.Check_result.t * t >>);
-      begin match File_descr_watcher.post_check t.file_descr_watcher check_result with
+          (<:sexp_of< F.Check_result.t * t >>);
+      begin match F.post_check F.watcher check_result with
       | `Timeout | `Syscall_interrupted -> ()
       | `Ok post ->
         if Debug.file_descr_watcher then
@@ -546,9 +650,10 @@ let go ?raise_unhandled_exn () =
   end
 ;;
 
-let go_main ?raise_unhandled_exn ~main () =
+let go_main ?raise_unhandled_exn ?file_descr_watcher ~main () =
   if not (is_ready_to_initialize ()) then
     failwith "Async was initialized prior to [Scheduler.go_main]";
+  Option.iter file_descr_watcher ~f:(fun v -> file_descr_watcher_backend := v);
   Deferred.upon Deferred.unit main;
   go ?raise_unhandled_exn ();
 ;;
@@ -578,6 +683,7 @@ let fold_fields ~init folder =
     ~fds_whose_watching_has_changed:f
     ~file_descr_watcher:f
     ~fd_by_descr:f
+    ~timerfd:f
     ~scheduler_thread_id:f
     ~interruptor:f
     ~signal_manager:f

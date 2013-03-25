@@ -11,11 +11,9 @@ module Helper_thread = struct
   let create ?priority ?name () =
     let t = the_one_and_only ~should_lock:true in
     let finalize_helper_thread helper_thread =
-      ok_exn (Thread_pool.finished_with_helper_thread t.thread_pool helper_thread)
+      Thread_pool.finished_with_helper_thread t.thread_pool helper_thread
     in
-    let execution_context = current_execution_context t in
-    let work_group = Execution_context.work_group execution_context in
-    Result.map (Thread_pool.create_helper_thread t.thread_pool work_group ?name ?priority)
+    Result.map (Thread_pool.create_helper_thread t.thread_pool ?name ?priority)
       ~f:(fun helper_thread ->
         add_finalizer_exn t helper_thread finalize_helper_thread;
         helper_thread);
@@ -25,7 +23,6 @@ end
 let run ?priority ?thread ?name f =
   let t = the_one_and_only ~should_lock:true in
   let doit () =
-    let execution_context = current_execution_context t in
     Deferred.create (fun ivar ->
       let doit () =
         (* At this point, we are in a thread-pool thread, not the async thread. *)
@@ -35,6 +32,7 @@ let run ?priority ?thread ?name f =
           have_lock_do_cycle t);
       in
       match thread with
+      | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
       | Some helper_thread ->
         ok_exn
           (Thread_pool.add_work_for_helper_thread
@@ -42,11 +40,7 @@ let run ?priority ?thread ?name f =
             helper_thread
             doit
             ?name
-            ?priority)
-      | None ->
-        let work_group = Execution_context.work_group execution_context in
-        ok_exn
-          (Thread_pool.add_work_for_group t.thread_pool work_group doit ?name ?priority))
+            ?priority))
     >>| Result.ok_exn
   in
   if t.is_running then

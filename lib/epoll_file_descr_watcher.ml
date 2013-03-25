@@ -21,6 +21,8 @@ type t =
   }
 with sexp_of, fields
 
+let backend = Config.File_descr_watcher.Epoll
+
 let invariant t : unit =
   try
     let check f = fun field -> f (Field.get field t) in
