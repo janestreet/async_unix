@@ -918,6 +918,7 @@ end
 
 let getlogin () = In_thread.syscall_exn ~name:"getlogin" (fun () -> Unix.getlogin ())
 
-let wordexp ?flags glob =
-  In_thread.syscall_exn ~name:"wordexp" (fun () -> Unix.wordexp ?flags glob)
+let wordexp =
+  Or_error.map Unix.wordexp ~f:(fun wordexp ?flags glob ->
+    In_thread.syscall_exn ~name:"wordexp" (fun () -> wordexp ?flags glob))
 ;;

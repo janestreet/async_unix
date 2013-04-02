@@ -586,6 +586,6 @@ end
 val getlogin : unit -> string Deferred.t
 
 val wordexp
-  :  ?flags : [ `No_cmd | `Show_err | `Undef ] list
-  -> string
-  -> string array Deferred.t
+  :  (?flags : [ `No_cmd | `Show_err | `Undef ] list
+      -> string
+      -> string array Deferred.t) Or_error.t
