@@ -24,6 +24,9 @@ module Check_buffer_age' = struct
   with sexp_of
 end
 
+module Open_flags = Unix.Open_flags
+
+type open_flags = (Open_flags.t, exn) Result.t with sexp_of
 
 type t =
   { id : Id.t;
@@ -100,6 +103,8 @@ type t =
        consumer leaves.  By default, it raises, but that can be disabled. *)
     consumer_left : unit Ivar.t;
     mutable raise_when_consumer_leaves : bool; (* default is true *)
+
+    open_flags : open_flags Deferred.t;
   }
 with fields, sexp_of
 
@@ -160,6 +165,7 @@ let invariant t : unit =
       ~consumer_left:(check (fun consumer_left ->
         if Ivar.is_full consumer_left then assert (is_stopped_permanently t)))
       ~raise_when_consumer_leaves:ignore
+      ~open_flags:ignore
   with exn -> failwiths "writer invariant failed" (exn, t) <:sexp_of< exn * t >>
 ;;
 
@@ -407,6 +413,7 @@ let create
     Monitor.create ~info:(Info.create "writer" (id, fd) <:sexp_of< Id.t * Fd.t >>) ()
   in
   let consumer_left = Ivar.create () in
+  let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
   let t =
   { id;
     fd;
@@ -428,6 +435,7 @@ let create
     check_buffer_age = Check_buffer_age.dummy;
     consumer_left;
     raise_when_consumer_leaves;
+    open_flags;
   }
   in
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
@@ -649,7 +657,18 @@ let maybe_start_writer t =
     (* We schedule the background writer thread to run with low priority, so that it runs
        at the end of the cycle and that all of the calls to Writer.write will usually be
        batched into a single system call. *)
-    schedule ~monitor:t.monitor ~priority:Priority.low (fun () -> start_write t);
+    schedule ~monitor:t.monitor ~priority:Priority.low (fun () ->
+      t.open_flags
+      >>> fun open_flags ->
+      let can_write_fd =
+        match open_flags with
+        | Error _ -> false
+        | Ok flags -> Unix.Open_flags.can_write flags
+      in
+      if not can_write_fd then
+        failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
+          (<:sexp_of< open_flags * t >>);
+      start_write t);
 ;;
 
 let give_buf t desired =

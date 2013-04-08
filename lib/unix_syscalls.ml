@@ -26,6 +26,8 @@ exception Unix_error = Unix.Unix_error
 
 let close = Fd.close
 
+module Open_flags = Unix.Open_flags
+
 let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 
 let system_exn s =
@@ -94,6 +96,16 @@ let openfile ?perm ?(close_on_exec = false) file ~mode =
     file_descr)
   >>| fun file_descr ->
   Fd.create Fd.Kind.File file_descr (Info.of_string file)
+;;
+
+let fcntl_getfl fd =
+  Fd.syscall_in_thread_exn fd ~name:"fcntl_getfl" (fun file_descr ->
+    Unix.fcntl_getfl file_descr)
+;;
+
+let fcntl_setfl fd flags =
+  Fd.syscall_in_thread_exn fd ~name:"fcntl_setfl" (fun file_descr ->
+    Unix.fcntl_setfl file_descr flags)
 ;;
 
 let lseek fd pos ~mode =

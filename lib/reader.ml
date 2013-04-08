@@ -26,22 +26,28 @@ module State = struct
   with sexp
 end
 
-type t = {
-  fd : Fd.t;
-  id : Id.t;
-  mutable buf : Bigstring.t sexp_opaque;
-  mutable pos : int;
-  mutable available : int;
-  bin_prot_len_buf : Bigstring.t sexp_opaque;
-  mutable bin_prot_buf : Bigstring.t sexp_opaque;
-  mutable state : State.t;
-  close_finished : unit Ivar.t;
-  mutable last_read_time : Time.t;
-} with fields, sexp_of
+module Open_flags = Unix.Open_flags
+
+type open_flags = (Open_flags.t, exn) Result.t with sexp_of
+
+type t =
+  { fd : Fd.t;
+    id : Id.t;
+    mutable buf : Bigstring.t sexp_opaque;
+    mutable pos : int;
+    mutable available : int;
+    bin_prot_len_buf : Bigstring.t sexp_opaque;
+    mutable bin_prot_buf : Bigstring.t sexp_opaque;
+    mutable state : State.t;
+    close_finished : unit Ivar.t;
+    mutable last_read_time : Time.t;
+    open_flags : open_flags Deferred.t;
+  }
+with fields, sexp_of
 
 let io_stats = Io_stats.create ()
 
-let invariant t =
+let invariant t : unit =
   assert (0 <= t.pos);
   assert (0 <= t.available);
   assert (t.pos + t.available <= Bigstring.length t.buf);
@@ -65,7 +71,8 @@ let create ?buf_len fd =
           failwiths "Reader.create got non positive buf_len" (buf_len, fd)
             (<:sexp_of< int * Fd.t >>)
   in
-  { fd = fd;
+  let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
+  { fd;
     id = Id.create ();
     buf = Bigstring.create buf_len;
     pos = 0;
@@ -75,6 +82,7 @@ let create ?buf_len fd =
     state = `Not_in_use;
     close_finished = Ivar.create ();
     last_read_time = Scheduler.cycle_start ();
+    open_flags;
   }
 ;;
 
@@ -129,6 +137,16 @@ let with_file ?buf_len ?(exclusive = false) file ~f =
    returns [`Ok], otherwise it returns [`Eof]. *)
 let get_data t : [ `Ok | `Eof ] Deferred.t  =
   Deferred.create (fun result ->
+    t.open_flags
+    >>> fun open_flags ->
+    let can_read_fd =
+      match open_flags with
+      | Error _ -> false
+      | Ok open_flags -> Unix.Open_flags.can_read open_flags
+    in
+    if not can_read_fd then
+      failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
+        (<:sexp_of< open_flags * t >>);
     let eof () = Ivar.fill result `Eof in
     let ebadf () =
       (* If the file descriptior has been closed, we will get EBADF from a syscall.  If

@@ -71,6 +71,13 @@ val with_file
   -> f:(Fd.t -> 'a Deferred.t)
   -> 'a Deferred.t
 
+module Open_flags : module type of Unix.Open_flags
+
+(** [fcntl_getfl] and [fcntl_setf] are deferred wrappers around the corresponding
+    functions in [Core.Unix] for accessing the open-file-descriptor table. *)
+val fcntl_getfl : Fd.t -> Open_flags.t Deferred.t
+val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
+
 (** [close fd] closes the file descriptor [fd], and raises an exception if [fd] has
     already been closed.
 
@@ -207,6 +214,12 @@ val symlink : src:string -> dst:string -> unit Deferred.t
 
 val readlink : string -> string Deferred.t
 
+(** [mkstemp prefix] creates and opens a unique temporary file with [prefix],
+    automatically appending a suffix of six random characters to make the name unique.
+    Unlike C's [mkstemp], [prefix] should not include six X's at the end.
+
+    @raise Unix_error on errors.
+*)
 val mkstemp : string -> (string * Fd.t) Deferred.t
 
 val mkdtemp : string -> string Deferred.t
