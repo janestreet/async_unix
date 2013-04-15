@@ -394,7 +394,10 @@ let first_char t p =
       else
         loop (pos + 1)
     in
-    loop t.pos
+    (* [p] is supplied by the user and may raise, so we wrap [loop] in a [try_with].  We
+       put the [try_with] here rather than around the call to [p] to avoid per-character
+       try-with overhead. *)
+    Or_error.try_with (fun () -> loop t.pos)
   | `Char ch ->
     let rec loop pos =
       if pos = limit then
@@ -404,23 +407,25 @@ let first_char t p =
       else
         loop (pos + 1)
     in
-    loop t.pos
+    Ok (loop t.pos)
 ;;
 
 let read_until_gen t p ~keep_delim ~max k =
-  Deferred.create (fun result ->
-    let rec loop ac total =
-      with_nonempty_buffer' t (function
+  let rec loop ac total =
+    with_nonempty_buffer' t (fun x ->
+      match x with
       | `Eof ->
-        Ivar.fill result
-          (k (if ac = [] then `Eof
-            else `Eof_without_delim (Bigsubstring.concat_string (List.rev ac))))
+        k (Ok
+             (if ac = []
+              then `Eof
+              else `Eof_without_delim (Bigsubstring.concat_string (List.rev ac))))
       | `Ok ->
         let concat_helper ss lst =
           Bigsubstring.concat_string (List.rev_append lst [ss])
         in
         match first_char t p with
-        | None ->
+        | Error _ as e -> k e
+        | Ok None ->
           let len = t.available in
           let total = total + len in
           let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
@@ -430,10 +435,10 @@ let read_until_gen t p ~keep_delim ~max k =
           begin match max with
           | Some max when total > max ->
             let s = concat_helper ss ac in
-            Ivar.fill result (k (`Max_exceeded s))
+            k (Ok (`Max_exceeded s))
           | Some _ | None -> loop (ss :: ac) total
           end
-        | Some pos ->
+        | Ok Some pos ->
           let amount_consumed = pos + 1 - t.pos in
           let len =
             if keep_delim then amount_consumed else amount_consumed - 1
@@ -441,27 +446,28 @@ let read_until_gen t p ~keep_delim ~max k =
           let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
           consume t amount_consumed;
           let res = concat_helper ss ac in
-          Ivar.fill result (k (`Ok res)))
-    in
-    loop [] 0)
-;;
-
-let read_until_max t pred ~keep_delim ~max =
-  read_until_gen t pred ~keep_delim ~max:(Some max) Fn.id
+          k (Ok (`Ok res)))
+  in
+  loop [] 0
 ;;
 
 let read_until t pred ~keep_delim k =
   read_until_gen t pred ~keep_delim ~max:None (function
-  | `Max_exceeded _ -> assert false  (* impossible - no maximum set *)
-    | `Eof
-    | `Eof_without_delim _
-    | `Ok _ as x -> k x)
+    | Error _ as x -> k x
+    | Ok `Max_exceeded _ -> assert false  (* impossible - no maximum set *)
+    | Ok (`Eof
+         | `Eof_without_delim _
+         | `Ok _) as x -> k x)
+;;
 
 let line_delimiter_pred = `Char '\n'
 let read_line_gen t k =
   read_until t line_delimiter_pred ~keep_delim:false (function
-    | `Eof | `Eof_without_delim _ as x -> k x
-    | `Ok line ->
+    | Error _ ->
+      (* Impossible, since we supplied a [`Char] predicate. *)
+      assert false
+    | Ok (`Eof | `Eof_without_delim _ as x) -> k x
+    | Ok (`Ok line) ->
         k (`Ok (let len = String.length line in
                 if len >= 1 && line.[len - 1] = '\r' then
                   String.sub line ~pos:0 ~len:(len - 1)
@@ -470,9 +476,12 @@ let read_line_gen t k =
 ;;
 
 let read_line t =
-  read_line_gen t (function
-    | `Eof_without_delim str -> `Ok str
-    | `Ok _ | `Eof as x -> x)
+  Deferred.create (fun result ->
+    read_line_gen t (fun z ->
+      Ivar.fill result
+        (match z with
+         | `Eof_without_delim str -> `Ok str
+         | `Ok _ | `Eof as x -> x)))
 ;;
 
 let really_read_line ~wait_time t =
@@ -484,10 +493,10 @@ let really_read_line ~wait_time t =
       if t.state = `Closed then fill_result ac
       else Clock.after wait_time >>> fun () -> loop ac
     and loop ac =
-      read_line_gen t Fn.id >>> function
+      read_line_gen t (function
         | `Eof -> continue ac
         | `Eof_without_delim str -> continue (str :: ac)
-        | `Ok line -> fill_result (line :: ac)
+        | `Ok line -> fill_result (line :: ac))
     in
     loop []
   )
@@ -495,71 +504,69 @@ let really_read_line ~wait_time t =
 
 let space = Bigstring.of_string " "
 
-let gen_read_sexp ?parse_pos t parse =
-  Deferred.create (fun result ->
-    let rec loop parse_fun =
-      with_nonempty_buffer' t (function
+let gen_read_sexp ?parse_pos t parse k =
+  let rec loop parse_fun =
+    with_nonempty_buffer' t (function
       | `Eof ->
         (* The sexp parser doesn't know that a token ends at EOF, so we add a space to
            be sure. *)
         let module S = Sexp.Cont_state in
-        begin match parse_fun ~pos:0 ~len:1 space with
-        | Sexp.Done (sexp, parse_pos) -> Ivar.fill result (`Ok (sexp, parse_pos))
-        | Sexp.Cont (S.Parsing_whitespace, _) -> Ivar.fill result `Eof
-        | Sexp.Cont ((S.Parsing_atom
+        begin match Or_error.try_with (fun () -> parse_fun ~pos:0 ~len:1 space) with
+        | Error _ as e -> k e
+        | Ok (Sexp.Done (sexp, parse_pos)) -> k (Ok (`Ok (sexp, parse_pos)))
+        | Ok (Sexp.Cont (S.Parsing_whitespace, _)) -> k (Ok `Eof)
+        | Ok (Sexp.Cont ((S.Parsing_atom
                          | S.Parsing_list
                          | S.Parsing_sexp_comment
-                         | S.Parsing_block_comment), _)
+                         | S.Parsing_block_comment), _))
           -> failwiths "Reader.read_sexp got unexpected eof" t <:sexp_of< t >>
         end;
       | `Ok ->
-        match parse_fun ~pos:t.pos ~len:t.available t.buf with
-        | Sexp.Done (sexp, parse_pos) ->
+        match
+          Or_error.try_with (fun () -> parse_fun ~pos:t.pos ~len:t.available t.buf)
+        with
+        | Error _ as e -> k e
+        | Ok (Sexp.Done (sexp, parse_pos)) ->
           consume t (parse_pos.Sexp.Parse_pos.buf_pos - t.pos);
-          Ivar.fill result (`Ok (sexp, parse_pos));
-        | Sexp.Cont (_, parse_fun) ->
+          k (Ok (`Ok (sexp, parse_pos)));
+        | Ok (Sexp.Cont (_, parse_fun)) ->
           t.available <- 0;
           loop parse_fun)
+  in
+  let parse ~pos ~len buf =
+    (* [parse_pos] will be threaded through the entire reading process by the sexplib
+       code.  Every occurrence of [parse_pos] above will be identical to the [parse_pos]
+       defined here. *)
+    let parse_pos =
+      match parse_pos with
+      | None -> Sexp.Parse_pos.create ~buf_pos:pos ()
+      | Some parse_pos -> Sexp.Parse_pos.with_buf_pos parse_pos pos
     in
-    let parse ~pos ~len buf =
-      (* [parse_pos] will be threaded through the entire reading process by the sexplib
-         code.  Every occurrence of [parse_pos] above will be identical to the [parse_pos]
-         defined here. *)
-      let parse_pos =
-        match parse_pos with
-        | None -> Sexp.Parse_pos.create ~buf_pos:pos ()
-        | Some parse_pos -> Sexp.Parse_pos.with_buf_pos parse_pos pos
-      in
-      parse ?parse_pos:(Some parse_pos) ?len:(Some len) buf
-    in
-    loop parse)
+    parse ?parse_pos:(Some parse_pos) ?len:(Some len) buf
+  in
+  loop parse
 ;;
 
 type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a
 
-let read_sexp ?parse_pos t =
-  gen_read_sexp t Sexp.parse_bigstring ?parse_pos
-  >>| function
-  | `Eof -> `Eof
-  | `Ok (sexp, _) -> `Ok sexp
-;;
-
 let gen_read_sexps ?parse_pos t parse =
   let pipe_r, pipe_w = Pipe.create () in
   let finished =
-    Deferred.repeat_until_finished parse_pos
-      (fun parse_pos ->
-        gen_read_sexp t parse ?parse_pos
-        >>= function
-        | `Eof -> return (`Finished ())
-        | `Ok (sexp, parse_pos) ->
+    Deferred.create (fun result ->
+      let rec loop parse_pos =
+        gen_read_sexp t parse ?parse_pos (function
+        | Error error -> Error.raise error
+        | Ok `Eof -> Ivar.fill result ()
+        | Ok `Ok (sexp, parse_pos) ->
           if Pipe.is_closed pipe_w then
-            return (`Finished ())
+            Ivar.fill result ()
           else begin
             Pipe.write pipe_w sexp
-            >>| fun () ->
-            `Repeat (Some parse_pos)
+            >>> fun () ->
+            loop (Some parse_pos)
           end)
+      in
+      loop parse_pos)
   in
   upon finished (fun () ->
     close t
@@ -570,51 +577,50 @@ let gen_read_sexps ?parse_pos t parse =
 
 let read_sexps ?parse_pos t = gen_read_sexps t Sexp.parse_bigstring ?parse_pos
 
-let read_bin_prot ?(max_len = 100 * 1024 * 1024) t bin_prot_reader =
+let read_bin_prot ?(max_len = 100 * 1024 * 1024) t bin_prot_reader k =
   let error f =
     ksprintf (fun msg () ->
-      failwiths "Reader.read_bin_prot" (msg, t) <:sexp_of< string * t >>)
+      k (Or_error.error "Reader.read_bin_prot" (msg, t) <:sexp_of< string * t >>))
       f
   in
-  Deferred.create (fun result ->
-    let handle_eof n =
-      if n = 0 then
-        Ivar.fill result `Eof
-      else
-        error "got Eof with %d bytes left over" n ()
-    in
-    really_read_bigstring t t.bin_prot_len_buf
+  let handle_eof n =
+    if n = 0 then
+      k (Ok `Eof)
+    else
+      error "got Eof with %d bytes left over" n ()
+  in
+  really_read_bigstring t t.bin_prot_len_buf
+  >>> function
+  | `Eof n -> handle_eof n
+  | `Ok ->
+    let pos_ref = ref 0 in
+    let expected_len = Bigstring.length t.bin_prot_len_buf in
+    let len = Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref in
+    if !pos_ref <> expected_len then
+      error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+    if len > max_len then
+      error "max read length exceeded: %d > %d" len max_len ();
+    if len < 0 then
+      error "negative length %d" len ();
+    let prev_len = Bigstring.length t.bin_prot_buf in
+    if len > prev_len then
+      t.bin_prot_buf <- Bigstring.create
+                          (Int.min max_len (Int.max len (prev_len * 2)));
+    let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
+    really_read_bigsubstring t ss
     >>> function
     | `Eof n -> handle_eof n
     | `Ok ->
       let pos_ref = ref 0 in
-      let expected_len = Bigstring.length t.bin_prot_len_buf in
-      let len = Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref in
-      if !pos_ref <> expected_len then
-        error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
-      if len > max_len then
-        error "max read length exceeded: %d > %d" len max_len ();
-      if len < 0 then
-        error "negative length %d" len ();
-      let prev_len = Bigstring.length t.bin_prot_buf in
-      if len > prev_len then
-        t.bin_prot_buf <- Bigstring.create
-          (Int.min max_len (Int.max len (prev_len * 2)));
-      let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
-      really_read_bigsubstring t ss
-      >>> function
-      | `Eof n -> handle_eof n
-      | `Ok ->
-        let pos_ref = ref 0 in
-        match
-          Result.try_with (fun () ->
-            bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref)
-        with
-        | Error exn -> Ivar.fill result (`Error exn)
-        | Ok v ->
-          if !pos_ref <> len then
-            error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
-          Ivar.fill result (`Ok v))
+      match
+        Or_error.try_with (fun () ->
+          bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref)
+      with
+      | Error _ as e -> k e
+      | Ok v ->
+        if !pos_ref <> len then
+          error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+        k (Ok (`Ok v))
 ;;
 
 let read_marshal_raw t =
@@ -736,84 +742,87 @@ let finished_read t =
   | `In_use -> t.state <- `Not_in_use
 ;;
 
-(* [do_read t ~recover f] has a fast path, [recover:false], for when [f] doesn't include a
-   call to a user-supplied function, and hence doesn't need to recover and keep the reader
-   alive if [f] fails (since if [f] fails it indicates a bug in the reader itself).
-   [do_read] has a slow path, [recover:true], for read functions that take user-supplied
-   functions, and need to call [finished_read] even if [f] fails. *)
-let do_read t ~recover f =
+let do_read t f =
   use t;
-  if not recover then
-    (f () >>| fun x -> finished_read t; x)
-  else
-    (* This is a specialized [Monitor.protect]. *)
-    Deferred.create (fun result_ivar ->
-      let finish result =
-        if not (Ivar.is_full result_ivar) then begin
-          finished_read t;
-          Ivar.fill result_ivar (Result.ok_exn result);
-        end
-      in
-      let monitor = Monitor.create () in
-      upon (Stream.next (Monitor.errors monitor))
-        (function
-        | Stream.Nil -> ()
-        | Stream.Cons (exn, _) -> finish (Error exn));
-      upon (within' ~monitor f) (fun a -> finish (Ok a)))
+  f ()
+  >>| fun x ->
+  finished_read t;
+  x
 ;;
 
 (* The code below dynamically checks to make sure that there aren't simultaneous
    reads. *)
-let read t ?pos ?len s    = do_read t ~recover:false (fun () -> read t ?pos ?len s)
-let read_char t           = do_read t ~recover:false (fun () -> read_char t)
-let read_substring t s    = do_read t ~recover:false (fun () -> read_substring t s)
-let read_bigsubstring t s = do_read t ~recover:false (fun () -> read_bigsubstring t s)
+let read t ?pos ?len s    = do_read t (fun () -> read t ?pos ?len s)
+let read_char t           = do_read t (fun () -> read_char t)
+let read_substring t s    = do_read t (fun () -> read_substring t s)
+let read_bigsubstring t s = do_read t (fun () -> read_bigsubstring t s)
 
 let really_read t ?pos ?len s =
-  do_read t ~recover:false (fun () -> really_read t ?pos ?len s)
+  do_read t (fun () -> really_read t ?pos ?len s)
 ;;
 
 let really_read_substring t s =
-  do_read t ~recover:false (fun () -> really_read_substring t s)
+  do_read t (fun () -> really_read_substring t s)
 ;;
 
 let really_read_bigsubstring t s =
-  do_read t ~recover:false (fun () -> really_read_bigsubstring t s)
+  do_read t (fun () -> really_read_bigsubstring t s)
 ;;
 
-let read_until t f ~keep_delim =
-  do_read t ~recover:true (fun () -> read_until t f ~keep_delim Fn.id)
+let read_line t = do_read t (fun () -> read_line t)
+
+(* [do_read_k] takes a [read_k] function that takes a continuation expecting an
+   [Or_error.t].  It uses this to do a read returning a deferred.  This allows it to call
+   [finished_read] before continuing, in the event that the result is an error. *)
+let do_read_k
+      (type r) (type r')
+      t
+      (read_k : (r Or_error.t -> unit) -> unit)
+      (make_result : r -> r') : r' Deferred.t =
+  use t;
+  Deferred.create (fun result ->
+    read_k (fun r ->
+      finished_read t;
+      Ivar.fill result (make_result (ok_exn r))));
 ;;
 
-let read_until_max t f ~keep_delim ~max =
-  do_read t ~recover:true (fun () -> read_until_max t f ~keep_delim ~max)
+let read_until t p ~keep_delim =
+  do_read_k t (read_until t p ~keep_delim) Fn.id
 ;;
 
-let read_line t = do_read t ~recover:false (fun () -> read_line t)
+let read_until_max t p ~keep_delim ~max =
+  do_read_k t (read_until_gen t p ~keep_delim ~max:(Some max)) Fn.id
+;;
 
-let read_sexp ?parse_pos t = do_read t ~recover:true (fun () -> read_sexp ?parse_pos t)
+let read_sexp ?parse_pos t =
+  do_read_k t (gen_read_sexp t Sexp.parse_bigstring ?parse_pos)
+    (function
+     | `Eof -> `Eof
+     | `Ok (sexp, _) -> `Ok sexp)
+;;
 
 let read_sexps ?parse_pos t = use t; read_sexps ?parse_pos t
 
 let read_bin_prot ?max_len t reader =
-  (* [read_bin_prot] above wraps the [reader.read] call in a try-with, and returns
-     [`Error] if it fails.  So, we can use [~recover:false] and manually reraise the
-     error. *)
-  do_read t ~recover:false (fun () -> read_bin_prot ?max_len t reader)
-  >>| function
-  | `Ok _ | `Eof as x -> x
-  | `Error exn -> raise exn
+  do_read_k t (read_bin_prot ?max_len t reader) Fn.id
 ;;
 
-let read_marshal_raw t = do_read t ~recover:false (fun () -> read_marshal_raw t)
-let read_marshal t     = do_read t ~recover:false (fun () -> read_marshal t)
-let recv t             = do_read t ~recover:false (fun () -> recv t)
+let read_marshal_raw t = do_read t (fun () -> read_marshal_raw t)
+let read_marshal t     = do_read t (fun () -> read_marshal t)
+let recv t             = do_read t (fun () -> recv t)
 
 let lines t = use t; lines t
 
-let contents t = do_read t ~recover:false (fun () -> contents t)
+let contents t = do_read t (fun () -> contents t)
 
 let transfer t = use t; transfer t
+
+let lseek t offset ~mode =
+  do_read t (fun () ->
+    t.pos <- 0;
+    t.available <- 0;
+    Unix_syscalls.lseek t.fd offset ~mode)
+;;
 
 let convert file f annot_sexp =
   try
@@ -822,14 +831,14 @@ let convert file f annot_sexp =
     | `Error (exc, bad_annot_sexp) ->
       Error (Error.of_exn (Sexp.Annotated.get_conv_exn ~file ~exc bad_annot_sexp))
   with exn ->
-    Or_error.error "Reader.load_sexp(s) error" (file, exn) (<:sexp_of< string * exn >>)
+    error "Reader.load_sexp(s) error" (file, exn) (<:sexp_of< string * exn >>)
 ;;
 
 let gen_load ?exclusive file
     (good : Sexp.t list -> 'a Or_error.t)
     (bad : Sexp.Annotated.t list -> 'a Or_error.t) =
   let error exn =
-    return (Or_error.error "Reader.load_sexp(s) error" (file, exn)
+    return (error "Reader.load_sexp(s) error" (file, exn)
               (<:sexp_of< string * exn >>))
   in
   let load parse f =
@@ -852,7 +861,7 @@ let gen_load ?exclusive file
 
 let load_sexp ?exclusive file f =
   let multiple sexps =
-    Or_error.error "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
+    error "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
       (<:sexp_of< int * string >>)
   in
   gen_load ?exclusive file
@@ -878,7 +887,7 @@ let load_sexps ?exclusive file f =
           | Ok _ -> None
           | Error error -> Some error)
       in
-      Or_error.error "Reader.load_sexps error" (file, errors)
+      error "Reader.load_sexps error" (file, errors)
         (<:sexp_of< string * Error.t list >>))
 ;;
 

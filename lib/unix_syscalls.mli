@@ -90,7 +90,7 @@ val close
   -> Fd.t
   -> unit Deferred.t
 
-val lseek : Fd.t -> int64 -> mode:[ `Set | `Cur | `End ] -> int64 Deferred.t
+val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End ] -> int64 Deferred.t
 
 val truncate : string -> len:int64 -> unit Deferred.t
 
@@ -209,6 +209,12 @@ val closedir : dir_handle -> unit Deferred.t
 (** The [info] supplied to pipe is debugging information that will be included in the
     returned [Fd]s. *)
 val pipe : Info.t -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
+
+(** Create a named pipe with the given permissions. *)
+val mkfifo
+  :  ?perm:file_perm  (* default is [0o666] *)
+  -> string
+  -> unit Deferred.t
 
 val symlink : src:string -> dst:string -> unit Deferred.t
 

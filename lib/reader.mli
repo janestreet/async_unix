@@ -266,6 +266,12 @@ val recv : t -> string Read_result.t Deferred.t
     and then after the reader close is finished, closes the pipe. *)
 val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
 
+(** [lseek t offset ~mode] clears [t]'s buffer and calls [Unix.lseek] on [t]'s file
+    descriptor.  The [`Cur] mode is not exposed because seeking relative to the current
+    position of the file descriptor is not the same as seeking to relative to the current
+    position of the reader. *)
+val lseek : t -> int64 -> mode:[< `Set | `End] -> int64 Deferred.t
+
 (** [lines t] reads all the lines from [t] and puts them in the pipe, one line per pipe
     element.  The lines do not contain the trailing newline.  When the reader reaches EOF
     or the pipe is closed, [lines] closes the the reader, and then after the reader close

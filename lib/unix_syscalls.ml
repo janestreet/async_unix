@@ -348,6 +348,10 @@ let pipe info =
   (`Reader (create reader "reader"), `Writer (create writer "writer"))
 ;;
 
+let mkfifo ?(perm = 0o666) name =
+  In_thread.syscall_exn ~name:"mkfifo" (fun () -> Unix.mkfifo name ~perm)
+;;
+
 (* symlinks *)
 let symlink ~src ~dst =
   In_thread.syscall_exn ~name:"symlink" (fun () -> Unix.symlink ~src ~dst)

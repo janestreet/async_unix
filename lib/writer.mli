@@ -243,6 +243,10 @@ val bytes_to_write : t -> int
 (** [bytes_written t] returns how many bytes have been written. *)
 val bytes_written : t -> Int63.t
 
+(** [bytes_received t] returns how many bytes have been received by the writer.  As long
+    as the writer is running, [bytes_received = bytes_written + bytes_to_write]. *)
+val bytes_received : t -> Int63.t
+
 (** [with_file_atomic ?temp_file ?perm ?fsync file ~f] creates a writer to a temp file,
     feeds that writer to [f], and when the result of [f] becomes determined, atomically
     moves (i.e. uses [Unix.rename]) the temp file to [file].  If [file] currently exists,
