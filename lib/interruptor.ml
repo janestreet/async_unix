@@ -23,6 +23,8 @@ let read_fd t = Read_write.get t.pipe `Read
 
 let create ~create_fd =
   let (pipe_read, pipe_write) = Unix.pipe () in
+  Unix.set_close_on_exec pipe_read;
+  Unix.set_close_on_exec pipe_write;
   let pipe_read  =
     create_fd Fd.Kind.Fifo pipe_read  (Info.of_string "interruptor_pipe_read" )
   in

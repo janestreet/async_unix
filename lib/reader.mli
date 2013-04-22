@@ -216,10 +216,10 @@ val read_until_max :
      | `Max_exceeded of string
      ] Deferred.t
 
-(** [read_line t] reads up to, and including the next newline (\n) character and returns a
-    freshly-allocated string containing everything up to but not including the newline
-    character.  If [read_line] encounters EOF before the newline char then everything read
-    up to but not including EOF will be returned as a line. *)
+(** [read_line t] reads up to, and including the next newline (\n) character (or \r\n) and
+    returns a freshly-allocated string containing everything up to but not including the
+    newline character.  If [read_line] encounters EOF before the newline char then
+    everything read up to but not including EOF will be returned as a line. *)
 val read_line : t -> string Read_result.t Deferred.t
 
 (** [really_read_line ~wait_time t] reads up to, and including the next newline (\n)
