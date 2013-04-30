@@ -245,6 +245,10 @@ let unlink filename =
   In_thread.syscall_exn ~name:"unlink" (fun () -> Unix.unlink filename)
 ;;
 
+let remove filename =
+  In_thread.syscall_exn ~name:"remove" (fun () -> Unix.remove filename)
+;;
+
 let rename ~src ~dst =
   In_thread.syscall_exn ~name:"rename" (fun () -> Unix.rename ~src ~dst)
 ;;

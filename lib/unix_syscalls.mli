@@ -155,6 +155,8 @@ val lstat : string -> Stats.t Deferred.t
 
 val unlink : string -> unit Deferred.t
 
+val remove : string -> unit Deferred.t
+
 val rename : src:string -> dst:string -> unit Deferred.t
 
 val link
