@@ -34,7 +34,23 @@ include Invariant.S with type t := t
 val io_stats : Io_stats.t
 
 (** [stdout] and [stderr] are writers for file descriptors 1 and 2.  They are lazy because
-    we don't want to create them in all programs that happen to link with async. *)
+    we don't want to create them in all programs that happen to link with async.
+
+    When either [stdout] or [stderr] is created, they both are created.  Furthermore, if
+    they point to the same inode, then they will be the same writer to [Fd.stdout].  This
+    can be confusing, because [fd (force stderr)] will be [Fd.stdout], not [Fd.stderr].
+    And subsequent modifications of [Fd.stderr] will have no effect on [Writer.stderr].
+
+    Unfortunately, the sharing is necessary because async uses OS threads to do write()
+    syscalls using the writer buffer.  When calling a program that redirects stdout and
+    stderr to the same file, as in:
+
+    {v
+      foo.exe >/tmp/z.file 2>&1
+    v}
+
+    if [Writer.stdout] and [Writer.stderr] weren't the same writer, then they could have
+    threads simultaneously writing to the same file, which could easily cause data loss. *)
 val stdout : t Lazy.t
 val stderr : t Lazy.t
 

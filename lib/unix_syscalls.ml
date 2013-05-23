@@ -477,9 +477,9 @@ module Inet_addr = struct
   include Unix.Inet_addr
 
   let of_string_or_getbyname =
-    let sequencer = Throttle.Sequencer.create ~continue_on_error:true () in
+    let sequencer = Throttle.create ~continue_on_error:true ~max_concurrent_jobs:1 in
     fun s ->
-      Throttle.Sequencer.enqueue sequencer
+      Throttle.enqueue sequencer
         (fun () -> In_thread.run (fun () -> of_string_or_getbyname s))
   ;;
 end

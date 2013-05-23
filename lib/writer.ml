@@ -927,7 +927,8 @@ let newline t                 = ensure_can_write t; newline t
 let stdout_and_stderr =
   lazy (
     (* The following code checks to see if stdout and stderr point to the same file, and
-       if so, shares a single writer between them. *)
+       if so, shares a single writer between them.  See the comment in writer.mli for
+       details. *)
     let stdout = Fd.stdout () in
     let stderr = Fd.stderr () in
     let t = create stdout in
