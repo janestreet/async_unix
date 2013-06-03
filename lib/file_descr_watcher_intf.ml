@@ -34,7 +34,7 @@ module type S = sig
   (** A file-descr-watcher is essentially a map from [File_descr.t] to [bool
       Read_write.t], which defines the set of file descriptors being watched, and for each
       file descriptor, whether it is being watched for read, write, or both.  If a file
-      descriptor is not being watched for neither, it is not in the map. *)
+      descriptor is not being watched for either, it is not in the map. *)
   type t with sexp_of
 
   include Invariant.S with type t := t

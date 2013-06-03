@@ -22,15 +22,29 @@ let when_file_exists ?(poll_delay = sec 0.5) file =
     loop ())
 ;;
 
-let is_directory = wrap1 Sys.is_directory
-let is_file = wrap1 Sys.is_file
-let remove = wrap1 Sys.remove
-let rename = wrap2 Sys.rename
-let command = wrap1 Sys.command
-let chdir = wrap1 Sys.chdir
-let getcwd = wrap1 Sys.getcwd
-let readdir = wrap1 Sys.readdir
+let chdir            = wrap1 Sys.chdir
+let command          = wrap1 Sys.command
+let command_exn      = wrap1 Sys.command_exn
+let getcwd           = wrap1 Sys.getcwd
+let ls_dir           = wrap1 Sys.ls_dir
+let readdir          = wrap1 Sys.readdir
+let remove           = wrap1 Sys.remove
+let rename           = wrap2 Sys.rename
 
-let interactive = Sys.interactive
-let os_type = Sys.os_type
-let word_size = Sys.word_size
+let wrap_is f =
+  fun ?follow_symlinks path -> In_thread.run (fun () -> f ?follow_symlinks path)
+;;
+
+let is_directory     = wrap_is Sys.is_directory
+let is_directory_exn = wrap_is Sys.is_directory_exn
+let is_file          = wrap_is Sys.is_file
+let is_file_exn      = wrap_is Sys.is_file_exn
+
+let c_int_size     = Sys.c_int_size
+let execution_mode = Sys.execution_mode
+let getenv         = Sys.getenv
+let getenv_exn     = Sys.getenv_exn
+let interactive    = Sys.interactive
+let ocaml_version  = Sys.ocaml_version
+let os_type        = Sys.os_type
+let word_size      = Sys.word_size
