@@ -45,11 +45,15 @@ module Internal = struct
          waiting. *)
       mutable buf : Bigstring.t sexp_opaque;
       (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
-         destroy [buf].  [close_may_destroy_buf] is usually [true], except when we're in
+         destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
          the middle of a system call in another thread that refers to [buf], in which case
-         [close] can't destroy [buf], and we must wait until that system call finishes
-         before doing so. *)
-      mutable close_may_destroy_buf : bool;
+         it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
+         system call finishes before doing so.
+
+         [`Not_ever] is used for [read_one_chunk_at_a_time_until_eof], which exposes [buf]
+         to client code, which may in turn hold on to it (e.g. via
+         [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
+      mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ];
       (* [pos] is the first byte of data in [buf] to b be read by user code. *)
       mutable pos : int;
       (* [available] is how many bytes in [buf] are available to be read by user code. *)
@@ -97,7 +101,7 @@ module Internal = struct
     { fd;
       id = Id.create ();
       buf = Bigstring.create buf_len;
-      close_may_destroy_buf = true;
+      close_may_destroy_buf = `Yes;
       pos = 0;
       available = 0;
       bin_prot_len_buf = Bigstring.create 8;
@@ -148,7 +152,9 @@ module Internal = struct
       upon (Unix.close t.fd) (fun () -> Ivar.fill t.close_finished ());
       t.pos <- 0;
       t.available <- 0;
-      if t.close_may_destroy_buf then destroy t;
+      match t.close_may_destroy_buf with
+      | `Yes -> destroy t
+      | `Not_now | `Not_ever -> ()
     end;
     close_finished t;
   ;;
@@ -230,13 +236,19 @@ module Internal = struct
         let len = Bigstring.length buf - pos in
         let module K = Fd.Kind in
         if not (Fd.supports_nonblock t.fd) then begin
-          t.close_may_destroy_buf <- false;
+          begin match t.close_may_destroy_buf with
+          | `Yes -> t.close_may_destroy_buf <- `Not_now
+          | `Not_now | `Not_ever -> ()
+          end;
           Fd.syscall_in_thread t.fd ~name:"read"
             (fun file_descr ->
               let res = Bigstring.read file_descr buf ~pos ~len in
               res, Time.now ())
           >>> fun res ->
-          t.close_may_destroy_buf <- true;
+          begin match t.close_may_destroy_buf with
+          | `Not_now -> t.close_may_destroy_buf <- `Yes
+          | `Yes | `Not_ever -> ()
+          end;
           match t.state with
           | `Not_in_use -> assert false
           | `In_use -> finish res raise
@@ -337,6 +349,7 @@ module Internal = struct
   type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] with sexp_of
 
   let read_one_chunk_at_a_time_until_eof t ~handle_chunk =
+    t.close_may_destroy_buf <- `Not_ever;
     Deferred.create (fun final_result ->
       let rec loop ~force_refill =
         with_nonempty_buffer' t ~force_refill (function

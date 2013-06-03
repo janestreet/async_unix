@@ -18,15 +18,30 @@ val file_exists_exn : string -> bool Deferred.t
     [`Unknown]. *)
 val when_file_exists : ?poll_delay:Time.Span.t -> string -> unit Deferred.t
 
-val is_directory : string -> [`Yes | `No | `Unknown ] Deferred.t
-val is_file : string -> [`Yes | `No | `Unknown ] Deferred.t
+val is_directory     : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown ] Deferred.t
+val is_directory_exn : ?follow_symlinks:bool -> string -> bool                     Deferred.t
+
+val is_file     : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
+val is_file_exn : ?follow_symlinks:bool -> string -> bool                      Deferred.t
+
 val remove : string -> unit Deferred.t
 val rename : string -> string -> unit Deferred.t
+val getenv : string -> string option
+val getenv_exn : string -> string
 val command : string -> int Deferred.t
+val command_exn : string -> unit Deferred.t
 val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t
 val readdir : string -> string array Deferred.t
+val ls_dir : string -> string list Deferred.t
 
 val interactive : bool ref
 val os_type : string
 val word_size : int
+
+val ocaml_version : string
+
+val execution_mode : unit -> [ `Bytecode | `Native ]
+
+val c_int_size : unit -> int
+
