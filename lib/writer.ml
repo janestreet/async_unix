@@ -711,7 +711,7 @@ let give_buf t desired =
 module Write (Src : sig
   type t
   val length : t -> int
-  val blit_to_bigstring : (t, Bigstring.t) Bigstring.blit
+  val blit_to_bigstring : (t, Bigstring.t) Blit.blito
 end) = struct
   let write ?pos ?len t src =
     let src_pos, src_len =
@@ -746,7 +746,7 @@ let write =
   let module W = Write (struct
     type t = string
     let length = String.length
-    let blit_to_bigstring = Bigstring.blit_string_bigstring
+    let blit_to_bigstring = Bigstring.From_string.blito
   end) in
   W.write
 ;;
@@ -755,7 +755,7 @@ let write_bigstring =
   let module W = Write (struct
     type t = Bigstring.t
     let length = Bigstring.length
-    let blit_to_bigstring = Bigstring.blit
+    let blit_to_bigstring = Bigstring.blito
   end) in
   W.write
 ;;

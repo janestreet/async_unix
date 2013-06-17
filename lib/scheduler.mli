@@ -75,6 +75,12 @@ val schedule' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
 (** Just like schedule', but doesn't require thunk to return a deferred. *)
 val schedule : ((unit -> unit) -> unit) with_options
 
+(** [preserve_execution_context t f] saves the current execution context and returns a
+    function [g] such that [g a] runs [f a] in the saved execution context.  [g a] becomes
+    determined when [f a] becomes determined. *)
+val preserve_execution_context  : ('a -> unit)          -> ('a -> unit)          Staged.t
+val preserve_execution_context' : ('a -> 'b Deferred.t) -> ('a -> 'b Deferred.t) Staged.t
+
 (** [cycle_start ()] returns the result of [Time.now ()] called at the beginning of
     cycle. *)
 val cycle_start : unit -> Time.t
@@ -119,3 +125,25 @@ val is_ready_to_initialize : unit -> bool
     start of execution in the child process.  After that, the child can do async stuff and
     then start the async scheduler. *)
 val reset_in_forked_process : unit -> unit
+
+(** Async supports "busy polling", which runs a thread that busy loops running
+    user-supplied polling functions.  The busy-loop thread is distinct from async's
+    scheduler thread.
+
+    Busy polling is useful for a situation like a shared-memory ringbuffer being used for
+    IPC.  One can poll the ringbuffer with a busy poller, and then when data is detected,
+    fill some ivar that causes async code to handle the data.
+
+    [add_busy_poller poll] adds [poll] to the busy loop.  [poll] will be called
+    continuously, once per iteration of the busy loop, until it returns [`Stop_polling a]
+    at which point the result of [add_busy_poller] will become determined.  [poll] will
+    hold the async lock while running, so it is fine to do ordinary async operations,
+    e.g. fill an ivar.  The busy loop will run an ordinary async cycle if any of the
+    pollers add jobs.
+
+    [poll] will run in monitor in effect when [add_busy_poller] was called; exceptions
+    raised by [poll] will be sent asynchronously to that monitor.  If [poll] raises, it
+    will still be run on subsequent iterations of the busy loop. *)
+val add_busy_poller
+  :  (unit -> [ `Continue_polling | `Stop_polling of 'a ])
+  -> 'a Deferred.t

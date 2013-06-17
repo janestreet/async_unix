@@ -17,7 +17,7 @@ let handle ?stop ts ~f =
   let signal_manager = scheduler.Scheduler.signal_manager in
   let handler =
     Raw_signal_manager.install_handler signal_manager ts
-      (unstage (Scheduler.preserve_execution_context scheduler f))
+      (unstage (Scheduler.preserve_execution_context f))
   in
   Option.iter stop ~f:(fun stop ->
     upon stop (fun () ->

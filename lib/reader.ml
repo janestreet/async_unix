@@ -229,7 +229,7 @@ module Internal = struct
         let buf = t.buf in
         if t.available > 0 && t.pos > 0 then begin
           Bigstring.blit ~src:buf ~src_pos:t.pos ~dst:buf ~dst_pos:0
-            ~src_len:t.available ();
+            ~len:t.available;
           t.pos <- 0;
         end;
         let pos = t.available in
@@ -405,8 +405,8 @@ module Internal = struct
                   if new_len > buf_len then begin
                     let new_buf = Bigstring.create new_len in
                     if t.available > 0 then
-                      Bigstring.blit ~src:t.buf ~src_pos:t.pos ~src_len:t.available
-                        ~dst:new_buf ~dst_pos:0 ();
+                      Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
+                        ~dst:new_buf ~dst_pos:0;
                     t.buf <- new_buf;
                     t.pos <- 0;
                   end;

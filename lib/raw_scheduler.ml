@@ -1,7 +1,6 @@
 open Core.Std
 open Import
 
-module Core_scheduler = Async_core.Scheduler
 module Fd = Raw_fd
 module Watching = Fd.Watching
 module Signal = Core.Std.Signal
@@ -34,12 +33,14 @@ type 'a with_options = 'a Core_scheduler.with_options
 include struct
   open Core_scheduler
 
-  let schedule = schedule
-  let schedule' = schedule'
-  let within = within
-  let within' = within'
-  let within_context = within_context
-  let within_v = within_v
+  let preserve_execution_context  = preserve_execution_context
+  let preserve_execution_context' = preserve_execution_context'
+  let schedule                    = schedule
+  let schedule'                   = schedule'
+  let within                      = within
+  let within'                     = within'
+  let within_context              = within_context
+  let within_v                    = within_v
 end
 
 let cycle_count () = Core_scheduler.(cycle_count (t ()))
@@ -50,6 +51,7 @@ let set_max_num_jobs_per_priority_per_cycle i =
 ;;
 
 let force_current_cycle_to_end () = Core_scheduler.(force_current_cycle_to_end (t ()))
+
 
 (* Default file descr watcher backend.  It is global so it can be reused after a fork.  It
    is set by [go_main]. *)
@@ -101,6 +103,9 @@ type t =
        the scheduler thread, and for servicing [In_thread.run] requests. *)
     thread_pool : Thread_pool.t;
 
+    busy_pollers : Busy_pollers.t;
+    mutable busy_poll_thread_is_running : bool;
+
     core_scheduler : Core_scheduler.t;
   }
 with fields, sexp_of
@@ -111,10 +116,6 @@ let current_execution_context t =
 
 let with_execution_context t context ~f =
   Core_scheduler.with_execution_context t.core_scheduler context ~f;
-;;
-
-let preserve_execution_context t f =
-  Core_scheduler.preserve_execution_context t.core_scheduler f
 ;;
 
 let create_fd t kind file_descr info =
@@ -254,6 +255,8 @@ let invariant t : unit =
       ~interruptor:(check Interruptor.invariant)
       ~signal_manager:(check Raw_signal_manager.invariant)
       ~thread_pool:(check Thread_pool.invariant)
+      ~busy_pollers:(check Busy_pollers.invariant)
+      ~busy_poll_thread_is_running:ignore
       ~core_scheduler:(check Core_scheduler.invariant);
   with exn ->
     failwiths "Scheduler.invariant failed" (exn, t) <:sexp_of< exn * t >>
@@ -338,6 +341,8 @@ Async will be unable to timeout with sub-millisecond precision."
         Raw_signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
           Interruptor.thread_safe_interrupt interruptor);
       thread_pool;
+      busy_pollers = Busy_pollers.create ();
+      busy_poll_thread_is_running = false;
       core_scheduler;
     }
   in
@@ -669,6 +674,42 @@ let report_long_cycle_times ?(cutoff = sec 1.) () =
              (Error.create "long async cycle" span <:sexp_of< Time.Span.t >>)))
 ;;
 
+let start_busy_poller_thread_if_not_running t =
+  if not t.busy_poll_thread_is_running then begin
+    t.busy_poll_thread_is_running <- true;
+    let core_scheduler = t.core_scheduler in
+    let _thread : Thread.t =
+      Thread.create (fun () ->
+        let rec loop () =
+          lock t;
+          if Busy_pollers.is_empty t.busy_pollers then begin
+            t.busy_poll_thread_is_running <- false;
+            unlock t;
+            (* We don't loop here, thus exiting the thread. *)
+          end else begin
+            Busy_pollers.poll t.busy_pollers;
+            if Core_scheduler.num_pending_jobs core_scheduler > 0 then
+              Core_scheduler.run_cycle core_scheduler;
+            unlock t;
+            (* This yield is necessary to allow other OCaml threads to run. *)
+            Thread.yield ();
+            loop ();
+          end
+        in
+        loop ();
+      ) ()
+    in
+    ()
+  end;
+;;
+
+let add_busy_poller poll =
+  let t = the_one_and_only ~should_lock:true in
+  let result = Busy_pollers.add t.busy_pollers poll in
+  start_busy_poller_thread_if_not_running t;
+  result
+;;
+
 type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 
 let t () = the_one_and_only ~should_lock:true
@@ -688,5 +729,7 @@ let fold_fields ~init folder =
     ~interruptor:f
     ~signal_manager:f
     ~thread_pool:f
+    ~busy_poll_thread_is_running:f
+    ~busy_pollers:f
     ~core_scheduler:f
 ;;

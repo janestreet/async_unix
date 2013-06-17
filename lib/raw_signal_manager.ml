@@ -47,7 +47,7 @@ type handler = Handler.t
 let get_handlers t signal =
   Hashtbl.find_or_add t.handlers_by_signal signal ~default:(fun () ->
     let handlers = Handlers.create () in
-    Signal.handle signal (fun _ ->
+    Signal.Expert.handle signal (fun _ ->
       (* Everything in this function body must be thread safe, since it is running in an
          OCaml signal handler. *)
       Thread_safe_queue.enqueue t.delivered (signal, handlers);

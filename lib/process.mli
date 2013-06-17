@@ -63,7 +63,7 @@ val wait : t -> Output.t Deferred.t
     status zero, then [run] returns its stdout.  Otherwise, [run] returns an error
     indicating what went wrong that includes stdout and stderr.  Some care is taken so
     that an error displays nicely as a sexp -- in particular, if the child's output can
-    already be parsed as a sexp, then they will display as a sexp (rather than a sexp
+    already be parsed as a sexp, then it will display as a sexp (rather than a sexp
     embedded in a string).  Also, if the output isn't a sexp, it will be split on newlines
     into a list of strings, so that it displays on multiple lines rather than a single
     giant line with embedded "\n"'s. *)

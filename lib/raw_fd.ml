@@ -93,8 +93,9 @@ module T = struct
       (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
       mutable kind : Kind.t;
       (* [supports_nonblock] reflects whether the file_descr supports nonblocking
-         system calls (read, write, etc.). *)
-      supports_nonblock : bool;
+         system calls (read, write, etc.).  It is mutable because we allow users to
+         change from [supports_nonblock = true] to [supports_nonblock = false]. *)
+      mutable supports_nonblock : bool;
       (* [have_set_nonblock] is true if we have called [Unix.set_nonblock file_descr],
          which we must do before making any system calls that we expect to not block. *)
       mutable have_set_nonblock : bool;

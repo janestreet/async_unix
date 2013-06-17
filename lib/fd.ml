@@ -60,6 +60,16 @@ let stderr =
   Memo.unit (fun () -> create_std_descr Unix.stderr (Info.of_string "<stderr>"))
 ;;
 
+let clear_nonblock t =
+  if t.supports_nonblock then begin
+    t.supports_nonblock <- false;
+    if t.have_set_nonblock then begin
+      t.have_set_nonblock <- false;
+      Unix.clear_nonblock t.file_descr;
+    end;
+  end;
+;;
+
 let close ?(should_close_file_descriptor = true) t =
   if debug then Debug.log "Fd.close" t <:sexp_of< t >>;
   let module S = State in

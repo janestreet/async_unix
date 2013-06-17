@@ -72,6 +72,15 @@ val kind : t -> Kind.t
 (** [supports_nonblock t] returns true if [t] supports nonblocking system calls. *)
 val supports_nonblock : t -> bool
 
+(** [clear_nonblock t] clears the ``non-blocking'' flag on [t] and causes and causes async
+    to treat the fd as though it doesn't support nonblocking I/O.  This is useful for
+    applications that want to share a file descriptor between async and non-async code and
+    want to avoid [EWOULDBLOCK] or [EAGAIN] being seen by the non-async code, which would
+    then cause a [Sys_blocked_io] exception.
+
+    [clear_nonblock t] has no effect if [not (supports_nonblock t)]. *)
+val clear_nonblock : t -> unit
+
 (** [close t] prevents further use of [t], and closes the underlying file descriptor once
     all the current uses are finished.  The result of [close] becomes determined once the
     underlying file descriptor has been closed, i.e. once the [close()] system call
