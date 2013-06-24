@@ -121,39 +121,50 @@ val fd : t -> Fd.t
     [i] satisfies [0 < i <= len]. *)
 val read : t -> ?pos:int -> ?len:int -> string -> int Read_result.t Deferred.t
 
-(** [read_one_chunk_at_a_time_until_eof t ~handle_chunk] reads into [t]'s internal buffer,
+(** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer,
     and whenever bytes are available, applies [handle_chunk] to them.  It waits to read
-    again until the deferred returned by [handle_chunk] becomes determined. *)
-type 'a read_one_chunk_at_a_time_until_eof_result =
-[ `Eof
-| `Stopped of 'a
-(** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned [`Consumed (c, _)]
-    and left data in the reader's buffer (i.e. [c < len]), and that the reader reached eof
-    without reading any more data into the buffer; hence the data in the buffer was never
-    consumed (and never will be, since the reader is at eof). *)
-| `Eof_with_unconsumed_data of string
-]
+    again until the deferred returned by [handle_chunk] becomes determined.
+    [read_one_chunk_at_a_time] continues reading until it reaches [`Eof] or [handle_chunk]
+    returns [`Stop] or [`Stop_consumed].  In the case of [`Stop] and [`Stop_consumed],
+    one may read from [t] after [read_one_chunk_at_a_time] returns. *)
+type 'a read_one_chunk_at_a_time_result =
+  [ `Eof
+  | `Stopped of 'a
+  (** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned [`Consumed (c, _)]
+      and left data in the reader's buffer (i.e. [c < len]), and that the reader reached
+      eof without reading any more data into the buffer; hence the data in the buffer was
+      never consumed (and never will be, since the reader is at eof). *)
+  | `Eof_with_unconsumed_data of string
+  ]
 with sexp_of
 
-val read_one_chunk_at_a_time_until_eof
+val read_one_chunk_at_a_time
   :  t
   -> handle_chunk:(Bigstring.t
                    -> pos:int
                    -> len:int
-                   -> [ `Stop of 'a
-                      (** [`Continue] means that [handle_chunk] has consumed all [len]
-                          bytes. *)
-                      | `Continue
-                      (** [`Consumed (c, need)] means that [c] bytes were consumed and
-                          [need] says how many bytes are needed (including the data
-                          remaining in the buffer after the [c] were already consumed).
-                          It is an error if [c < 0 || c > len].  For [`Need n], it is an
-                          error if [n < 0 || c + n <= len]. *)
-                      | `Consumed of int * [ `Need of int
-                                           | `Need_unknown
-                                           ]
-                      ] Deferred.t)
-  -> 'a read_one_chunk_at_a_time_until_eof_result Deferred.t
+                   -> [
+                     (** [`Stop a] means that [handle_chunk] consumed all [len] bytes,
+                         and that [read_one_chunk_at_a_time] should stop reading and
+                         return [`Stopped a]. *)
+                     | `Stop of 'a
+                     (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n]
+                         bytes, and that [read_one_chunk_at_a_time] should stop reading
+                         and return [`Stopped a]. *)
+                     | `Stop_consumed of 'a * int
+                     (** [`Continue] means that [handle_chunk] has consumed all [len]
+                         bytes. *)
+                     | `Continue
+                     (** [`Consumed (c, need)] means that [c] bytes were consumed and
+                         [need] says how many bytes are needed (including the data
+                         remaining in the buffer after the [c] were already consumed).
+                         It is an error if [c < 0 || c > len].  For [`Need n], it is an
+                         error if [n < 0 || c + n <= len]. *)
+                     | `Consumed of int * [ `Need of int
+                                          | `Need_unknown
+                                          ]
+                   ] Deferred.t)
+  -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss],
     blocking until some data is available or Eof is reched.  The resulting [i]

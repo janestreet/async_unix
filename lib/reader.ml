@@ -50,7 +50,7 @@ module Internal = struct
          it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
          system call finishes before doing so.
 
-         [`Not_ever] is used for [read_one_chunk_at_a_time_until_eof], which exposes [buf]
+         [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes [buf]
          to client code, which may in turn hold on to it (e.g. via
          [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
       mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ];
@@ -339,7 +339,7 @@ module Internal = struct
     t.available <- t.available - amount;
   ;;
 
-  type 'a read_one_chunk_at_a_time_until_eof_result =
+  type 'a read_one_chunk_at_a_time_result =
     [ `Eof
     | `Stopped of 'a
     | `Eof_with_unconsumed_data of string
@@ -348,7 +348,7 @@ module Internal = struct
 
   type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] with sexp_of
 
-  let read_one_chunk_at_a_time_until_eof t ~handle_chunk =
+  let read_one_chunk_at_a_time t ~handle_chunk =
     t.close_may_destroy_buf <- `Not_ever;
     Deferred.create (fun final_result ->
       let rec loop ~force_refill =
@@ -371,6 +371,8 @@ module Internal = struct
               | `In_use ->
                 match z with
                 | `Stop a -> consume t len; Ivar.fill final_result (`Stopped a)
+                | `Stop_consumed (a, consumed) ->
+                  consume t consumed; Ivar.fill final_result (`Stopped a)
                 | `Continue -> consume t len; loop ~force_refill:true
                 | `Consumed (consumed, need) as c ->
                   if consumed < 0 || consumed > len
@@ -399,7 +401,7 @@ module Internal = struct
                   in
                   if new_len < 0 then
                     failwiths
-                      "read_one_chunk_at_a_time_until_eof got overflow in buffer len" t
+                      "read_one_chunk_at_a_time got overflow in buffer len" t
                       (<:sexp_of< t >>);
                   (* Grow the internal buffer if needed. *)
                   if new_len > buf_len then begin
@@ -844,8 +846,8 @@ open Internal
 
 type nonrec t = t with sexp_of
 
-type nonrec 'a read_one_chunk_at_a_time_until_eof_result =
-   'a read_one_chunk_at_a_time_until_eof_result
+type nonrec 'a read_one_chunk_at_a_time_result =
+   'a read_one_chunk_at_a_time_result
 with sexp_of
 
 type nonrec 'a read = 'a read
@@ -893,9 +895,8 @@ let read_char t           = do_read t (fun () -> read_char t)
 let read_substring t s    = do_read t (fun () -> read_substring t s)
 let read_bigsubstring t s = do_read t (fun () -> read_bigsubstring t s)
 
-let read_one_chunk_at_a_time_until_eof t ~handle_chunk =
-  use t;
-  read_one_chunk_at_a_time_until_eof t ~handle_chunk;
+let read_one_chunk_at_a_time t ~handle_chunk =
+  do_read t (fun () -> read_one_chunk_at_a_time t ~handle_chunk)
 ;;
 
 let really_read t ?pos ?len s =
