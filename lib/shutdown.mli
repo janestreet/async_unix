@@ -39,7 +39,9 @@ val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 val shutting_down : unit -> [ `No | `Yes of int ]
 
 (** [at_shutdown f] causes [f ()] to be run when [shutdown] is called, and for [shutdown]
-    to wait until the returned deferred finishes. *)
+    to wait until the returned deferred finishes.
+
+    If [shutdown] has already been called, then calling [at_shutdown f] does nothing. *)
 val at_shutdown : (unit -> unit Deferred.t) -> unit
 
 (** [don't_finish_before d] causes [shutdown] to wait until [d] becomes determined before
