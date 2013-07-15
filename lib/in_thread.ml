@@ -58,9 +58,8 @@ let syscall     ~name f = run ~name (fun () ->                Syscall.syscall f 
 let syscall_exn ~name f = run ~name (fun () -> Result.ok_exn (Syscall.syscall f))
 
 let pipe_of_squeue sq =
-  (* All the little definitions are to avoid unessary allocation, since it's possible this
-     guy might be used to do something like consume a quotefeed. *)
   let (r, w) = Pipe.create () in
+  (* The functions are defined to avoid unnecessary allocation. *)
   let pull () =
     let q = Queue.create () in
     Squeue.transfer_queue sq q;

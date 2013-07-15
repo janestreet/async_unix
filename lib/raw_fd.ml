@@ -169,26 +169,27 @@ let to_int t = File_descr.to_int t.file_descr
 
 let create kind file_descr info =
   let supports_nonblock =
-    (* Do not change blocking status of TTYs!  This would affect all processes currently
-       attached to that TTY and even persist after this process terminates. *)
-    if Core.Std.Unix.isatty file_descr
-    then false
-    else begin
-      let module K = Kind in
-      begin match kind with
-      (* No point in setting nonblocking for files.  Unix doesn't care. *)
-      | K.File -> false
-      | K.Char -> true
-      | K.Fifo -> true
-      (* All one can do on a `Bound socket is listen() to it, and we don't use listen()
-         in a nonblocking way. *)
-      | K.Socket `Bound -> false
-      (* `Unconnected sockets support nonblocking so we can connect() them.
-         `Passive     sockets support nonblocking so we can accept() them.
-         `Active      sockets support nonblocking so we can read() and write() them. *)
-      | K.Socket (`Unconnected | `Passive | `Active) -> true
-      end
-    end
+    let module K = Kind in
+    match kind with
+    (* No point in setting nonblocking for files.  Unix doesn't care. *)
+    | K.File -> false
+    (* We don't use nonblocking I/O for char devices because we don't want to change the
+       blocking status of TTYs, which would affect all processes currently attached to
+       that TTY and even persist after this process terminates.
+
+       Also, /dev/null is a char device not supported by epoll.
+
+       We don't really care about doing nonblocking I/O on other character devices,
+       e.g. /dev/random. *)
+    | K.Char -> false
+    | K.Fifo -> true
+    (* All one can do on a `Bound socket is listen() to it, and we don't use listen()
+       in a nonblocking way. *)
+    | K.Socket `Bound -> false
+    (* `Unconnected sockets support nonblocking so we can connect() them.
+       `Passive     sockets support nonblocking so we can accept() them.
+       `Active      sockets support nonblocking so we can read() and write() them. *)
+    | K.Socket (`Unconnected | `Passive | `Active) -> true
   in
   let t =
     { info;

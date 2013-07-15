@@ -103,6 +103,10 @@ type t =
        the scheduler thread, and for servicing [In_thread.run] requests. *)
     thread_pool : Thread_pool.t;
 
+    (* [handle_thread_pool_stuck] is called once per second if the thread pool is "stuck",
+       i.e has not completed a job for one second and has no available threads. *)
+    mutable handle_thread_pool_stuck : Time.Span.t -> unit;
+
     busy_pollers : Busy_pollers.t;
     mutable busy_poll_thread_is_running : bool;
 
@@ -255,6 +259,7 @@ let invariant t : unit =
       ~interruptor:(check Interruptor.invariant)
       ~signal_manager:(check Raw_signal_manager.invariant)
       ~thread_pool:(check Thread_pool.invariant)
+      ~handle_thread_pool_stuck:ignore
       ~busy_pollers:(check Busy_pollers.invariant)
       ~busy_poll_thread_is_running:ignore
       ~core_scheduler:(check Core_scheduler.invariant);
@@ -281,6 +286,37 @@ let try_create_timerfd () =
       Unix.set_close_on_exec (timerfd : Timerfd.t :> Unix.File_descr.t);
       Unix.set_nonblock (timerfd : Timerfd.t :> Unix.File_descr.t);
       Some timerfd
+;;
+
+let default_handle_thread_pool_stuck span =
+  let message =
+    sprintf "\
+Async's thread pool hasn't completed a job for %s, and is using the maximum
+allowed number of threads."
+      (Time.Span.to_short_string span)
+  in
+  if Time.Span.(>=) span Config.abort_after_thread_pool_stuck_for
+  then Monitor.send_exn Monitor.main (Failure message)
+  else if Time.Span.(>=) span Config.report_thread_pool_stuck_for
+  then Core.Std.eprintf "%s\n%!" message;
+;;
+
+let detect_stuck_thread_pool t =
+  let last_time_work_was_completed = ref (Time.now ()) in
+  let last_num_work_completed = ref (Thread_pool.num_work_completed t.thread_pool) in
+  every (sec 1.) (fun () ->
+    let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
+    let now = Time.now () in
+    if num_work_completed > !last_num_work_completed then begin
+      last_num_work_completed := num_work_completed;
+      last_time_work_was_completed := now;
+    end else
+      let since_last_work_was_completed =
+        Time.diff now !last_time_work_was_completed
+      in
+      if Time.Span.(>) since_last_work_was_completed (sec 1.)
+      && not (Thread_pool.has_thread_available t.thread_pool)
+      then t.handle_thread_pool_stuck since_last_work_was_completed);
 ;;
 
 let create () =
@@ -341,16 +377,23 @@ Async will be unable to timeout with sub-millisecond precision."
         Raw_signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
           Interruptor.thread_safe_interrupt interruptor);
       thread_pool;
+      handle_thread_pool_stuck = default_handle_thread_pool_stuck;
       busy_pollers = Busy_pollers.create ();
       busy_poll_thread_is_running = false;
       core_scheduler;
     }
   in
+  detect_stuck_thread_pool t;
   if Async_core.Config.detect_invalid_access_from_thread then
     Core_scheduler.set_check_access core_scheduler (fun () ->
       if not (am_holding_lock t) then begin
+        let backtrace_option =
+          match Backtrace.get with
+          | Error _ -> None
+          | Ok f -> Some (f ())
+        in
         Debug.log "attempt to access async from thread not holding the async lock"
-          t <:sexp_of< t >>;
+          (backtrace_option, t) <:sexp_of< Backtrace.t option * t >>;
         exit 1;
       end);
   t
@@ -714,7 +757,7 @@ type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 
 let t () = the_one_and_only ~should_lock:true
 
-let fold_fields ~init folder =
+let fold_fields (type a) ~init folder : a =
   let t = t () in
   let f ac field = folder.folder ac t field in
   Fields.fold ~init
@@ -729,7 +772,14 @@ let fold_fields ~init folder =
     ~interruptor:f
     ~signal_manager:f
     ~thread_pool:f
+    ~handle_thread_pool_stuck:f
     ~busy_poll_thread_is_running:f
     ~busy_pollers:f
     ~core_scheduler:f
 ;;
+
+let handle_thread_pool_stuck f =
+  let t = t () in
+  t.handle_thread_pool_stuck <- unstage (Core_scheduler.preserve_execution_context f);
+;;
+

@@ -179,20 +179,28 @@ val read_char : t -> char Read_result.t Deferred.t
     starting at [pos] or runs out of input.  In the former case it returns `Ok.
     In the latter, it returns [`Eof n] where [n] is the number of bytes that
     were read before end of input, and [0 <= n < String.length ss]. *)
-val really_read :
-  t -> ?pos:int -> ?len:int -> string
+val really_read
+  :  t
+  -> ?pos:int
+  -> ?len:int
+  -> string
   -> [ `Ok
-     | `Eof of int ] Deferred.t
+     | `Eof of int
+     ] Deferred.t
 
-val really_read_substring :
-  t -> Substring.t
+val really_read_substring
+  :  t
+  -> Substring.t
   -> [ `Ok
-     | `Eof of int (* 0 <= i < Substring.length ss *)] Deferred.t
+     | `Eof of int (* 0 <= i < Substring.length ss *)
+     ] Deferred.t
 
-val really_read_bigsubstring :
-  t -> Bigsubstring.t
+val really_read_bigsubstring
+  :  t
+  -> Bigsubstring.t
   -> [ `Ok
-     | `Eof of int (* 0 <= i < Substring.length ss *)] Deferred.t
+     | `Eof of int (* 0 <= i < Substring.length ss *)
+     ] Deferred.t
 
 (** [read_until t pred ~keep_delim] reads until it hits a delimiter [c] such that:
 
@@ -216,8 +224,8 @@ val read_until
 
 (** just like [read_until], except you have the option of specifiying a maximum number of
     chars to read. *)
-val read_until_max :
-  t
+val read_until_max
+  :  t
   -> [`Pred of (char -> bool) | `Char of char]
   -> keep_delim:bool
   -> max:int

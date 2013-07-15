@@ -13,7 +13,7 @@ module Poller = struct
     with fields, sexp_of
 
     let invariant a_invariant t : unit =
-      Invariant.invariant "Poller.invariant" t <:sexp_of< _ t >> (fun () ->
+      Invariant.invariant _here_ t <:sexp_of< _ t >> (fun () ->
         let check f = Invariant.check_field t f in
         Fields.iter
           ~execution_context:(check Execution_context.invariant)
@@ -49,7 +49,7 @@ let create () =
 ;;
 
 let invariant t =
-  Invariant.invariant "Busy_pollers.invariant" t <:sexp_of< t >> (fun () ->
+  Invariant.invariant _here_ t <:sexp_of< t >> (fun () ->
     let check f = Invariant.check_field t f in
     Fields.iter
       ~core_scheduler:(check Core_scheduler.invariant)

@@ -76,6 +76,11 @@ val add_work
   -> (unit -> unit)
   -> unit Or_error.t
 
+val num_work_completed : t -> int
+
+(** [has_thread_available t] returns [true] if [t] has a thread available to do work. *)
+val has_thread_available : t -> bool
+
 module Helper_thread : sig
   (** A helper thread is a thread with its own dedicated work queue.  Work added for the
       helper thread is guaranteed to be run by that thread.  The helper thread only runs

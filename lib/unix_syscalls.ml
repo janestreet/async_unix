@@ -94,8 +94,10 @@ let openfile ?perm ?(close_on_exec = false) file ~mode =
     let file_descr = Unix.openfile ?perm file ~mode in
     if close_on_exec then Unix.set_close_on_exec file_descr;
     file_descr)
-  >>| fun file_descr ->
-  Fd.create Fd.Kind.File file_descr (Info.of_string file)
+  >>= fun file_descr ->
+  Fd.Kind.infer_using_stat file_descr
+  >>| fun kind ->
+  Fd.create kind file_descr (Info.of_string file)
 ;;
 
 let fcntl_getfl fd =

@@ -147,3 +147,13 @@ val reset_in_forked_process : unit -> unit
 val add_busy_poller
   :  (unit -> [ `Continue_polling | `Stop_polling of 'a ])
   -> 'a Deferred.t
+
+(** [handle_thread_pool_stuck f] causes [f] to run whenever async detects its thread pool
+    is stuck (i.e. hasn't completed a job for over a second and has no available threads).
+    Async checks every second.  By default, if thread pool has been stuck for less than
+    60s, async will [eprintf] a message.  If more than 60s, async will send an exception
+    to the main monitor, which will abort the program unless there is a custom handler for
+    the main monitor.
+
+    Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
+val handle_thread_pool_stuck : (Time.Span.t -> unit) -> unit

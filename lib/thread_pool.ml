@@ -205,6 +205,7 @@ module Internal = struct
       (* [unfinished_work] holds the amount of work that has been submitted to the pool
          but not yet been completed. *)
       mutable unfinished_work : int;
+      mutable num_work_completed : int;
     }
   with fields, sexp_of
 
@@ -236,6 +237,8 @@ module Internal = struct
                   || (t.num_threads = t.max_num_threads
                       && List.is_empty t.available_threads))))
         ~unfinished_work:(check (fun unfinished_work -> assert (unfinished_work >= 0)))
+        ~num_work_completed:(check (fun num_work_completed ->
+          assert (num_work_completed >= 0)))
     with exn ->
       failwiths "Thread_pool.invariant failed" (exn, t) <:sexp_of< exn * t >>
   ;;
@@ -244,6 +247,10 @@ module Internal = struct
     match t.state with
     | `In_use -> true
     | `Finishing | `Finished -> false
+  ;;
+
+  let has_thread_available t =
+    t.num_threads < t.max_num_threads || not (List.is_empty t.available_threads)
   ;;
 
   let create ~max_num_threads =
@@ -262,6 +269,7 @@ module Internal = struct
           available_threads = [];
           work_queue = Queue.create ();
           unfinished_work = 0;
+          num_work_completed = 0;
         }
       in
       Ok t
@@ -285,7 +293,8 @@ module Internal = struct
             t.threads <- [])
           ~available_threads:(set [])
           ~work_queue:ignore
-          ~unfinished_work:ignore;
+          ~unfinished_work:ignore
+          ~num_work_completed:ignore;
       end;
   ;;
 
@@ -344,6 +353,7 @@ module Internal = struct
             (try
                work.Work.doit () (* the actual work *)
              with _ -> ());
+            t.num_work_completed <- t.num_work_completed + 1;
             if debug then Debug.log "thread finished with work" (work, thread, t)
               (<:sexp_of< Work.t * Thread.t * t >>);
             Mutex.critical_section t.mutex ~f:(fun () ->
@@ -491,11 +501,11 @@ let create ~max_num_threads =
 
 let finished_with t = critical_section t ~f:(fun () -> finished_with t)
 
-let max_num_threads = max_num_threads
-
-let num_threads = num_threads
-
-let default_priority = default_priority
+let default_priority     = default_priority
+let has_thread_available = has_thread_available
+let max_num_threads      = max_num_threads
+let num_threads          = num_threads
+let num_work_completed   = num_work_completed
 
 module Helper_thread = struct
   open Helper_thread
