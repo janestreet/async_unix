@@ -69,7 +69,8 @@ type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, se
     e.g. EBADF, EPIPE, ECONNRESET, ....
 
     [buffer_age_limit] specifies how backed up you can get before raising an exception.
-    Default is 2 minutes.  You can supply [`Unlimited] to turn off buffer-age checks.
+    The default is [`Unlimited] for files, and 2 minutes for other kinds of file
+    descriptors.  You can supply [`Unlimited] to turn off buffer-age checks.
 
     [raise_when_consumer_leaves] specifies whether the writer should raise an exception
     when the consumer receiving bytes from the writer leaves, i.e. in Unix, the write

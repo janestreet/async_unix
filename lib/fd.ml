@@ -216,3 +216,22 @@ let replace t kind info =
                  (<:sexp_of< Info.t * [ `previously_was of Info.t ] >>));
   end
 ;;
+
+let ready_fold t ~init ?(stop = fun _ -> false) ~f read_or_write =
+  let nonblocking = supports_nonblock t in
+  let rec loop acc =
+    if stop acc
+    then return acc
+    else match with_file_descr ~nonblocking t (f acc) with
+      | `Already_closed -> return acc
+      | `Error (Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINTR), _, _)) ->
+        ready_to t read_or_write
+        >>= (function
+          | `Closed -> return acc
+          | `Bad_fd -> failwiths "Fd.ready_fold on bad fd" t <:sexp_of< t >>
+          | `Ready -> loop acc)
+      | `Error e -> raise e
+      | `Ok acc -> loop acc
+  in
+  loop init
+;;

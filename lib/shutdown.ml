@@ -3,11 +3,15 @@
 open Core.Std
 open Import
 
-let debug = false
+let debug = Debug.shutdown
 
 let todo = ref []
 
-let at_shutdown f = todo := f :: !todo
+let at_shutdown f =
+  let backtrace = Backtrace.get_opt () in
+  if debug then Debug.log "at_shutdown" backtrace <:sexp_of< Backtrace.t option >>;
+  todo := (backtrace, f) :: !todo;
+;;
 
 let shutting_down_ref = ref `No
 
@@ -17,17 +21,24 @@ let shutdown ?(force = after (sec 10.)) status =
   if debug then Debug.log "shutdown" status <:sexp_of< int >>;
   match !shutting_down_ref with
   | `Yes status' ->
-      if status <> 0 && status' <> 0 && status <> status' then
-        failwiths "shutdown with inconsistent status" (status, status')
-          (<:sexp_of< int * int >>)
-      else if status' = 0 && status <> 0 then
-        shutting_down_ref := `Yes status
+    if status <> 0 && status' <> 0 && status <> status' then
+      failwiths "shutdown with inconsistent status" (status, status')
+        (<:sexp_of< int * int >>)
+    else if status' = 0 && status <> 0 then
+      shutting_down_ref := `Yes status
   | `No ->
     shutting_down_ref := `Yes status;
-    upon (Deferred.all (List.map !todo ~f:(fun f -> f ()))) (fun _ ->
-      match shutting_down () with
-      | `No -> assert false
-      | `Yes status -> exit status);
+    upon (Deferred.all
+            (List.map !todo ~f:(fun (backtrace, f) ->
+               f ()
+               >>| fun () ->
+               if debug then
+                 Debug.log "one at_shutdown function finished" backtrace
+                   <:sexp_of< Backtrace.t option >>)))
+      (fun _ ->
+         match shutting_down () with
+         | `No -> assert false
+         | `Yes status -> exit status);
     upon force (fun () ->
       Core.Std.eprintf "Shutdown forced.\n";
       exit 1);

@@ -8,7 +8,7 @@ module Table = Bounded_int_table
 type t = (File_descr.t, unit) Table.t Read_write.t
 with sexp_of
 
-let backend = Config.File_descr_watcher.Select;;
+let backend = Config.File_descr_watcher.Select
 
 let invariant t : unit =
   try

@@ -37,7 +37,9 @@ let invariant t : unit =
 
 let create ~num_file_descrs =
   let epoll_create = Or_error.ok_exn Epoll.create in
-  { epoll = epoll_create ~num_file_descrs ~max_ready_events:Config.epoll_max_ready_events;
+  { epoll =
+      epoll_create ~num_file_descrs
+        ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events);
   }
 ;;
 

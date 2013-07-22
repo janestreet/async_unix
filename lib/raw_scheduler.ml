@@ -52,11 +52,6 @@ let set_max_num_jobs_per_priority_per_cycle i =
 
 let force_current_cycle_to_end () = Core_scheduler.(force_current_cycle_to_end (t ()))
 
-
-(* Default file descr watcher backend.  It is global so it can be reused after a fork.  It
-   is set by [go_main]. *)
-let file_descr_watcher_backend = ref Config.file_descr_watcher
-
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
        data structures, which is almost all async code.  The [mutex] is automatically
@@ -111,6 +106,9 @@ type t =
     mutable busy_poll_thread_is_running : bool;
 
     core_scheduler : Core_scheduler.t;
+
+    (* configuration *)
+    mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t;
   }
 with fields, sexp_of
 
@@ -262,9 +260,23 @@ let invariant t : unit =
       ~handle_thread_pool_stuck:ignore
       ~busy_pollers:(check Busy_pollers.invariant)
       ~busy_poll_thread_is_running:ignore
-      ~core_scheduler:(check Core_scheduler.invariant);
+      ~core_scheduler:(check Core_scheduler.invariant)
+      ~max_inter_cycle_timeout:ignore
   with exn ->
     failwiths "Scheduler.invariant failed" (exn, t) <:sexp_of< exn * t >>
+;;
+
+let update_check_access t do_check =
+  Core_scheduler.set_check_access t.core_scheduler
+    (if not do_check then
+       None
+     else
+       Some (fun () ->
+         if not (am_holding_lock t) then begin
+           Debug.log "attempt to access async from thread not holding the async lock"
+             (Backtrace.get_opt (), t) <:sexp_of< Backtrace.t option * t >>;
+           exit 1;
+         end))
 ;;
 
 (* Try to create a timerfd.  It returns [None] if [Core] is not built with timerfd support
@@ -319,10 +331,16 @@ let detect_stuck_thread_pool t =
       then t.handle_thread_pool_stuck since_last_work_was_completed);
 ;;
 
-let create () =
+let create
+      ?(file_descr_watcher       = Config.file_descr_watcher)
+      ?(max_num_open_file_descrs = Config.max_num_open_file_descrs)
+      ?(max_num_threads          = Config.max_num_threads)
+      () =
   if debug then Debug.log_string "creating scheduler";
-  let thread_pool = ok_exn (Thread_pool.create ~max_num_threads:Config.max_num_threads) in
-  let num_file_descrs = Config.max_num_open_file_descrs in
+  let thread_pool =
+    ok_exn (Thread_pool.create ~max_num_threads:(Max_num_threads.raw max_num_threads))
+  in
+  let num_file_descrs = Max_num_open_file_descrs.raw max_num_open_file_descrs in
   let fd_by_descr = Fd_by_descr.create ~num_file_descrs in
   let create_fd kind file_descr info =
     let fd = Fd.create kind file_descr info in
@@ -332,7 +350,7 @@ let create () =
   let interruptor = Interruptor.create ~create_fd in
   let file_descr_watcher, timerfd =
     let module F = Config.File_descr_watcher in
-    match !file_descr_watcher_backend with
+    match file_descr_watcher with
     | F.Select ->
       let watcher = Select_file_descr_watcher.create ~num_file_descrs in
       let module W = struct
@@ -381,25 +399,15 @@ Async will be unable to timeout with sub-millisecond precision."
       busy_pollers = Busy_pollers.create ();
       busy_poll_thread_is_running = false;
       core_scheduler;
+      max_inter_cycle_timeout = Config.max_inter_cycle_timeout;
     }
   in
   detect_stuck_thread_pool t;
-  if Async_core.Config.detect_invalid_access_from_thread then
-    Core_scheduler.set_check_access core_scheduler (fun () ->
-      if not (am_holding_lock t) then begin
-        let backtrace_option =
-          match Backtrace.get with
-          | Error _ -> None
-          | Ok f -> Some (f ())
-        in
-        Debug.log "attempt to access async from thread not holding the async lock"
-          (backtrace_option, t) <:sexp_of< Backtrace.t option * t >>;
-        exit 1;
-      end);
+  update_check_access t Config.detect_invalid_access_from_thread;
   t
 ;;
 
-let init () = the_one_and_only_ref := Ready_to_initialize create
+let init () = the_one_and_only_ref := Ready_to_initialize (fun () -> create ())
 
 let () = init ()
 
@@ -524,21 +532,6 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
          immediately come back and start running them after checking for I/O. *)
       `Immediately
     else begin
-      let max_timeout_after =
-        (* Async does not have any scheduled events, so, in principle, we could supply
-           [`Never] as the timeout to select.  We instead supply a small timeout to be
-           more robust to bugs that could prevent async from waking up and servicing
-           events.  For example, as of 2013-01, the OCaml runtime has a bug that causes it
-           to not necessarily run an OCaml signal handler in a timely manner.  This in
-           turn can cause a simple async program that is waiting on a signal to hang, when
-           in fact it should handle the signal.
-
-           We choose 50ms as the timeout, because it is infrequent enough to have a
-           negligible performance impact, and frequent enough that the latency would
-           typically be not noticeable.  Also, 50ms is what the OCaml ticker thread
-           uses. *)
-        sec 0.05
-      in
       let timeout_after span =
         match t.timerfd with
         | None ->
@@ -550,12 +543,15 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
              to. *)
           `Never
       in
+      let max_inter_cycle_timeout =
+        Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout
+      in
       match Core_scheduler.next_upcoming_event t.core_scheduler with
-      | None -> timeout_after max_timeout_after
+      | None -> timeout_after max_inter_cycle_timeout
       | Some time ->
         let now = Time.now () in
         if Time.(>) time now then
-          timeout_after (Time.Span.min (Time.diff time now) max_timeout_after)
+          timeout_after (Time.Span.min (Time.diff time now) max_inter_cycle_timeout)
         else
           `Immediately
     end
@@ -604,7 +600,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   in
   let rec loop () =
     (* At this point, we have the lock. *)
-    if Config.check_invariants then invariant t;
+    if Core_scheduler.check_invariants t.core_scheduler then invariant t;
     match Core_scheduler.uncaught_exn t.core_scheduler with
     | Some error -> unlock t; error
     | None ->
@@ -698,10 +694,27 @@ let go ?raise_unhandled_exn () =
   end
 ;;
 
-let go_main ?raise_unhandled_exn ?file_descr_watcher ~main () =
+let go_main
+      ?raise_unhandled_exn
+      ?file_descr_watcher
+      ?max_num_open_file_descrs
+      ?max_num_threads
+      ~main () =
   if not (is_ready_to_initialize ()) then
     failwith "Async was initialized prior to [Scheduler.go_main]";
-  Option.iter file_descr_watcher ~f:(fun v -> file_descr_watcher_backend := v);
+  let max_num_open_file_descrs =
+    Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
+  in
+  let max_num_threads =
+    Option.map max_num_threads ~f:Max_num_threads.create_exn
+  in
+  the_one_and_only_ref :=
+    Ready_to_initialize (fun () ->
+      create
+        ?file_descr_watcher
+        ?max_num_open_file_descrs
+        ?max_num_threads
+        ());
   Deferred.upon Deferred.unit main;
   go ?raise_unhandled_exn ();
 ;;
@@ -715,6 +728,23 @@ let report_long_cycle_times ?(cutoff = sec 1.) () =
         eprintf "%s\n%!"
           (Error.to_string_hum
              (Error.create "long async cycle" span <:sexp_of< Time.Span.t >>)))
+;;
+
+let set_check_invariants bool =
+  Core_scheduler.(set_check_invariants (t ()) bool)
+;;
+
+let set_detect_invalid_access_from_thread bool =
+  update_check_access (the_one_and_only ~should_lock:false) bool
+;;
+
+let set_record_backtraces bool =
+  Core_scheduler.(set_record_backtraces (t ()) bool)
+;;
+
+let set_max_inter_cycle_timeout span =
+  (the_one_and_only ~should_lock:false).max_inter_cycle_timeout <-
+    Max_inter_cycle_timeout.create_exn span
 ;;
 
 let start_busy_poller_thread_if_not_running t =
@@ -776,6 +806,7 @@ let fold_fields (type a) ~init folder : a =
     ~busy_poll_thread_is_running:f
     ~busy_pollers:f
     ~core_scheduler:f
+    ~max_inter_cycle_timeout:f
 ;;
 
 let handle_thread_pool_stuck f =

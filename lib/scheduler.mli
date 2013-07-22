@@ -39,7 +39,9 @@ val go
     options of the scheduler. *)
 val go_main
   :  ?raise_unhandled_exn:bool (* defaults to false *)
-  -> ?file_descr_watcher:Config.File_descr_watcher.t (* default to the value in [Config] *)
+  -> ?file_descr_watcher:Config.File_descr_watcher.t (* default to [Config] *)
+  -> ?max_num_open_file_descrs:int                   (* default to [Config] *)
+  -> ?max_num_threads:int                            (* default to [Config] *)
   -> main:(unit -> unit)
   -> unit
   -> never_returns
@@ -109,6 +111,29 @@ val is_running : unit -> bool
 (** [set_max_num_jobs_per_priority_per_cycle int] sets the maximum number of jobs that
     will be done at each priority within each async cycle.  The default is [500]. *)
 val set_max_num_jobs_per_priority_per_cycle : int -> unit
+
+(** [set_max_inter_cycle_timeout span] sets the maximum amount of time the scheduler will
+    remain blocked (on epoll or select) between cycles. *)
+val set_max_inter_cycle_timeout : Time.Span.t -> unit
+
+(** [set_check_invariants do_check] sets whether async should check invariants of its
+    internal data structures.  [set_check_invariants true] can substantially slow down
+    your program. *)
+val set_check_invariants : bool -> unit
+
+(** [set_detect_invalid_access_from_thread do_check] sets whether async routines should
+    check if they are being accessed from some thread other than the thread currently
+    holding the async lock, which is not allowed and can lead to very confusing
+    behavior. *)
+val set_detect_invalid_access_from_thread : bool -> unit
+
+(** [set_record_backtraces do_record] sets whether async should keep in the execution
+    context the history of stack backtraces (obtained via [Backtrace.get]) that led to the
+    current job.  If an async job has an unhandled exception, this backtrace history will
+    be recorded in the exception.  In particular the history will appean in an unhandled
+    exception that reaches the main monitor.  This can have a substantial performance
+    impact, both in running time and space usage. *)
+val set_record_backtraces : bool -> unit
 
 (** [fold_fields ~init folder] folds [folder] over each field in the scheduler.  The
     fields themselves are not exposed -- [folder] must be a polymorphic function that

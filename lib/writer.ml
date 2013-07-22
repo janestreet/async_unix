@@ -396,17 +396,26 @@ let die t error = stop_permanently t; Error.raise error
 type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, sexp
 
 let create
-    ?buf_len
-    ?(syscall = `Per_cycle)
-    ?(buffer_age_limit = `At_most (Time.Span.of_min 2.))
-    ?(raise_when_consumer_leaves = true)
-    fd =
+      ?buf_len
+      ?(syscall = `Per_cycle)
+      ?buffer_age_limit
+      ?(raise_when_consumer_leaves = true)
+      fd =
+  let buffer_age_limit =
+    match buffer_age_limit with
+    | Some z -> z
+    | None ->
+      let module K = Fd.Kind in
+      match Fd.kind fd with
+      | K.File -> `Unlimited
+      | K.Char | K.Fifo | K.Socket _ -> `At_most (Time.Span.of_min 2.)
+  in
   let buf_len =
     match buf_len with
     | None -> 65 * 1024 * 2 (* largest observed single write call * 2 *)
     | Some buf_len ->
-        if buf_len <= 0 then invalid_arg "Writer.create: buf_len <= 0"
-        else buf_len
+      if buf_len <= 0 then invalid_arg "Writer.create: buf_len <= 0"
+      else buf_len
   in
   let id = Id.create () in
   let monitor =
@@ -415,28 +424,28 @@ let create
   let consumer_left = Ivar.create () in
   let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
   let t =
-  { id;
-    fd;
-    syscall;
-    monitor;
-    buf = Bigstring.create buf_len;
-    back = 0;
-    scheduled_back = 0;
-    scheduled = Queue.create ();
-    scheduled_bytes = 0;
-    bytes_received = Int63.zero;
-    bytes_written = Int63.zero;
-    flushes = Queue.create ();
-    background_writer_state = `Not_running;
-    close_state = `Open;
-    close_finished = Ivar.create ();
-    producers_to_flush_at_close = Bag.create ();
-    flush_at_shutdown_elt = None;
-    check_buffer_age = Check_buffer_age.dummy;
-    consumer_left;
-    raise_when_consumer_leaves;
-    open_flags;
-  }
+    { id;
+      fd;
+      syscall;
+      monitor;
+      buf = Bigstring.create buf_len;
+      back = 0;
+      scheduled_back = 0;
+      scheduled = Queue.create ();
+      scheduled_bytes = 0;
+      bytes_received = Int63.zero;
+      bytes_written = Int63.zero;
+      flushes = Queue.create ();
+      background_writer_state = `Not_running;
+      close_state = `Open;
+      close_finished = Ivar.create ();
+      producers_to_flush_at_close = Bag.create ();
+      flush_at_shutdown_elt = None;
+      check_buffer_age = Check_buffer_age.dummy;
+      consumer_left;
+      raise_when_consumer_leaves;
+      open_flags;
+    }
   in
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);

@@ -486,6 +486,8 @@ module Inet_addr = struct
   ;;
 end
 
+module Cidr = Unix.Cidr
+
 module Socket = struct
   module Address = struct
     module Inet = struct

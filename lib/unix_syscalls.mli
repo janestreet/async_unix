@@ -305,15 +305,16 @@ val waitpid_exn : Pid.t -> unit             Deferred.t
 module Inet_addr : sig
   type t = Unix.Inet_addr.t with bin_io, sexp, compare
 
-  include Comparable.S with type t := t
-
   (** same as [Core.Unix] *)
+  include Comparable.S with type t := t
   val of_string : string -> t
   val to_string : t -> string
   val bind_any       : t
   val bind_any_inet6 : t
   val localhost       : t (** [127.0.0.1] *)
   val localhost_inet6 : t (** ([::1]) *)
+  val inet4_addr_of_int32 : Int32.t -> t
+  val inet4_addr_to_int32_exn : t -> Int32.t
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
       resulting IP address.  The implemenation sequentializes all calls so that only a
@@ -321,6 +322,8 @@ module Inet_addr : sig
       with certain versions of winbind using "wins" name resolution. *)
   val of_string_or_getbyname : string -> t Deferred.t
 end
+
+module Cidr : module type of Core.Std.Unix.Cidr
 
 module Protocol_family : sig
   type t = Unix.Protocol_family.t
