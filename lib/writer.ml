@@ -1042,6 +1042,22 @@ let transfer t pipe_r write_f =
   Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
 ;;
 
+let transfer' t pipe_r write_f =
+  let producers_to_flush_at_close_elt =
+    Bag.add t.producers_to_flush_at_close (fun () ->
+      Deferred.ignore (Pipe.upstream_flushed pipe_r))
+  in
+  let consumer =
+    Pipe.add_consumer pipe_r ~downstream_flushed:(fun () -> flushed t >>| fun () -> `Ok)
+  in
+  Pipe.iter' pipe_r ~consumer ~f:(fun q ->
+    write_f q >>= fun () ->
+    Pipe.Consumer.values_sent_downstream consumer;
+    flushed t)
+  >>| fun () ->
+  Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
+;;
+
 let pipe t =
   let pipe_r, pipe_w = Pipe.create () in
   don't_wait_for (transfer t pipe_r (fun s -> write t s));

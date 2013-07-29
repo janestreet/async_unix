@@ -330,8 +330,12 @@ val save_sexp
 
     [transfer] causes [Pipe.flushed] on [pipe_r]'s writer to ensure that the bytes have
     been flushed to [t] before returning.  It also waits on [Pipe.upstream_flushed] at
-    shutdown. *)
+    shutdown.
+
+    [transfer'] works similar to [transfer] but allows to perform async actions in [f].
+    *)
 val transfer : t -> 'a Pipe.Reader.t -> ('a -> unit) -> unit Deferred.t
+val transfer' : t -> 'a Pipe.Reader.t -> ('a Queue.t -> unit Deferred.t) -> unit Deferred.t
 
 (** [pipe t] returns the writing end of a pipe attached to [t] that pushes back when [t]
     cannot keep up with the data being pushed in.  Closing the pipe will close [t]. *)
