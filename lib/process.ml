@@ -89,7 +89,7 @@ module Failure = struct
   with sexp_of
 end
 
-let  run ?working_dir ?env ~prog ~args () =
+let run ?working_dir ?env ~prog ~args () =
   create ?working_dir ?env ~prog ~args ()
   >>= function
   | Error _ as e -> return e
@@ -106,4 +106,10 @@ let  run ?working_dir ?env ~prog ~args () =
           stderr = Lines_or_sexp.create stderr;
         }
         (<:sexp_of< Failure.t >>)
+;;
+
+let run_lines ?working_dir ?env ~prog ~args () =
+  run ?working_dir ?env ~prog ~args ()
+  >>|? fun s ->
+  String.split_lines s
 ;;

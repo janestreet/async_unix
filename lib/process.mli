@@ -68,3 +68,7 @@ val wait : t -> Output.t Deferred.t
     into a list of strings, so that it displays on multiple lines rather than a single
     giant line with embedded "\n"'s. *)
 val run : string Or_error.t Deferred.t with_create_args
+
+(** [run_lines] is like [run] but returns the lines of stdout as a string list, using
+    [String.split_lines]. *)
+val run_lines : string list Or_error.t Deferred.t with_create_args
