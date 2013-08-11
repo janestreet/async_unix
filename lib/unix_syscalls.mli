@@ -54,7 +54,7 @@ type file_perm = int
 
 val openfile
   :  ?perm:file_perm
-  -> ?close_on_exec:bool (* default: false *)
+  -> ?close_on_exec:bool (** default: false *)
   -> string
   -> mode:open_flag list
   -> Fd.t Deferred.t
@@ -86,7 +86,7 @@ val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
     [~should_close_file_descriptor:false], which will skip the underlying close() system
     call. *)
 val close
-  :  ?should_close_file_descriptor:bool (* defaults to [true] *)
+  :  ?should_close_file_descriptor:bool (** default is [true] *)
   -> Fd.t
   -> unit Deferred.t
 
@@ -160,7 +160,7 @@ val remove : string -> unit Deferred.t
 val rename : src:string -> dst:string -> unit Deferred.t
 
 val link
-  :  ?force:bool (* defaults to false *)
+  :  ?force:bool (** default is [false] *)
   -> target:string
   -> link_name:string
   -> unit
@@ -214,7 +214,7 @@ val pipe : Info.t -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
 
 (** Create a named pipe with the given permissions. *)
 val mkfifo
-  :  ?perm:file_perm  (* default is [0o666] *)
+  :  ?perm:file_perm  (** default is [0o666] *)
   -> string
   -> unit Deferred.t
 
@@ -277,7 +277,7 @@ val unsetenv : string -> unit
 val fork_exec
   :  prog:string
   -> args:string list
-  -> ?use_path:bool (* defaults to true *)
+  -> ?use_path:bool (** default is [true] *)
   -> ?env:string list
   -> unit
   -> Pid.t Deferred.t
@@ -409,7 +409,7 @@ module Socket : sig
   val bind : ([ `Unconnected ], 'addr) t -> 'addr -> ([ `Bound ], 'addr) t Deferred.t
 
   val listen
-    :  ?max_pending_connections:int  (* default: 10 *)
+    :  ?max_pending_connections:int  (** default: 10 *)
     -> ([ `Bound ], 'addr) t
     -> ([ `Passive ], 'addr) t
 

@@ -26,7 +26,7 @@ with sexp
 (** [with_create_args] specifies the arguments used to create a child process. *)
 type 'a with_create_args =
      ?working_dir : string
-  -> ?env : env (* default is [`Extend []] *)
+  -> ?env : env (** default is [`Extend []] *)
   -> prog : string
   -> args : string list
   -> unit

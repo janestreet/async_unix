@@ -29,7 +29,7 @@ val t : unit -> t
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
-  :  ?raise_unhandled_exn:bool (* defaults to false *)
+  :  ?raise_unhandled_exn:bool (** default is [false] *)
   -> unit
   -> never_returns
 
@@ -38,10 +38,10 @@ val go
     used prior to [go_main] being called.  Moreover it allows to configure more static
     options of the scheduler. *)
 val go_main
-  :  ?raise_unhandled_exn:bool (* defaults to false *)
-  -> ?file_descr_watcher:Config.File_descr_watcher.t (* default to [Config] *)
-  -> ?max_num_open_file_descrs:int                   (* default to [Config] *)
-  -> ?max_num_threads:int                            (* default to [Config] *)
+  :  ?raise_unhandled_exn:bool (** default is [false] *)
+  -> ?file_descr_watcher:Config.File_descr_watcher.t (** default to [Config] *)
+  -> ?max_num_open_file_descrs:int                   (** default to [Config] *)
+  -> ?max_num_threads:int                            (** default to [Config] *)
   -> main:(unit -> unit)
   -> unit
   -> never_returns

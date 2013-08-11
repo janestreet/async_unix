@@ -70,8 +70,8 @@ val default_priority : t -> Priority.t
 
     It is an error to call [add_work t] after [finished_with t]. *)
 val add_work
-  :  ?priority:Priority.t (* default is [default_priority t] *)
-  -> ?name:string         (* default is "thread-pool thread" *)
+  :  ?priority:Priority.t (** default is [default_priority t] *)
+  -> ?name:string         (** default is ["thread-pool thread"] *)
   -> t
   -> (unit -> unit)
   -> unit Or_error.t
@@ -107,8 +107,8 @@ end
     When the helper thread runs work, it will be at the helper thread's name and priority,
     except for work that is added with an overriding priority or name. *)
 val create_helper_thread
-  :  ?priority:Priority.t (* default is [default_priority t] *)
-  -> ?name:string         (* default is "helper thread" *)
+  :  ?priority:Priority.t (** default is [default_priority t] *)
+  -> ?name:string         (** default is ["helper thread"] *)
   -> t
   -> Helper_thread.t Or_error.t
 
@@ -123,8 +123,8 @@ val create_helper_thread
     When the helper thread runs [f], it will be at the helper thread's name and priority,
     unless overriden by [name] or [priority]. *)
 val add_work_for_helper_thread
-  :  ?priority:Priority.t (* default is [Helper_thread.default_priority helper_thread] *)
-  -> ?name:string         (* default is [Helper_thread.name helper_thread] *)
+  :  ?priority:Priority.t (** default is [Helper_thread.default_priority helper_thread] *)
+  -> ?name:string         (** default is [Helper_thread.name helper_thread] *)
   -> t
   -> Helper_thread.t
   -> (unit -> unit)

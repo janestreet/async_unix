@@ -26,7 +26,7 @@
     descriptor, either by returning a variant, `Already_closed, or raising an exception.
 
     Some of the above functions take an optional [?nonblocking:bool] argument.  The
-    default is false, but if it is set to true, then before supplying the underlying
+    default is [false], but if it is set to true, then before supplying the underlying
     [file_descr], the [Fd] module will first call [Unix.set_nonblock file_descr], if it
     hasn't previously done so on that file descriptor.  This is intended to support making
     nonblocking system calls (e.g. connect, read, write) directly within async, without
@@ -99,7 +99,7 @@ val clear_nonblock : t -> unit
 
     [is_closed t] returns [true] iff [close t] has been called. *)
 val close
-  :  ?should_close_file_descriptor:bool (* defaults to true *)
+  :  ?should_close_file_descriptor:bool (** default is [true] *)
   -> t
   -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
@@ -122,7 +122,7 @@ val stderr : unit -> t
     and returns [`Ok] or [`Error] according to [f].  If [is_closed t], then it does not
     call [f] and returns [`Already_closed]. *)
 val with_file_descr
-  :  ?nonblocking:bool (* defaults to false *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> [ `Ok of 'a
@@ -133,7 +133,7 @@ val with_file_descr
 (** [with_file_descr_exn] is like [with_file_descr] except that it raises rather than
     return [`Already_closed] or [`Error]. *)
 val with_file_descr_exn
-  :  ?nonblocking:bool (* defaults to false *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -179,7 +179,7 @@ val ready_to
     [t], if [is_open t], and returns [`Ok] or [`Error] according to [f].  If
     [is_closed t], it does not call [f] and returns [`Already_closed]. *)
 val syscall
-  :  ?nonblocking:bool (* defaults to false *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> [ `Already_closed
@@ -190,7 +190,7 @@ val syscall
 (** [syscall_exn t f] is like [syscall], except it raises rather than return
     [`Already_closed] or [`Error]. *)
 val syscall_exn
-  :  ?nonblocking:bool (* defaults to false *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -261,7 +261,7 @@ val replace : t -> Kind.t -> Info.t -> unit
 val ready_fold
   :  t
   -> init:'a
-  -> ?stop:('a -> bool) (** defaults to [fun _ -> false] *)
+  -> ?stop:('a -> bool) (** default is [fun _ -> false] *)
   -> f:('a -> Unix.File_descr.t -> 'a)
   -> [ `Read | `Write ]
   -> 'a Deferred.t

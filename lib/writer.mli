@@ -82,9 +82,11 @@ val create
   :  ?buf_len:int
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?buffer_age_limit:buffer_age_limit
-  -> ?raise_when_consumer_leaves:bool (* defaults to true *)
+  -> ?raise_when_consumer_leaves:bool (** default is [true] *)
   -> Fd.t
   -> t
+
+val raise_when_consumer_leaves : t -> bool
 
 (** [set_raise_when_consumer_leaves t bool] sets the [raise_when_consumer_leaves] flag of
     [t], which determies how [t] responds to a write system call raising EPIPE and
@@ -105,9 +107,9 @@ val of_out_channel : out_channel -> Fd.Kind.t -> t
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file.  *)
 val open_file
-  :  ?append:bool (* defaults to false *)
-  -> ?close_on_exec:bool (* defaults to true *)
-  -> ?perm:int (* defaults to 0o666 *)
+  :  ?append:bool        (** default is [false] *)
+  -> ?close_on_exec:bool (** default is [true] *)
+  -> ?perm:int           (** default is [0o666] *)
   -> string
   -> t Deferred.t
 
@@ -119,9 +121,9 @@ val open_file
     writer to be flushed before closing it.  [Writer.close] will already wait for the
     flush. *)
 val with_file
-  :  ?perm:int (* defaults to 0o666 *)
-  -> ?append:bool (* defaults to false *)
-  -> ?exclusive:bool (* defaults to false *)
+  :  ?perm:int       (** default is [0o666] *)
+  -> ?append:bool    (** default is [false] *)
+  -> ?exclusive:bool (** default is [false] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -166,7 +168,7 @@ val write_line : t -> string -> unit
     The given integer is taken modulo 256. *)
 val write_byte : t -> int -> unit
 
-val write_sexp : ?hum:bool (* defaults to false *) -> t -> Sexp.t -> unit
+val write_sexp : ?hum:bool (** default is [false] *) -> t -> Sexp.t -> unit
 
 (** [write_bin_prot] writes out a value using its bin_prot sizer/writer pair.  The format
     is the "size-prefixed binary protocol", in which the length of the data is written
@@ -247,11 +249,28 @@ val monitor : t -> Monitor.t
 
     [is_closed t] returns [true] iff [close t] has been called.
 
-    [is_open t] is [not (is_closed t)] *)
+    [is_open t] is [not (is_closed t)]
+*)
 val close : ?force_close:unit Deferred.t -> t -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
 val is_closed : t -> bool
 val is_open   : t -> bool
+
+(* In addition to flushing its internal buffer prior to closing, a writer keeps track of
+   producers that are feeding it data, so that when [Writer.close] is called, it does the
+   following:
+
+   + requests that the writer's producers flush their data to it
+   + flushes the writer's internal buffer
+   + calls [Unix.close] on the writer's underlying file descriptor
+
+   [with_flushed_at_close t ~flushed ~f] calls [f] and adds [flushed] to the set of
+   producers that should be flushed-at-close, for the duration of [f]. *)
+val with_flushed_at_close
+  :  t
+  -> flushed:(unit -> unit Deferred.t)
+  -> f:(unit -> 'a Deferred.t)
+  -> 'a Deferred.t
 
 (** [bytes_to_write t] returns how many bytes have been requested to write but have not
     yet been written. *)
@@ -291,7 +310,7 @@ val bytes_received : t -> Int63.t
 val with_file_atomic
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
-  -> ?fsync:bool (* defaults to false *)
+  -> ?fsync:bool (** default is [false] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -299,7 +318,7 @@ val with_file_atomic
 val save
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
-  -> ?fsync:bool (* defaults to false *)
+  -> ?fsync:bool (** default is [false] *)
   -> string
   -> contents:string
   -> unit Deferred.t
@@ -309,7 +328,7 @@ val save
 val save_lines
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
-  -> ?fsync:bool (* defaults to false *)
+  -> ?fsync:bool (** default is [false] *)
   -> string
   -> string list
   -> unit Deferred.t
@@ -317,22 +336,39 @@ val save_lines
 val save_sexp
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
-  -> ?fsync:bool (* defaults to false *)
-  -> ?hum:bool (* defaults to true *)
+  -> ?fsync:bool (** default is [false] *)
+  -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t
   -> unit Deferred.t
 
 (** [transfer t pipe_r f] repeatedly pulls values from [pipe_r], and feeds them to [f],
     which should in turn write them to [t].  It provides pushback to [pipe_r] by not
-    reading when [t] cannot keep up with the data being pushed in.  The result becomes
-    determined when [pipe_r] reaches its EOF.
+    reading when [t] cannot keep up with the data being pushed in.
+
+    The [transfer] stops and the result becomes determined when [pipe_r] reaches its EOF,
+    when [t]'s consumer leaves, or when [stop] becomes determined.
 
     [transfer] causes [Pipe.flushed] on [pipe_r]'s writer to ensure that the bytes have
     been flushed to [t] before returning.  It also waits on [Pipe.upstream_flushed] at
     shutdown. *)
-val transfer : t -> 'a Pipe.Reader.t -> ('a -> unit) -> unit Deferred.t
+val transfer
+  :  ?stop:unit Deferred.t
+  -> t
+  -> 'a Pipe.Reader.t
+  -> ('a -> unit)
+  -> unit Deferred.t
 
 (** [pipe t] returns the writing end of a pipe attached to [t] that pushes back when [t]
     cannot keep up with the data being pushed in.  Closing the pipe will close [t]. *)
 val pipe : t -> string Pipe.Writer.t
+
+(** [of_pipe info pipe_w] returns a writer [t] such that data written to [t] will appear
+    on [pipe_w].  If either [t] or [pipe_w] are closed, the other is closed as well.
+
+    [of_pipe] is implemented by attaching [t] to the write-end of a Unix pipe, and
+    shuttling bytes from the read-end of the Unix pipe to [pipe_w]. *)
+val of_pipe
+  :  Info.t
+  -> string Pipe.Writer.t
+  -> (t * [`Closed_and_flushed_downstream of unit Deferred.t]) Deferred.t

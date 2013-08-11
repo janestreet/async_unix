@@ -49,7 +49,7 @@ val stdin : t Lazy.t
 
 (** [open_file file] opens [file] for reading and returns a reader reading from it. *)
 val open_file
-  :  ?close_on_exec:bool (* defaults to true *)
+  :  ?close_on_exec:bool (** default is [true] *)
   -> ?buf_len:int
   -> string
   -> t Deferred.t
@@ -57,7 +57,7 @@ val open_file
 (** [transfer t pipe_w] transfers data from [t] into [pipe_w] one chunk at a time
     (whatever is read from the underlying file descriptor without post-processing).  The
     result becomes determined after reaching EOF on [t] and the final bytes have been
-    transferred.
+    transferred, or if [pipe_w] is closed.
 
     This function will normally not be needed (see [pipe]). *)
 val transfer : t -> string Pipe.Writer.t -> unit Deferred.t
@@ -67,6 +67,14 @@ val transfer : t -> string Pipe.Writer.t -> unit Deferred.t
     closed, [pipe] closes the the reader, and then after the reader close is finished,
     closes the pipe. *)
 val pipe : t -> string Pipe.Reader.t
+
+(** [of_pipe info pipe_r] returns a reader [t] that receives all the data from [pipe_r].
+    If [pipe_r] is closed, [t] will see an EOF (but will not be automatically closed).  If
+    [t] is closed, then [pipe_r] will stop being drained.
+
+    [of_pipe] is implemented by shuttling bytes from [pipe_r] to the write-end of a Unix
+    pipe, with [t] being attached to the read end of the Unix pipe. *)
+val of_pipe : Info.t -> string Pipe.Reader.t -> t Deferred.t
 
 (** [create ~buf_len fd] creates a new reader that is reading from [fd].
     @param access_raw_data default = None if specified this function will
@@ -86,7 +94,7 @@ val of_in_channel : in_channel -> Fd.Kind.t -> t
     not when you get the pipe (because you get it straight away). *)
 val with_file
   :  ?buf_len:int
-  -> ?exclusive:bool (* defaults to false *)
+  -> ?exclusive:bool (** default is [false] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -313,12 +321,12 @@ val file_lines : string -> string list Deferred.t
     or [Error exn] otherwise.  This function provides accurate error locations for failed
     conversions. *)
 val load_sexp
-  : ?exclusive:bool (* defaults to false *)
+  : ?exclusive:bool (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
   -> 'a Or_error.t Deferred.t
 val load_sexp_exn
-  : ?exclusive:bool (* defaults to false *)
+  : ?exclusive:bool (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
   -> 'a Deferred.t
@@ -329,13 +337,13 @@ val load_sexp_exn
     conversion if there are no errors, but provides accurate error locations for failed
     conversions. *)
 val load_sexps
-  :  ?exclusive:bool (* defaults to false *)
+  :  ?exclusive:bool (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
   -> 'a list Or_error.t Deferred.t
 
 val load_sexps_exn
-  : ?exclusive:bool (* defaults to false *)
+  : ?exclusive:bool (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
   -> 'a list Deferred.t
