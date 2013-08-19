@@ -41,6 +41,8 @@ include struct
   let within'                     = within'
   let within_context              = within_context
   let within_v                    = within_v
+  let find_local                  = find_local
+  let with_local                  = with_local
 end
 
 let cycle_count () = Core_scheduler.(cycle_count (t ()))

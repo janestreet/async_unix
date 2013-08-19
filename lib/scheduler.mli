@@ -70,6 +70,15 @@ val within : ((unit -> unit) -> unit) with_options
 (** [within_v] is like [within], but allows a value to be returned by [f]. *)
 val within_v : ((unit -> 'a) -> 'a option) with_options
 
+(** [with_local key value ~f] runs [f] right now with the binding [key = value].  All
+    calls to [find_local key] in [f] and computations started from [f] will return
+    [value]. *)
+val with_local : 'a Univ_map.Key.t -> 'a option -> f:(unit -> 'b) -> 'b
+
+(** [find_local key] returns the value associated to [key] in the current execution
+    context. *)
+val find_local : 'a Univ_map.Key.t -> 'a option
+
 (** Just like [within'], but instead of running thunk right now, adds
     it to the async queue to be run with other async jobs. *)
 val schedule' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
