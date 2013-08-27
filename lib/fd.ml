@@ -9,13 +9,13 @@ include Fd.T
 
 open Fd
 
-let debug               = debug
-let is_closed           = is_closed
-let is_open             = is_open
-let syscall             = syscall
-let syscall_exn         = syscall_exn
-let with_file_descr     = with_file_descr
-let with_file_descr_exn = with_file_descr_exn
+let debug                       = debug
+let is_closed                   = is_closed
+let is_open                     = is_open
+let syscall                     = syscall
+let syscall_exn                 = syscall_exn
+let with_file_descr             = with_file_descr
+let with_file_descr_exn         = with_file_descr_exn
 
 module Kind = struct
   include Fd.Kind
@@ -217,21 +217,25 @@ let replace t kind info =
   end
 ;;
 
-let ready_fold t ~init ?(stop = fun _ -> false) ~f read_or_write =
-  let nonblocking = supports_nonblock t in
+let ready_fold t ~init ?(stop = Deferred.never ()) ~f read_or_write =
+  set_nonblock_if_necessary t ~nonblocking:(supports_nonblock t);
   let rec loop acc =
-    if stop acc
+    if Deferred.is_determined stop || is_closed t
     then return acc
-    else match with_file_descr ~nonblocking t (f acc) with
-      | `Already_closed -> return acc
-      | `Error (Unix.Unix_error ((Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINTR), _, _)) ->
-        ready_to t read_or_write
+    else
+      let module U = Unix in
+      let (should_loop_now, acc) =
+        try (true, f acc t.file_descr) with
+        | U.Unix_error ((U.EAGAIN | U.EWOULDBLOCK | U.EINTR), _, _) -> (false, acc)
+      in
+      if should_loop_now
+      then loop acc
+      else
+        ready_to_interruptible ~interrupt:stop t read_or_write
         >>= (function
-          | `Closed -> return acc
+          | `Closed | `Interrupted -> return acc
           | `Bad_fd -> failwiths "Fd.ready_fold on bad fd" t <:sexp_of< t >>
           | `Ready -> loop acc)
-      | `Error e -> raise e
-      | `Ok acc -> loop acc
   in
   loop init
 ;;

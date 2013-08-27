@@ -592,6 +592,12 @@ module Socket = struct
         socket_type = U.SOCK_STREAM;
       }
     ;;
+
+    let unix_dgram = 
+      { family = Family.unix;
+        socket_type = U.SOCK_DGRAM;
+      }
+    ;;
   end
 
   type 'b t_ =
@@ -661,6 +667,23 @@ module Socket = struct
 
     let rcvtimeo = float "rcvtimeo" U.SO_RCVTIMEO
     let sndtimeo = float "sndtimeo" U.SO_SNDTIMEO
+
+    (* Since there aren't socket options like SO_MCASTLOOP or SO_MCASTTTL, we wrap
+       [Core.Unix] functions to match async's socket-options interface. *)
+    let mcast_loop =
+      { name = "mcast_loop"
+      ; get = Unix.get_mcast_loop
+      ; set = Unix.set_mcast_loop
+      }
+    ;;
+
+    let mcast_ttl =
+      { name = "mcast_ttl"
+      ; get = Unix.get_mcast_ttl
+      ; set = Unix.set_mcast_ttl
+      }
+    ;;
+
   end
 
   let getopt t opt = Fd.with_file_descr_exn t.fd opt.Opt.get
@@ -668,6 +691,14 @@ module Socket = struct
   let setopt t opt a =
     Fd.with_file_descr_exn t.fd (fun file_descr -> opt.Opt.set file_descr a)
   ;;
+
+  let mcast_group f ?ifname t address =
+    let sockaddr = Address.to_sockaddr address in
+    Fd.with_file_descr_exn t.fd (fun file_descr -> f ?ifname file_descr sockaddr)
+  ;;
+
+  let mcast_join  ?ifname t address = mcast_group Unix.mcast_join  ?ifname t address
+  let mcast_leave ?ifname t address = mcast_group Unix.mcast_leave ?ifname t address
 
   let bind t address =
     setopt t Opt.reuseaddr true;

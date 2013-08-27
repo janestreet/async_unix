@@ -333,6 +333,10 @@ val save_lines
   -> string list
   -> unit Deferred.t
 
+(** [save_sexp t sexp] writes [sexp] to [t], followed by a newline.  To read a file
+    produced using [save_sexp], one would typically use [Reader.load_sexp], which deals
+    with the additional whitespace and works nicely with converting the sexp to a
+    value. *)
 val save_sexp
   :  ?temp_file:string
   -> ?perm:Unix.file_perm

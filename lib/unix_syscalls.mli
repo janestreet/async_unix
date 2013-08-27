@@ -385,9 +385,10 @@ module Socket : sig
   module Type : sig
     type 'a t constraint 'a = [< Address.t ]
 
-    val tcp : Address.Inet.t t
-    val udp : Address.Inet.t t
-    val unix : Address.Unix.t t
+    val tcp        : Address.Inet.t t
+    val udp        : Address.Inet.t t
+    val unix       : Address.Unix.t t
+    val unix_dgram : Address.Unix.t t
   end
 
   val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
@@ -461,12 +462,19 @@ module Socket : sig
     val rcvtimeo : float t
     val sndtimeo : float t
 
+    val mcast_loop : bool t
+    val mcast_ttl  : int t
+
     val to_string : 'a t -> string
   end
 
   val getopt : ('a, 'addr) t -> 'c Opt.t -> 'c
 
   val setopt : ('a, 'addr) t -> 'c Opt.t -> 'c -> unit
+
+  val mcast_join  : ?ifname : string -> ('a, 'addr) t -> 'addr -> unit
+  val mcast_leave : ?ifname : string -> ('a, 'addr) t -> 'addr -> unit
+
 end
 
 module Host : sig

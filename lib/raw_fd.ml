@@ -228,32 +228,37 @@ let is_open t = State.is_open t.state
 
 let is_closed t = not (is_open t)
 
-let set_nonblock_if_necessary t =
-  if not t.supports_nonblock then
-    failwiths "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
-      t <:sexp_of< t >>;
-  if not t.have_set_nonblock then begin
-    Unix.set_nonblock t.file_descr;
-    t.have_set_nonblock <- true;
-  end;
-;;
-
-let with_file_descr ?(nonblocking = false) t f =
-  if is_closed t
-  then `Already_closed
-  else begin
-    try
-      if nonblocking then set_nonblock_if_necessary t;
-      `Ok (f t.file_descr)
-    with exn -> `Error exn
+let set_nonblock_if_necessary ?(nonblocking = false) t =
+  if nonblocking then begin
+    if not t.supports_nonblock then
+      failwiths "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
+        t <:sexp_of< t >>;
+    if not t.have_set_nonblock then begin
+      Unix.set_nonblock t.file_descr;
+      t.have_set_nonblock <- true;
+    end;
   end;
 ;;
 
 let with_file_descr_exn ?nonblocking t f =
-  match with_file_descr t f ?nonblocking with
-  | `Ok a -> a
-  | `Already_closed -> failwiths "already closed" t <:sexp_of< t >>
-  | `Error exn -> raise exn
+  if is_closed t
+  then failwiths "Fd.with_file_descr_exn got closed fd" t <:sexp_of< t >>
+  else begin
+    set_nonblock_if_necessary t ?nonblocking;
+    f t.file_descr
+  end;
+;;
+
+let with_file_descr ?nonblocking t f =
+  if is_closed t
+  then `Already_closed
+  else begin
+    try
+      set_nonblock_if_necessary t ?nonblocking;
+      `Ok (f t.file_descr)
+    with exn ->
+      `Error exn
+  end
 ;;
 
 let syscall ?nonblocking t f =
@@ -264,6 +269,6 @@ let syscall ?nonblocking t f =
 let syscall_exn ?nonblocking t f =
   match syscall t f ?nonblocking with
   | `Ok a -> a
-  | `Already_closed -> failwiths "already closed" t <:sexp_of< t >>
+  | `Already_closed -> failwiths "Fd.syscall_exn got closed fd" t <:sexp_of< t >>
   | `Error exn -> raise exn
 ;;

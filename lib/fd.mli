@@ -250,18 +250,18 @@ val replace : t -> Kind.t -> Info.t -> unit
 
 (** [ready_fold fd ~init ~f] folds [f] over [fd], handling [EWOULDBLOCK]/[EAGAIN] and
     [EINTR] by retrying when ready.  The fold is terminated when [fd] closes or by [stop]
-    returning [true], if [~stop] is supplied.
+    being determined, if [~stop] is supplied.
 
-    By design this function does not return to the Async scheduler until [fd] is no
-    longer ready to transfer data.  If you expect [fd] to be ready for long periods at
-    a time then you should use [stop] to avoid starving other Async jobs.
+    By design this function does not return to the Async scheduler until [fd] is no longer
+    ready to transfer data.  If you expect [fd] to be ready for long periods at a time
+    then you should use [stop] to avoid starving other Async jobs.
 
     When [fd] doesn't support nonblock, this can spin at the end of a file.  How to stop
     in that case depends on the system call. *)
 val ready_fold
   :  t
   -> init:'a
-  -> ?stop:('a -> bool) (** default is [fun _ -> false] *)
+  -> ?stop:(unit Deferred.t) (** default is [Deferred.never ()] *)
   -> f:('a -> Unix.File_descr.t -> 'a)
   -> [ `Read | `Write ]
   -> 'a Deferred.t
