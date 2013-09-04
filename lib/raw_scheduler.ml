@@ -303,16 +303,31 @@ let try_create_timerfd () =
 ;;
 
 let default_handle_thread_pool_stuck span =
-  let message =
-    sprintf "\
-Async's thread pool hasn't completed a job for %s, and is using the maximum
-allowed number of threads."
-      (Time.Span.to_short_string span)
-  in
-  if Time.Span.(>=) span Config.abort_after_thread_pool_stuck_for
-  then Monitor.send_exn Monitor.main (Failure message)
-  else if Time.Span.(>=) span Config.report_thread_pool_stuck_for
-  then Core.Std.eprintf "%s\n%!" message;
+  if Time.Span.(>=) span Config.report_thread_pool_stuck_for then begin
+    let now = Time.now () in
+    let message =
+      sprintf "\
+%s: Async's thread pool hasn't completed a job for %s, and is using the
+maximum allowed number of threads (%d)."
+        (Time.format now "%F %T %Z")
+        (Time.Span.to_short_string span)
+        (Config.Max_num_threads.raw Config.max_num_threads)
+    in
+    if Time.Span.(>=) span Config.abort_after_thread_pool_stuck_for
+    then Monitor.send_exn Monitor.main (Failure message)
+    else
+      Core.Std.eprintf "%s\n%!"
+        (String.concat [ message
+                       ; sprintf "\
+\  This is only a warning.  In %s, it will raise an
+exception.
+"
+                           (Time.Span.to_short_string
+                              (Time.Span.(-)
+                                 Config.abort_after_thread_pool_stuck_for
+                                 span))
+                       ])
+  end;
 ;;
 
 let detect_stuck_thread_pool t =

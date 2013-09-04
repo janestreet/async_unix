@@ -1,8 +1,6 @@
 open Core.Std
 open Import
 
-module Read_ml = Bin_prot.Read_ml
-module Type_class = Bin_prot.Type_class
 module Unix = Unix_syscalls
 module Id = Unique_id.Int63 (struct end)
 
@@ -209,8 +207,15 @@ module Internal = struct
           | `Already_closed -> eof ()
           | `Error exn ->
             begin match exn with
-            | Bigstring.IOError (0, End_of_file) -> eof ()
-            | Unix.Unix_error (Unix.ECONNRESET, _, _) -> eof ()
+            | Bigstring.IOError (0, End_of_file)
+            | Unix.Unix_error
+                (( Unix.ECONNRESET
+                 | Unix.ENETDOWN
+                 | Unix.ENETRESET
+                 | Unix.ENETUNREACH
+                 | Unix.ETIMEDOUT
+                 ), _, _)
+              -> eof ()
             | Unix.Unix_error (Unix.EBADF, _, _) -> ebadf ()
             | _ -> handle exn
             end
@@ -702,7 +707,7 @@ module Internal = struct
           let expected_len = Bigstring.length t.bin_prot_len_buf in
           match
             Or_error.try_with (fun () ->
-              Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
+              Bin_prot.Read.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
           with
           | Error _ as e -> k e
           | Ok len ->
@@ -728,7 +733,7 @@ module Internal = struct
                   let pos_ref = ref 0 in
                   match
                     Or_error.try_with (fun () ->
-                      bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref)
+                      bin_prot_reader.Bin_prot.Type_class.read t.bin_prot_buf ~pos_ref)
                   with
                   | Error _ as e -> k e
                   | Ok v ->
