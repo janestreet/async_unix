@@ -473,7 +473,7 @@ let open_file ?(append = false) ?(close_on_exec = true) ?(perm = 0o666) file =
   Unix.openfile file ~mode ~perm ~close_on_exec >>| create
 ;;
 
-let with_close t f = Monitor.protect f ~finally:(fun () -> close t)
+let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
 
 let with_writer_exclusive t f =
   Unix.lockf t.fd `Write
@@ -484,7 +484,7 @@ let with_writer_exclusive t f =
 let with_file ?perm ?append ?(exclusive = false) file ~f =
   open_file ?perm ?append file
   >>= fun t ->
-  with_close t (fun () ->
+  with_close t ~f:(fun () ->
     if exclusive then
       with_writer_exclusive t (fun () -> f t)
     else
@@ -861,7 +861,7 @@ include (struct
       got_bytes t tot_len
     else begin
       let buf, start_pos = give_buf t tot_len in
-      let pos_len        = Bin_prot.Write.bin_write_int_64bit buf ~pos:start_pos len in
+      let pos_len        = Bin_prot.Write_ml.bin_write_int_64bit buf ~pos:start_pos len in
       let pos            = writer.Bin_prot.Type_class.write buf ~pos:pos_len v in
       if pos - start_pos <> tot_len then begin
         failwiths "write_bin_prot"
@@ -972,7 +972,7 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
   Unix.mkstemp (Option.value temp_file ~default:file)
   >>= fun (temp_file, fd) ->
   let t = create fd in
-  with_close t (fun () ->
+  with_close t ~f:(fun () ->
     f t
     >>= fun result ->
     let new_permissions =

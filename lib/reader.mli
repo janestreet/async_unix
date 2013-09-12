@@ -129,6 +129,10 @@ val fd : t -> Fd.t
     [i] satisfies [0 < i <= len]. *)
 val read : t -> ?pos:int -> ?len:int -> string -> int Read_result.t Deferred.t
 
+(** [drain t] reads and ignores all data from [t] until it hits EOF, and then closes
+    [t]. *)
+val drain : t -> unit Deferred.t
+
 (** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer,
     and whenever bytes are available, applies [handle_chunk] to them.  It waits to read
     again until the deferred returned by [handle_chunk] becomes determined.

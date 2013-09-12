@@ -1,6 +1,8 @@
 open Core.Std
 open Import
 
+module Read_ml = Bin_prot.Read_ml
+module Type_class = Bin_prot.Type_class
 module Unix = Unix_syscalls
 module Id = Unique_id.Int63 (struct end)
 
@@ -707,7 +709,7 @@ module Internal = struct
           let expected_len = Bigstring.length t.bin_prot_len_buf in
           match
             Or_error.try_with (fun () ->
-              Bin_prot.Read.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
+              Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
           with
           | Error _ as e -> k e
           | Ok len ->
@@ -733,7 +735,7 @@ module Internal = struct
                   let pos_ref = ref 0 in
                   match
                     Or_error.try_with (fun () ->
-                      bin_prot_reader.Bin_prot.Type_class.read t.bin_prot_buf ~pos_ref)
+                      bin_prot_reader.Type_class.read t.bin_prot_buf ~pos_ref)
                   with
                   | Error _ as e -> k e
                   | Ok v ->
@@ -1061,4 +1063,15 @@ let pipe t =
     >>> fun () ->
     Pipe.close pipe_w);
   pipe_r
+;;
+
+let drain t =
+  read_one_chunk_at_a_time t
+    ~handle_chunk:(fun _bigstring ~pos:_ ~len:_ -> return `Continue)
+  >>= function
+  | `Stopped _
+  | `Eof_with_unconsumed_data _
+    -> assert false
+  | `Eof ->
+    close t
 ;;

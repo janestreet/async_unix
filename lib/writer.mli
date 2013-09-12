@@ -250,11 +250,13 @@ val monitor : t -> Monitor.t
     [is_closed t] returns [true] iff [close t] has been called.
 
     [is_open t] is [not (is_closed t)]
-*)
+
+    [with_close t ~f] runs [f ()], and closes [t] after [f] finishes or raises. *)
 val close : ?force_close:unit Deferred.t -> t -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
 val is_closed : t -> bool
 val is_open   : t -> bool
+val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
 
 (* In addition to flushing its internal buffer prior to closing, a writer keeps track of
    producers that are feeding it data, so that when [Writer.close] is called, it does the
