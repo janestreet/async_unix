@@ -562,7 +562,14 @@ let rec start_write t =
       write_when_ready t
     | `Error (U.Unix_error (U.EBADF, _, _)) ->
       die t (Error.create "write got EBADF" t <:sexp_of< t >>)
-    | `Error ((U.Unix_error ((U.EPIPE | U.ECONNRESET), _, _)) as exn) ->
+    | `Error ((U.Unix_error
+                 (( U.EPIPE
+                  | U.ECONNRESET
+                  | U.ENETDOWN
+                  | U.ENETRESET
+                  | U.ENETUNREACH
+                  | U.ETIMEDOUT
+                  ),_, _)) as exn) ->
       (* [t.consumer_left] is empty since once we reach this point, we stop the writer
          permanently, and so will never reach here again. *)
       assert (Ivar.is_empty t.consumer_left);
