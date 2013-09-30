@@ -2,6 +2,7 @@ open Core.Std
 open Import
 
 module Fd = Raw_fd
+module Job = Async_core.Job
 module Watching = Fd.Watching
 module Signal = Core.Std.Signal
 module Timerfd = Linux_ext.Timerfd
@@ -460,7 +461,7 @@ let set_fd_desired_watching t fd read_or_write desired =
   end
 ;;
 
-let request_start_watching t fd read_or_write =
+let request_start_watching t fd read_or_write watching =
   if Debug.file_descr_watcher then
     Debug.log "request_start_watching" (read_or_write, fd, t)
       (<:sexp_of< Read_write.Key.t * Fd.t * t >>);
@@ -472,13 +473,12 @@ let request_start_watching t fd read_or_write =
   else begin
     let module W = Fd.Watching in
     let start_watching () =
-      let ivar = Ivar.create () in
-      set_fd_desired_watching t fd read_or_write (W.Watching ivar);
+      set_fd_desired_watching t fd read_or_write watching;
       if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
-      `Watching ivar
+      `Watching
     in
     match Read_write.get fd.Fd.watching read_or_write with
-    | W.Watching _ -> `Already_watching
+    | W.Watch_once _ | W.Watch_repeatedly _ -> `Already_watching
     | W.Stop_requested ->
       (* We don't [inc_num_active_syscalls] in this case, because we already did when we
          transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
@@ -503,9 +503,17 @@ let request_stop_watching t fd read_or_write value =
   let module W = Fd.Watching in
   match Read_write.get fd.Fd.watching read_or_write with
   | W.Stop_requested | W.Not_watching -> ()
-  | W.Watching ready_to ->
+  | W.Watch_once ready_to ->
     Ivar.fill ready_to value;
     set_fd_desired_watching t fd read_or_write W.Stop_requested;
+    if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
+  | W.Watch_repeatedly (job, finished) ->
+    begin match value with
+    | `Ready -> Core_scheduler.add_job2 t.core_scheduler job
+    | `Closed | `Bad_fd | `Interrupted as value ->
+      Ivar.fill finished value;
+      set_fd_desired_watching t fd read_or_write W.Stop_requested;
+    end;
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
 ;;
 
@@ -517,7 +525,7 @@ let sync_changed_fds_to_file_descr_watcher t =
       Read_write.mapi fd.Fd.watching ~f:(fun read_or_write watching ->
         let module W = Watching in
         match watching with
-        | W.Watching _ -> true
+        | W.Watch_once _ | W.Watch_repeatedly _ -> true
         | W.Not_watching -> false
         | W.Stop_requested ->
           Read_write.set fd.Fd.watching read_or_write W.Not_watching;
@@ -585,22 +593,22 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
         List.iter zs ~f:(fun file_descr ->
           match Fd_by_descr.find t.fd_by_descr file_descr with
           | None -> begin
-            match t.timerfd with
-            | Some tfd when file_descr = (tfd :> Unix.File_descr.t) -> begin
-              match read_or_write with
-              | `Read ->
-                (* We don't need to actually call [read] since we are using the
-                   edge-triggered behavior. *)
-                ()
-              | `Write ->
-                failwiths
-                  "File_descr_watcher returned the timerfd as ready to be written to"
-                  file_descr (<:sexp_of< File_descr.t >>)
+              match t.timerfd with
+              | Some tfd when file_descr = (tfd :> Unix.File_descr.t) -> begin
+                  match read_or_write with
+                  | `Read ->
+                    (* We don't need to actually call [read] since we are using the
+                       edge-triggered behavior. *)
+                    ()
+                  | `Write ->
+                    failwiths
+                      "File_descr_watcher returned the timerfd as ready to be written to"
+                      file_descr (<:sexp_of< File_descr.t >>)
+                end
+              | _ ->
+                failwiths "File_descr_watcher returned unknown file descr" file_descr
+                  (<:sexp_of< File_descr.t >>)
             end
-            | _ ->
-              failwiths "File_descr_watcher returned unknown file descr" file_descr
-                (<:sexp_of< File_descr.t >>)
-          end
           | Some fd ->
             let module W = Fd.Watching in
             match Read_write.get fd.Fd.watching read_or_write with
@@ -608,25 +616,41 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
             | W.Not_watching ->
               failwiths "File_descr_watcher returned unwatched file descr" fd
                 (<:sexp_of< Fd.t >>)
-            | W.Watching ready_to ->
+            | W.Watch_once ready_to ->
               Ivar.fill ready_to value;
-              set_fd_desired_watching t fd read_or_write W.Stop_requested);
+              set_fd_desired_watching t fd read_or_write W.Stop_requested;
+            | W.Watch_repeatedly (job, finished) ->
+              match value with
+              | `Ready -> Core_scheduler.add_job2 t.core_scheduler job
+              | `Closed | `Bad_fd | `Interrupted as value ->
+                Ivar.fill finished value;
+                set_fd_desired_watching t fd read_or_write W.Stop_requested)
       in
       fill bad `Bad_fd;
       fill ready `Ready)
   in
+  begin
+    let interruptor_finished = Ivar.create () in
+    let interruptor_read_fd = Interruptor.read_fd t.interruptor in
+    let problem_with_interruptor () =
+      failwiths "can not watch interruptor" (interruptor_read_fd, t) <:sexp_of< Fd.t * t >>
+    in
+    begin match
+      request_start_watching t interruptor_read_fd `Read
+        (Watching.Watch_repeatedly (Job.create Execution_context.main Fn.ignore (),
+                                    interruptor_finished))
+    with
+    | `Already_watching | `Watching -> ()
+    | `Unsupported | `Already_closed -> problem_with_interruptor ()
+    end;
+    upon (Ivar.read interruptor_finished) (fun _ -> problem_with_interruptor ());
+  end;
   let rec loop () =
     (* At this point, we have the lock. *)
     if Core_scheduler.check_invariants t.core_scheduler then invariant t;
     match Core_scheduler.uncaught_exn t.core_scheduler with
     | Some error -> unlock t; error
     | None ->
-      begin
-        match request_start_watching t (Interruptor.read_fd t.interruptor) `Read with
-        | `Already_watching | `Watching _ -> ()
-        | `Unsupported | `Already_closed ->
-          failwiths "can not watch interruptor" t <:sexp_of< t >>
-      end;
       sync_changed_fds_to_file_descr_watcher t;
       if Debug.file_descr_watcher then
         Debug.log "File_descr_watcher.pre_check" t (<:sexp_of< t >>);

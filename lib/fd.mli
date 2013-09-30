@@ -151,10 +151,10 @@ val with_file_descr_deferred
      | `Error of exn
      ] Deferred.t
 
-(** [ready_to_interruptible t read_write ~interrupt] returns a deferred that will become
+(** [interruptible_ready_to t read_write ~interrupt] returns a deferred that will become
     determined when the file descriptor underlying [t] can be read from or written to
     without blocking, or when [interrupt] becomes determined. *)
-val ready_to_interruptible
+val interruptible_ready_to
   :  t
   -> [ `Read | `Write ]
   -> interrupt:unit Deferred.t
@@ -164,7 +164,7 @@ val ready_to_interruptible
      | `Ready
      ] Deferred.t
 
-(** [ready_to t read_write] is like [ready_to_interruptible], but without the possibility
+(** [ready_to t read_write] is like [interruptible_ready_to], but without the possibility
     of interruption. *)
 val ready_to
   :  t
@@ -174,6 +174,34 @@ val ready_to
      | `Ready
      ]
   Deferred.t
+
+(** [interruptible_every_ready_to t read_write ~interrupt f a] enqueus a job to run [f a]
+    every time the file descriptor underlying [t] can be read from or written to without
+    blocking and returns a deferred that will become determined when [interrupt] becomes
+    determined or the file descriptor is closed. *)
+val interruptible_every_ready_to
+  :  t
+  -> [ `Read | `Write ]
+  -> interrupt:unit Deferred.t
+  -> ('a -> unit)
+  -> 'a
+  -> [ `Bad_fd
+     | `Closed
+     | `Unsupported
+     | `Interrupted
+     ] Deferred.t
+
+(** [every_ready_to t read_write f x] is like [interruptible_every_ready_to], but without
+    the possibility of interruption. *)
+val every_ready_to
+  :  t
+  -> [ `Read | `Write ]
+  -> ('a -> unit)
+  -> 'a
+  -> [ `Bad_fd
+     | `Closed
+     | `Unsupported
+     ] Deferred.t
 
 (** [syscall t f] runs [Async_unix.syscall] with [f] on the file descriptor underlying
     [t], if [is_open t], and returns [`Ok] or [`Error] according to [f].  If
@@ -248,16 +276,16 @@ val to_int_exn : t -> int
     wants to reuse a file descriptor in an fd with a new kind. *)
 val replace : t -> Kind.t -> Info.t -> unit
 
-(** [ready_fold fd ~init ~f] folds [f] over [fd], handling [EWOULDBLOCK]/[EAGAIN] and
-    [EINTR] by retrying when ready.  The fold is terminated when [fd] closes or by [stop]
+(** [ready_fold t ~init ~f] folds [f] over [t], handling [EWOULDBLOCK]/[EAGAIN] and
+    [EINTR] by retrying when ready.  The fold is terminated when [t] closes or by [stop]
     being determined, if [~stop] is supplied.
 
-    By design this function does not return to the Async scheduler until [fd] is no longer
-    ready to transfer data.  If you expect [fd] to be ready for long periods at a time
-    then you should use [stop] to avoid starving other Async jobs.
+    By design this function does not return to the Async scheduler until [t] is no longer
+    ready to transfer data.  If you expect [t] to be ready for long periods at a time then
+    you should use [stop] to avoid starving other Async jobs.
 
-    When [fd] doesn't support nonblock, this can spin at the end of a file.  How to stop
-    in that case depends on the system call. *)
+    [ready_fold] raises if [not (supports_nonblock t)].
+ *)
 val ready_fold
   :  t
   -> init:'a

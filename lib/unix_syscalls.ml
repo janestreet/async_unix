@@ -593,7 +593,7 @@ module Socket = struct
       }
     ;;
 
-    let unix_dgram = 
+    let unix_dgram =
       { family = Family.unix;
         socket_type = U.SOCK_DGRAM;
       }
@@ -771,7 +771,7 @@ module Socket = struct
 
            [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
            standard OCaml I/O-function (e.g. for reading from channels).  *)
-        Fd.ready_to_interruptible t.fd `Read ~interrupt
+        Fd.interruptible_ready_to t.fd `Read ~interrupt
         >>| (function
         | `Ready -> `Repeat ()
         | `Interrupted as x -> `Finished x
@@ -808,7 +808,7 @@ module Socket = struct
     | `Already_closed -> fail_closed ()
     | `Ok () -> return (success ())
     | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) -> begin
-      Fd.ready_to_interruptible t.fd `Write ~interrupt
+      Fd.interruptible_ready_to t.fd `Write ~interrupt
       >>| function
       | `Closed -> fail_closed ()
       | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd <:sexp_of< Fd.t >>

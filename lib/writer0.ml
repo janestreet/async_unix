@@ -868,7 +868,7 @@ include (struct
       got_bytes t tot_len
     else begin
       let buf, start_pos = give_buf t tot_len in
-      let pos_len        = Bin_prot.Write_ml.bin_write_int_64bit buf ~pos:start_pos len in
+      let pos_len        = Bin_prot.Write.bin_write_int_64bit buf ~pos:start_pos len in
       let pos            = writer.Bin_prot.Type_class.write buf ~pos:pos_len v in
       if pos - start_pos <> tot_len then begin
         failwiths "write_bin_prot"

@@ -61,14 +61,16 @@ module Watching = struct
 
      Initially, watching state starts as [Not_watching].  When one initially requests that
      the fd be monitored via [request_start_watching], the state transitions to
-     [Watching].  After the file_descr_watcher detects I/O is available, the ivar in the
-     [Watching] is filled, and the state transitions from [Watching] to [Stop_requested].
-     Or, if one calls [request_stop_watching], the state transitions from [Watching] to
-     [Stop_requested].  Finally, [Stop_requested] will transition to [Not_watching] when
-     the desired state is synchronized with the file_descr_watcher. *)
+     [Watch_once] or [Watch_repeatedly].  After the file_descr_watcher detects I/O is
+     available, the the job in [Watch_repeatedly] is enqueued, or the ivar in [Watch_once]
+     is filled and the state transitions to [Stop_requested].  Or, if one calls
+     [request_stop_watching], the state transitions to [Stop_requested].  Finally,
+     [Stop_requested] will transition to [Not_watching] when the desired state is
+     synchronized with the file_descr_watcher. *)
   type t =
   | Not_watching
-  | Watching of ready_to_result Ivar.t
+  | Watch_once of ready_to_result Ivar.t
+  | Watch_repeatedly of Async_core.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
   | Stop_requested
   with sexp_of
 
@@ -76,7 +78,8 @@ module Watching = struct
     try
       match t with
       | Not_watching | Stop_requested -> ()
-      | Watching ivar -> assert (Ivar.is_empty ivar)
+      | Watch_once ivar            -> assert (Ivar.is_empty ivar)
+      | Watch_repeatedly (_, ivar) -> assert (Ivar.is_empty ivar)
     with exn ->
       failwiths "Watching.invariant failed" (exn, t) <:sexp_of< exn * t >>
   ;;
@@ -149,7 +152,7 @@ let invariant t : unit =
         let watching read_or_write =
           match Read_write.get t.watching read_or_write with
           | W.Not_watching -> 0
-          | W.Stop_requested | W.Watching _ -> 1
+          | W.Stop_requested | W.Watch_once _ | W.Watch_repeatedly _ -> 1
         in
         assert (t.num_active_syscalls >= watching `Read + watching `Write);
         let module S = State in

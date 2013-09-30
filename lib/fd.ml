@@ -113,49 +113,84 @@ let with_file_descr_deferred t f =
     | Error e -> `Error e
 ;;
 
-let start_watching t read_or_write =
+let start_watching t read_or_write watching =
   if debug then
     Debug.log "Fd.start_watching" (t, read_or_write) (<:sexp_of< t * Read_write.Key.t >>);
   let r = the_one_and_only () in
-  match Scheduler.request_start_watching r t read_or_write with
-  | `Unsupported | `Already_closed | `Watching _ as x -> x
+  match Scheduler.request_start_watching r t read_or_write watching with
+  | `Unsupported | `Already_closed | `Watching as x -> x
   | `Already_watching ->
     failwiths "cannot watch an fd already being watched" (t, r)
       (<:sexp_of< t * Scheduler.t >>)
 ;;
 
-let ready_to_interruptible t read_or_write ~interrupt =
+let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
+  upon
+    (choose
+       [ choice interrupt (fun () -> `Interrupted);
+         choice (Ivar.read ivar) (fun _ -> `Not_interrupted);
+       ])
+    (function
+      | `Not_interrupted -> ()
+      | `Interrupted ->
+        if Ivar.is_empty ivar then
+          Scheduler.request_stop_watching (the_one_and_only ())
+            t read_or_write `Interrupted);
+;;
+
+let interruptible_ready_to t read_or_write ~interrupt =
   if debug then
-    Debug.log "Fd.ready_to_interruptible" (t, read_or_write)
-      (<:sexp_of< t * Read_write.Key.t >>);
-  match start_watching t read_or_write with
+    Debug.log "Fd.interruptible_ready_to" (t, read_or_write)
+      <:sexp_of< t * Read_write.Key.t >>;
+  let ready = Ivar.create () in
+  match start_watching t read_or_write (Watching.Watch_once ready) with
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Ready
-  | `Watching ivar ->
-    upon
-      (Deferred.choose
-         [ Deferred.choice interrupt (fun () -> `Interrupted);
-           Deferred.choice (Ivar.read ivar) (fun _ -> `Not_interrupted);
-         ])
-      (function
-        | `Not_interrupted -> ()
-        | `Interrupted ->
-          if Ivar.is_empty ivar then
-            Scheduler.request_stop_watching (the_one_and_only ())
-              t read_or_write `Interrupted);
-    Ivar.read ivar
+  | `Watching ->
+    stop_watching_upon_interrupt t read_or_write ready ~interrupt;
+    Ivar.read ready
 ;;
 
 let ready_to t read_or_write =
   if debug then
-    Debug.log "Fd.ready_to" (t, read_or_write) (<:sexp_of< t * Read_write.Key.t >>);
-  match start_watching t read_or_write with
+    Debug.log "Fd.ready_to" (t, read_or_write) <:sexp_of< t * Read_write.Key.t >>;
+  let ready = Ivar.create () in
+  match start_watching t read_or_write (Watching.Watch_once ready) with
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Ready
-  | `Watching ivar ->
-    Ivar.read ivar
+  | `Watching ->
+    Ivar.read ready
     >>| function
       | `Bad_fd | `Closed | `Ready as x -> x
+      | `Interrupted -> assert false (* impossible *)
+;;
+
+let interruptible_every_ready_to t read_or_write ~interrupt f x =
+  if debug then
+    Debug.log "Fd.interruptible_every_ready_to" (t, read_or_write)
+      <:sexp_of< t * Read_write.Key.t >>;
+  let job = Async_core.Job.create (Scheduler.(current_execution_context (t ()))) f x in
+  let finished = Ivar.create () in
+  match start_watching t read_or_write (Watching.Watch_repeatedly (job, finished)) with
+  | `Already_closed -> return `Closed
+  | `Unsupported -> return `Unsupported
+  | `Watching ->
+    stop_watching_upon_interrupt t read_or_write finished ~interrupt;
+    (Ivar.read finished :> [ `Bad_fd | `Closed | `Unsupported | `Interrupted ] Deferred.t)
+;;
+
+let every_ready_to t read_or_write f x =
+  if debug then
+    Debug.log "Fd.every_ready_to" (t, read_or_write) <:sexp_of< t * Read_write.Key.t >>;
+  let job = Async_core.Job.create (Scheduler.(current_execution_context (t ()))) f x in
+  let finished = Ivar.create () in
+  match start_watching t read_or_write (Watching.Watch_repeatedly (job, finished)) with
+  | `Already_closed -> return `Closed
+  | `Unsupported -> return `Unsupported
+  | `Watching ->
+    Ivar.read finished
+    >>| function
+      | `Bad_fd | `Closed as x -> x
       | `Interrupted -> assert false (* impossible *)
 ;;
 
@@ -218,24 +253,127 @@ let replace t kind info =
 ;;
 
 let ready_fold t ~init ?(stop = Deferred.never ()) ~f read_or_write =
-  set_nonblock_if_necessary t ~nonblocking:(supports_nonblock t);
-  let rec loop acc =
-    if Deferred.is_determined stop || is_closed t
-    then return acc
-    else
-      let module U = Unix in
-      let (should_loop_now, acc) =
-        try (true, f acc t.file_descr) with
-        | U.Unix_error ((U.EAGAIN | U.EWOULDBLOCK | U.EINTR), _, _) -> (false, acc)
-      in
-      if should_loop_now
-      then loop acc
-      else
-        ready_to_interruptible ~interrupt:stop t read_or_write
-        >>= (function
-          | `Closed | `Interrupted -> return acc
-          | `Bad_fd -> failwiths "Fd.ready_fold on bad fd" t <:sexp_of< t >>
-          | `Ready -> loop acc)
+  if not (supports_nonblock t)
+  then failwiths "Fd.ready_fold called on fd that doesn't support nonblocking" t
+         <:sexp_of< t >>;
+  set_nonblock_if_necessary t ~nonblocking:true;
+  let acc_cell = ref init in
+  let f_raised = Ivar.create () in
+  let callback () =
+    let module U = Unix in
+    try
+      while not (Deferred.is_determined stop || is_closed t) do
+        acc_cell := f !acc_cell t.file_descr
+      done
+    with
+    | U.Unix_error ((U.EAGAIN | U.EWOULDBLOCK | U.EINTR), _, _) -> ()
+    | exn -> Ivar.fill f_raised (); raise exn
   in
-  loop init
+  let interrupt = Deferred.any [ stop; Ivar.read f_raised ] in
+  interruptible_every_ready_to t read_or_write ~interrupt callback ();
+  >>| function
+  | `Closed | `Interrupted -> !acc_cell
+  | `Bad_fd -> failwiths "Fd.ready_fold on bad fd" t <:sexp_of< t >>
+  | `Unsupported -> failwiths "Fd.ready_fold on unsupported fd" t <:sexp_of< t >>
 ;;
+
+TEST_MODULE "Fd" = struct
+  let wait_until_cell_is_equal_to cell expected =
+    let rec loop tries =
+      if tries = 0 then
+        return false
+      else if String.equal !cell expected then
+        return true
+      else
+        after (sec 0.1) >>= fun () -> loop (tries - 1)
+    in
+    loop 100;
+  ;;
+
+  let read_into_cell (fd, cell) =
+    Unix.set_nonblock fd;
+    let module U = Unix in
+    try
+      while true do
+        let buf = String.create 1024 in
+        let n = U.read fd ~buf ~pos:0 ~len:(String.length buf) in
+        assert (n > 0);
+        cell := !cell ^ String.sub buf ~pos:0 ~len:n
+      done
+    with U.Unix_error ((U.EAGAIN | U.EWOULDBLOCK | U.EINTR), _, _) -> ()
+  ;;
+
+  let block_with_timeout f =
+    Thread_safe.block_on_async_exn (fun () -> Clock.with_timeout (sec 5.) (f ()))
+  ;;
+
+  TEST_UNIT =
+    let read = ref "" in
+    block_with_timeout (fun () ->
+      let fdr, fdw = Unix.pipe () in
+      let fdr_async = create Kind.Fifo fdr (Info.of_string "<pipe>") in
+      let d = every_ready_to fdr_async `Read read_into_cell (fdr, read) in
+      assert (String.equal !read "");
+      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foo" >>= fun b ->
+      assert b;
+      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+      assert b;
+      close fdr_async >>= fun () -> d)
+    |> function
+      | `Result `Closed -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+  ;;
+
+  TEST_UNIT =
+    let read = ref "" in
+    block_with_timeout (fun () ->
+      let fdr, fdw = Unix.pipe () in
+      let fdr_async = create Kind.Fifo fdr (Info.of_string "<pipe>") in
+      let stop = Ivar.create () in
+      let d =
+        interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
+          ~interrupt:(Ivar.read stop)
+      in
+      assert (String.equal !read "");
+      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foo" >>= fun b ->
+      assert b;
+      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+      assert b;
+      Ivar.fill stop ();
+      assert (Unix.write fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
+      d)
+    |> function
+      | `Result `Interrupted -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+  ;;
+
+  TEST_UNIT =
+    let read = ref "" in
+    block_with_timeout (fun () ->
+      let fdr, fdw = Unix.pipe () in
+      let fdr_async = create Kind.Fifo fdr (Info.of_string "<pipe>") in
+      let stop = Ivar.create () in
+      let d =
+        interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
+          ~interrupt:(Ivar.read stop)
+      in
+      assert (String.equal !read "");
+      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foo" >>= fun b ->
+      assert b;
+      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+      assert b;
+      close fdr_async >>= fun () -> d)
+    |> function
+      | `Result `Closed -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+  ;;
+end

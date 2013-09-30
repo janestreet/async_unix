@@ -1,7 +1,7 @@
 open Core.Std
 open Import
 
-module Read_ml = Bin_prot.Read_ml
+module Read = Bin_prot.Read
 module Type_class = Bin_prot.Type_class
 module Unix = Unix_syscalls
 module Id = Unique_id.Int63 (struct end)
@@ -709,7 +709,7 @@ module Internal = struct
           let expected_len = Bigstring.length t.bin_prot_len_buf in
           match
             Or_error.try_with (fun () ->
-              Read_ml.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
+              Bin_prot.Read.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
           with
           | Error _ as e -> k e
           | Ok len ->
