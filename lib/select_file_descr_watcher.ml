@@ -12,7 +12,7 @@ let backend = Config.File_descr_watcher.Select
 
 let invariant t : unit =
   try
-    Read_write.iter t ~f:Table.invariant;
+    Read_write.iter t ~f:(Table.invariant ignore ignore);
   with exn ->
     failwiths "Select_file_descr_watcher.invariant failed" (exn, t)
       (<:sexp_of< exn * t >>)

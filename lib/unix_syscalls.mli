@@ -348,6 +348,7 @@ module Socket : sig
       val addr : t -> Inet_addr.t
       val port : t -> int
       val to_string : t -> string
+      val to_host_and_port : t -> Host_and_port.t
     end
 
     type t = [ Inet.t | Unix.t ] with bin_io, sexp

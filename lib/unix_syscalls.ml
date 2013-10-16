@@ -499,6 +499,10 @@ module Socket = struct
 
       let to_string (`Inet (a, p)) = sprintf "%s:%d" (Inet_addr.to_string a) p
 
+      let to_host_and_port (`Inet (addr, port)) =
+        Host_and_port.create ~host:(Inet_addr.to_string addr) ~port
+      ;;
+
       let create a ~port = `Inet (a, port)
 
       let create_bind_any ~port = `Inet (Inet_addr.of_string "0.0.0.0", port)

@@ -8,9 +8,9 @@ type t = (File_descr.t, Fd.t) Table.t with sexp_of
 
 let invariant t =
   try
+    Table.invariant ignore Fd.invariant t;
     Table.iter t ~f:(fun ~key:file_descr ~data:fd ->
-      assert (file_descr = Fd.file_descr fd);
-      Fd.invariant fd);
+      assert (file_descr = Fd.file_descr fd));
   with exn ->
     failwiths "Fd_by_descr.invariant failure" (exn, t) <:sexp_of< exn * t >>
 ;;
