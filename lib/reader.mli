@@ -320,34 +320,21 @@ val file_contents : string -> string Deferred.t
     the trailing newline. *)
 val file_lines : string -> string list Deferred.t
 
-(** [load_sexp ?exclusive file ~f] loads and convert the S-expression in a given [file]
-    using [f], and returns the deferred conversion result as a variant of either [Ok res]
-    or [Error exn] otherwise.  This function provides accurate error locations for failed
-    conversions. *)
-val load_sexp
-  : ?exclusive:bool (** default is [false] *)
-  -> string
-  -> (Sexp.t -> 'a)
-  -> 'a Or_error.t Deferred.t
-val load_sexp_exn
-  : ?exclusive:bool (** default is [false] *)
-  -> string
-  -> (Sexp.t -> 'a)
-  -> 'a Deferred.t
+(** [load_sexp file conv] loads a sexp from [file] and converts it to a value using
+    [conv]. This function provides an accurate error location if [convert] raises
+    [Of_sexp_error].
 
-(** [load_sexps file ~f] load and convert the S-expressions in a given [file] using [f],
-    and return the deferred list of conversion results as variants of either [Ok res] or
-    [Error exn] otherwise.  This function is as efficient as [load_sexps] followed by
-    conversion if there are no errors, but provides accurate error locations for failed
-    conversions. *)
-val load_sexps
-  :  ?exclusive:bool (** default is [false] *)
-  -> string
-  -> (Sexp.t -> 'a)
-  -> 'a list Or_error.t Deferred.t
+    [load_sexps] is similar, but converts a sequence of sexps.
 
-val load_sexps_exn
-  : ?exclusive:bool (** default is [false] *)
+    Using [~expand_macros:true] expands macros as defined in {!Sexplib.Macro}. If
+    [~expand_macros:true] then the [exclusive] flag is ignored. *)
+type ('a, 'b) load =
+  ?exclusive:bool        (** default is [false] *)
+  -> ?expand_macros:bool (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
-  -> 'a list Deferred.t
+  -> 'b Deferred.t
+val load_sexp      : ('a, 'a      Or_error.t) load
+val load_sexp_exn  : ('a, 'a                ) load
+val load_sexps     : ('a, 'a list Or_error.t) load
+val load_sexps_exn : ('a, 'a list           ) load

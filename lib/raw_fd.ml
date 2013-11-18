@@ -172,6 +172,13 @@ let to_int t = File_descr.to_int t.file_descr
 
 let create kind file_descr info =
   let supports_nonblock =
+    (* We don't treat [stdin], [stdout], or [stderr] as nonblocking so that one can use
+       Core I/O libraries simultaneously with async without them failing due to
+       [Sys_blocked_io]. *)
+    not (File_descr.equal file_descr Core.Std.Unix.stdin
+        || File_descr.equal file_descr Core.Std.Unix.stdout
+        || File_descr.equal file_descr Core.Std.Unix.stderr)
+    &&
     let module K = Kind in
     match kind with
     (* No point in setting nonblocking for files.  Unix doesn't care. *)

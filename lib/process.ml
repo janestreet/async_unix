@@ -89,7 +89,7 @@ module Failure = struct
   with sexp_of
 end
 
-let run ?working_dir ?env ~prog ~args () =
+let run ?(accept_nonzero_exit = []) ?working_dir ?env ~prog ~args () =
   create ?working_dir ?env ~prog ~args ()
   >>= function
   | Error _ as e -> return e
@@ -98,6 +98,7 @@ let run ?working_dir ?env ~prog ~args () =
     >>| fun { Output. stdout; stderr; exit_status } ->
     match exit_status with
     | Ok () -> Ok stdout
+    | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
     | Error exit_status ->
       Or_error.error "Process.run failed"
         { Failure.
@@ -108,8 +109,8 @@ let run ?working_dir ?env ~prog ~args () =
         (<:sexp_of< Failure.t >>)
 ;;
 
-let run_lines ?working_dir ?env ~prog ~args () =
-  run ?working_dir ?env ~prog ~args ()
+let run_lines ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
+  run ?accept_nonzero_exit ?working_dir ?env ~prog ~args ()
   >>|? fun s ->
   String.split_lines s
 ;;

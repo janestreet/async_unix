@@ -372,9 +372,9 @@ let mkdtemp filename =
 ;;
 
 let mkstemp filename =
-  In_thread.syscall_exn ~name:"mkstemp" (fun () ->
-    let name, file_descr = Unix.mkstemp filename in
-    (name, Fd.create Fd.Kind.File file_descr (Info.of_string name)))
+  In_thread.syscall_exn ~name:"mkstemp" (fun () -> Unix.mkstemp filename)
+  >>| fun (name, file_descr) ->
+  (name, Fd.create Fd.Kind.File file_descr (Info.of_string name))
 ;;
 
 type process_times =
