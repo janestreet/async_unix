@@ -82,4 +82,5 @@ module type S = sig
        | `Syscall_interrupted
        ]
 
+  val reset_in_forked_process : t -> unit
 end

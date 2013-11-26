@@ -108,6 +108,8 @@ type t =
     busy_pollers : Busy_pollers.t;
     mutable busy_poll_thread_is_running : bool;
 
+    mutable next_tsc_calibration : Time_stamp_counter.t;
+
     core_scheduler : Core_scheduler.t;
 
     (* configuration *)
@@ -263,6 +265,7 @@ let invariant t : unit =
       ~handle_thread_pool_stuck:ignore
       ~busy_pollers:(check Busy_pollers.invariant)
       ~busy_poll_thread_is_running:ignore
+      ~next_tsc_calibration:ignore
       ~core_scheduler:(check Core_scheduler.invariant)
       ~max_inter_cycle_timeout:ignore
   with exn ->
@@ -416,6 +419,7 @@ Async will be unable to timeout with sub-millisecond precision."
       handle_thread_pool_stuck = default_handle_thread_pool_stuck;
       busy_pollers = Busy_pollers.create ();
       busy_poll_thread_is_running = false;
+      next_tsc_calibration = Time_stamp_counter.now ();
       core_scheduler;
       max_inter_cycle_timeout = Config.max_inter_cycle_timeout;
     }
@@ -431,10 +435,13 @@ let () = init ()
 
 let reset_in_forked_process () =
   begin match !the_one_and_only_ref with
-  | Initialized { timerfd = Some tfd; _ } ->
-    Unix.close (tfd :> Unix.File_descr.t)
-  | _ ->
-    ()
+  | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+  | Initialized { file_descr_watcher; timerfd; _ } ->
+    let module F = (val file_descr_watcher : File_descr_watcher.S) in
+    F.reset_in_forked_process F.watcher;
+    match timerfd with
+    | None -> ()
+    | Some tfd -> Unix.close (tfd :> Unix.File_descr.t)
   end;
   Async_core.Scheduler.reset_in_forked_process ();
   init ();
@@ -535,11 +542,24 @@ let sync_changed_fds_to_file_descr_watcher t =
     if Debug.file_descr_watcher then
       Debug.log "File_descr_watcher.set" (fd.Fd.file_descr, desired, F.watcher)
         (<:sexp_of< File_descr.t * bool Read_write.t * F.t >>);
-    F.set F.watcher fd.Fd.file_descr desired
+    try
+      F.set F.watcher fd.Fd.file_descr desired
+    with exn ->
+      failwiths "sync_changed_fds_to_file_descr_watcher unable to set fd"
+        (desired, fd, exn, t) <:sexp_of< bool Read_write.t * Fd.t * exn * t >>
   in
   let changed = t.fds_whose_watching_has_changed in
   t.fds_whose_watching_has_changed <- [];
   List.iter changed ~f:make_file_descr_watcher_agree_with;
+;;
+
+let maybe_calibrate_tsc t =
+  let module Tsc = Time_stamp_counter in
+  let now = Tsc.now () in
+  if Tsc.compare now t.next_tsc_calibration >= 0 then begin
+    Tsc.Calibrator.calibrate ();
+    t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000));
+  end;
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
@@ -648,6 +668,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   let rec loop () =
     (* At this point, we have the lock. *)
     if Core_scheduler.check_invariants t.core_scheduler then invariant t;
+    maybe_calibrate_tsc t;
     match Core_scheduler.uncaught_exn t.core_scheduler with
     | Some error -> unlock t; error
     | None ->
@@ -846,6 +867,7 @@ let fold_fields (type a) ~init folder : a =
     ~handle_thread_pool_stuck:f
     ~busy_poll_thread_is_running:f
     ~busy_pollers:f
+    ~next_tsc_calibration:f
     ~core_scheduler:f
     ~max_inter_cycle_timeout:f
 ;;

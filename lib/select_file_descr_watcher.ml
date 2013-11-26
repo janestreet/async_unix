@@ -27,6 +27,8 @@ let create ~num_file_descrs =
       ())
 ;;
 
+let reset_in_forked_process _ = ()
+
 let iter t ~f =
   Read_write.iteri t ~f:(fun read_or_write table ->
     Table.iter table ~f:(fun ~key ~data:_ -> f key read_or_write))

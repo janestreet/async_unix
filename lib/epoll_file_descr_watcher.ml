@@ -43,6 +43,8 @@ let create ~num_file_descrs =
   }
 ;;
 
+let reset_in_forked_process t = Epoll.close t.epoll
+
 let iter t ~f =
   Epoll.iter t.epoll ~f:(fun file_descr flags ->
     if Flags.do_intersect flags Flags.in_ then f file_descr `Read;
