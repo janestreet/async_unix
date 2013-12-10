@@ -781,7 +781,12 @@ let go_main
   go ?raise_unhandled_exn ();
 ;;
 
-let is_running () = (the_one_and_only ~should_lock:false).is_running
+let is_running () =
+  if (is_ready_to_initialize ()) then
+    false
+  else
+    (the_one_and_only ~should_lock:false).is_running
+;;
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
   Stream.iter (cycle_times ())

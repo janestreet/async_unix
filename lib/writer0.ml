@@ -724,14 +724,12 @@ let give_buf t desired =
   end
 ;;
 
-module Write (Src : sig
-  type t
-  val length : t -> int
-  val blit_to_bigstring : (t, Bigstring.t) Blit.blito
-end) = struct
-  let write ?pos ?len t src =
+let make_write (type a)
+      ~(length : a -> int)
+      ~(blit_to_bigstring : (a, Bigstring.t) Blit.blit) =
+  stage (fun ?pos ?len t src ->
     let src_pos, src_len =
-      Core.Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(Src.length src)
+      Core.Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(length src)
     in
     if is_stopped_permanently t then
       got_bytes t src_len
@@ -739,41 +737,42 @@ end) = struct
       let available = Bigstring.length t.buf - t.back in
       if available >= src_len then begin
         got_bytes t src_len;
-        Src.blit_to_bigstring ~src ~src_pos ~src_len ~dst:t.buf ~dst_pos:t.back ();
+        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos:t.back;
         t.back <- t.back + src_len;
       end else begin
         got_bytes t available;
-        Src.blit_to_bigstring
-          ~src ~src_pos ~src_len:available
-          ~dst:t.buf ~dst_pos:t.back ();
+        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos:t.back;
         t.back <- t.back + available;
         let remaining = src_len - available in
         let dst, dst_pos = give_buf t remaining in
-        Src.blit_to_bigstring
-          ~src ~src_pos:(src_pos + available) ~src_len:remaining
-          ~dst ~dst_pos ();
+        blit_to_bigstring
+          ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos;
       end;
       maybe_start_writer t;
-    end
-  ;;
-end
+    end)
+;;
 
 let write =
-  let module W = Write (struct
-    type t = string
-    let length = String.length
-    let blit_to_bigstring = Bigstring.From_string.blito
-  end) in
-  W.write
+  unstage (make_write
+             ~length:String.length
+             ~blit_to_bigstring:Bigstring.From_string.blit)
 ;;
 
 let write_bigstring =
-  let module W = Write (struct
-    type t = Bigstring.t
-    let length = Bigstring.length
-    let blit_to_bigstring = Bigstring.blito
-  end) in
-  W.write
+  unstage (make_write
+           ~length:Bigstring.length
+           ~blit_to_bigstring:Bigstring.blit)
+;;
+
+let write_iobuf ?pos ?len t iobuf =
+  unstage (make_write
+            ~length:Iobuf.length
+            ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+              let old_src_pos = Iobuf.Lo_bound.window src in
+              Iobuf.advance src src_pos;
+              Iobuf.consume_into_bigstring src dst ~pos:dst_pos ~len;
+              Iobuf.Lo_bound.restore old_src_pos src))
+    ?pos ?len t iobuf
 ;;
 
 let write_substring t substring =
@@ -1043,7 +1042,7 @@ let with_flushed_at_close t ~flushed ~f =
       Deferred.unit)
 ;;
 
-let transfer ?(stop = Deferred.never ()) t pipe_r write_f =
+let make_transfer ?(stop = Deferred.never ()) t pipe_r write_f =
   let consumer =
     Pipe.add_consumer pipe_r ~downstream_flushed:(fun () -> flushed t >>| fun () -> `Ok)
   in
@@ -1068,17 +1067,25 @@ let transfer ?(stop = Deferred.never ()) t pipe_r write_f =
           | `Eof -> return (`Finished ())
           | `Nothing_available -> return (`Repeat ())
           | `Ok q ->
-            Queue.iter q ~f:write_f;
-            Pipe.Consumer.values_sent_downstream consumer;
-            choose [ stop
-                   ; choice (flushed t) (fun () -> `Flushed)
-                   ]
-            >>| function
-            | `Stop -> `Finished ()
-            | `Flushed -> `Repeat ())
+            write_f q ~cont:(fun () ->
+              Pipe.Consumer.values_sent_downstream consumer;
+              choose [ stop
+                     ; choice (flushed t) (fun () -> `Flushed)
+                     ]
+              >>| function
+              | `Stop -> `Finished ()
+              | `Flushed -> `Repeat ()))
   in
   with_flushed_at_close t ~f:doit
     ~flushed:(fun () -> Deferred.ignore (Pipe.upstream_flushed pipe_r))
+;;
+
+let transfer ?stop t pipe_r write_f =
+  make_transfer ?stop t pipe_r (fun q ~cont -> Queue.iter q ~f:write_f; cont ())
+;;
+
+let transfer' ?stop t pipe_r write_f =
+  make_transfer ?stop t pipe_r (fun q ~cont -> write_f q >>= cont)
 ;;
 
 let pipe t =

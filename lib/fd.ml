@@ -252,31 +252,6 @@ let replace t kind info =
   end
 ;;
 
-let ready_fold t ~init ?(stop = Deferred.never ()) ~f read_or_write =
-  if not (supports_nonblock t)
-  then failwiths "Fd.ready_fold called on fd that doesn't support nonblocking" t
-         <:sexp_of< t >>;
-  set_nonblock_if_necessary t ~nonblocking:true;
-  let acc_cell = ref init in
-  let f_raised = Ivar.create () in
-  let callback () =
-    let module U = Unix in
-    try
-      while not (Deferred.is_determined stop || is_closed t) do
-        acc_cell := f !acc_cell t.file_descr
-      done
-    with
-    | U.Unix_error ((U.EAGAIN | U.EWOULDBLOCK | U.EINTR), _, _) -> ()
-    | exn -> Ivar.fill f_raised (); raise exn
-  in
-  let interrupt = Deferred.any [ stop; Ivar.read f_raised ] in
-  interruptible_every_ready_to t read_or_write ~interrupt callback ();
-  >>| function
-  | `Closed | `Interrupted -> !acc_cell
-  | `Bad_fd -> failwiths "Fd.ready_fold on bad fd" t <:sexp_of< t >>
-  | `Unsupported -> failwiths "Fd.ready_fold on unsupported fd" t <:sexp_of< t >>
-;;
-
 TEST_MODULE "Fd" = struct
   let wait_until_cell_is_equal_to cell expected =
     let rec loop tries =

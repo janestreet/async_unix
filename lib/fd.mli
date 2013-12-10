@@ -275,21 +275,3 @@ val to_int_exn : t -> int
 (** [replace t kind] is for internal use only, by [Unix_syscalls].  It is used when one
     wants to reuse a file descriptor in an fd with a new kind. *)
 val replace : t -> Kind.t -> Info.t -> unit
-
-(** [ready_fold t ~init ~f] folds [f] over [t], handling [EWOULDBLOCK]/[EAGAIN] and
-    [EINTR] by retrying when ready.  The fold is terminated when [t] closes or by [stop]
-    being determined, if [~stop] is supplied.
-
-    By design this function does not return to the Async scheduler until [t] is no longer
-    ready to transfer data.  If you expect [t] to be ready for long periods at a time then
-    you should use [stop] to avoid starving other Async jobs.
-
-    [ready_fold] raises if [not (supports_nonblock t)].
- *)
-val ready_fold
-  :  t
-  -> init:'a
-  -> ?stop:(unit Deferred.t) (** default is [Deferred.never ()] *)
-  -> f:('a -> Unix.File_descr.t -> 'a)
-  -> [ `Read | `Write ]
-  -> 'a Deferred.t

@@ -139,11 +139,20 @@ val fd : t -> Fd.t
     understand how the writer works and what one is doing to use this. *)
 val set_fd : t -> Fd.t -> unit Deferred.t
 
+(** [make_write] returns a function that can write to a writer, with [length] specifying
+    the number of bytes needed and [blit_to_bigstring] blitting the value directly into
+    the writer's buffer. *)
+val make_write
+  :  length:('a -> int)
+  -> blit_to_bigstring:('a, Bigstring.t) Blit.blit
+  -> (?pos:int -> ?len:int -> t -> 'a -> unit) Staged.t
+
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
-    contents of the string are copied to an internal buffer before write returns, so
+    contents of the string are copied to an internal buffer before [write] returns, so
     clients can do whatever they want with [s] after that. *)
-val write           : ?pos:int -> ?len:int -> t -> string      -> unit
-val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
+val write           : ?pos:int -> ?len:int -> t -> string                  -> unit
+val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t             -> unit
+val write_iobuf     : ?pos:int -> ?len:int -> t -> (_, Iobuf.seek) Iobuf.t -> unit
 
 val write_substring    : t -> Substring   .t -> unit
 val write_bigsubstring : t -> Bigsubstring.t -> unit
@@ -348,16 +357,29 @@ val save_sexp
   -> Sexp.t
   -> unit Deferred.t
 
-(** [transfer t pipe_r f] repeatedly pulls values from [pipe_r], and feeds them to [f],
+(** [transfer' t pipe_r f] repeatedly pulls values from [pipe_r], and feeds them to [f],
     which should in turn write them to [t].  It provides pushback to [pipe_r] by not
     reading when [t] cannot keep up with the data being pushed in.
 
-    The [transfer] stops and the result becomes determined when [pipe_r] reaches its EOF,
+    The [transfer'] stops and the result becomes determined when [pipe_r] reaches its EOF,
     when [t]'s consumer leaves, or when [stop] becomes determined.
 
-    [transfer] causes [Pipe.flushed] on [pipe_r]'s writer to ensure that the bytes have
+    [transfer'] causes [Pipe.flushed] on [pipe_r]'s writer to ensure that the bytes have
     been flushed to [t] before returning.  It also waits on [Pipe.upstream_flushed] at
-    shutdown. *)
+    shutdown.
+
+    [transfer t pipe_r f] is equivalent to:
+
+    {[
+      transfer' t pipe_r (fun q -> Queue.iter q ~f; Deferred.unit)
+    ]}
+*)
+val transfer'
+  :  ?stop:unit Deferred.t
+  -> t
+  -> 'a Pipe.Reader.t
+  -> ('a Queue.t -> unit Deferred.t)
+  -> unit Deferred.t
 val transfer
   :  ?stop:unit Deferred.t
   -> t

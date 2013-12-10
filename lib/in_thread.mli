@@ -1,6 +1,9 @@
 (** The [In_thread] module has functions for interaction between the Async world and other
     (kernel) threads.  The name is to remind us to think about threads and race
-    conditions. *)
+    conditions.
+
+    All threads come from the one thread pool used for all async-managed threads.
+*)
 
 open Core.Std
 open Async_core
@@ -15,7 +18,12 @@ module Helper_thread : sig
 
   (** [create ?name ()] creates a new helper thread.  The [name] will be used as the
       thread name for any work that that is done by the thread that doesn't get its own
-      name. *)
+      name.
+
+      [create] uses a thread from async's thread pool, reserving that thread for exclusive
+      use by the helper thread until the helper thread is no longer used (specifically,
+      finalized and is finished with all its work), at which point the thread is made
+      available for general use by the pool. *)
   val create : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
 end
 
