@@ -1,7 +1,7 @@
 # OASIS_START
-# DO NOT EDIT (digest: 3ec6544151967bff5ba688a48a761487)
-# Ignore VCS directories, you can use the same kind of rule outside 
-# OASIS_START/STOP if you want to exclude directories that contains 
+# DO NOT EDIT (digest: 18c60e30f3d2327d78409548027a507b)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
 <**/.svn>: -traverse
 <**/.svn>: not_hygienic
@@ -46,21 +46,21 @@
 "lib/unix_syscalls.cmx": for-pack(Async_unix)
 "lib/writer0.cmx": for-pack(Async_unix)
 "lib/writer.cmx": for-pack(Async_unix)
-<lib/*.ml{,i}>: pkg_async_core
-<lib/*.ml{,i}>: pkg_bin_prot
-<lib/*.ml{,i}>: pkg_bin_prot.syntax
-<lib/*.ml{,i}>: pkg_comparelib
-<lib/*.ml{,i}>: pkg_comparelib.syntax
-<lib/*.ml{,i}>: pkg_core
-<lib/*.ml{,i}>: pkg_fieldslib
-<lib/*.ml{,i}>: pkg_fieldslib.syntax
-<lib/*.ml{,i}>: pkg_herelib
-<lib/*.ml{,i}>: pkg_herelib.syntax
-<lib/*.ml{,i}>: pkg_pa_ounit
-<lib/*.ml{,i}>: pkg_pa_ounit.syntax
-<lib/*.ml{,i}>: pkg_pa_pipebang
-<lib/*.ml{,i}>: pkg_sexplib
-<lib/*.ml{,i}>: pkg_sexplib.syntax
-<lib/*.ml{,i}>: pkg_threads
+<lib/*.ml{,i}>: package(async_core)
+<lib/*.ml{,i}>: package(bin_prot)
+<lib/*.ml{,i}>: package(bin_prot.syntax)
+<lib/*.ml{,i}>: package(comparelib)
+<lib/*.ml{,i}>: package(comparelib.syntax)
+<lib/*.ml{,i}>: package(core)
+<lib/*.ml{,i}>: package(fieldslib)
+<lib/*.ml{,i}>: package(fieldslib.syntax)
+<lib/*.ml{,i}>: package(herelib)
+<lib/*.ml{,i}>: package(herelib.syntax)
+<lib/*.ml{,i}>: package(pa_ounit)
+<lib/*.ml{,i}>: package(pa_ounit.syntax)
+<lib/*.ml{,i}>: package(pa_pipebang)
+<lib/*.ml{,i}>: package(sexplib)
+<lib/*.ml{,i}>: package(sexplib.syntax)
+<lib/*.ml{,i}>: package(threads)
 # OASIS_STOP
 <lib/*.ml{,i}>: syntax_camlp4o
