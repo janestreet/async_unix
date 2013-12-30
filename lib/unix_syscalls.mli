@@ -1,6 +1,6 @@
 (** [Unix_syscalls] provides an interface to many of the functions in OCaml's standard
     Unix module.  It uses a deferred in the return type of functions that would block.
-    The idea is that in an async program one does not use the standard Unix module, since
+    The idea is that in an Async program one does not use the standard Unix module, since
     in doing so one could accidentally block the whole program.
 
     There are also a number of cosmetic changes (e.g. polymorphic variants) and other
@@ -81,7 +81,7 @@ val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
 (** [close fd] closes the file descriptor [fd], and raises an exception if [fd] has
     already been closed.
 
-    In some situations, one may need to cause async to release an fd that it is managing
+    In some situations, one may need to cause Async to release an fd that it is managing
     without closing the underlying file descriptor.  In that case, one should supply
     [~should_close_file_descriptor:false], which will skip the underlying close() system
     call. *)
@@ -124,7 +124,7 @@ val test_lockf : ?len:Int64.t -> Fd.t -> bool
 val unlockf : ?len:Int64.t -> Fd.t -> unit
 
 module File_kind : sig
-  type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
+  type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ] with sexp
 end
 
 module Stats : sig
@@ -473,8 +473,10 @@ module Socket : sig
 
   val setopt : ('a, 'addr) t -> 'c Opt.t -> 'c -> unit
 
-  val mcast_join  : ?ifname : string -> ('a, 'addr) t -> 'addr -> unit
-  val mcast_leave : ?ifname : string -> ('a, 'addr) t -> 'addr -> unit
+  val mcast_join
+    : ?ifname : string -> ?source : Inet_addr.t -> ('a, 'addr) t -> 'addr -> unit
+  val mcast_leave
+    : ?ifname : string ->                          ('a, 'addr) t -> 'addr -> unit
 
 end
 

@@ -29,8 +29,8 @@
     default is [false], but if it is set to true, then before supplying the underlying
     [file_descr], the [Fd] module will first call [Unix.set_nonblock file_descr], if it
     hasn't previously done so on that file descriptor.  This is intended to support making
-    nonblocking system calls (e.g. connect, read, write) directly within async, without
-    releasing the OCaml lock or the async lock, and without using another thread. *)
+    nonblocking system calls (e.g. connect, read, write) directly within Async, without
+    releasing the OCaml lock or the Async lock, and without using another thread. *)
 
 open Core.Std
 open Import
@@ -56,15 +56,23 @@ val info : t -> Info.t
 (** [to_string t] returns a pretty sexp of the representation of [t] *)
 val to_string : t -> string
 
-(** [create kind file_descr] creates a new [t] of the underlying kind and file
-    descriptor.
+(** [create ?support_nonblock kind file_descr] creates a new [t] of the underlying kind
+    and file descriptor.
 
     We thought about using [fstat()] rather than requiring the user to supply the kind.
     But [fstat] can block, which would require putting this in a thread, which has some
     consequences, and it isn't clear that it gets us that much.  Also, [create] is mostly
     used within the Async implementation -- clients shouldn't need it unless they are
-    mixing Async and non-Async code. *)
-val create : Kind.t -> Unix.File_descr.t -> Info.t -> t
+    mixing Async and non-Async code.
+
+    If [avoid_nonblock_if_possible], then Async will treat the file descriptor as blocking
+    if it can (more precisely, if it's not a bound socket). *)
+val create
+  :  ?avoid_nonblock_if_possible : bool  (** default is [false] *)
+  -> Kind.t
+  -> Unix.File_descr.t
+  -> Info.t
+  -> t
 
 (** [kind t] returns the kind of file descriptor that [t] is. *)
 val kind : t -> Kind.t
@@ -72,10 +80,10 @@ val kind : t -> Kind.t
 (** [supports_nonblock t] returns true if [t] supports nonblocking system calls. *)
 val supports_nonblock : t -> bool
 
-(** [clear_nonblock t] clears the ``non-blocking'' flag on [t] and causes and causes async
+(** [clear_nonblock t] clears the ``non-blocking'' flag on [t] and causes and causes Async
     to treat the fd as though it doesn't support nonblocking I/O.  This is useful for
-    applications that want to share a file descriptor between async and non-async code and
-    want to avoid [EWOULDBLOCK] or [EAGAIN] being seen by the non-async code, which would
+    applications that want to share a file descriptor between Async and non-Async code and
+    want to avoid [EWOULDBLOCK] or [EAGAIN] being seen by the non-Async code, which would
     then cause a [Sys_blocked_io] exception.
 
     [clear_nonblock t] has no effect if [not (supports_nonblock t)]. *)
@@ -88,7 +96,7 @@ val clear_nonblock : t -> unit
     the initial call will have no effect, but will return the same deferred as the
     original call.
 
-    In some situations, one may need to cause async to release an fd that it is managing
+    In some situations, one may need to cause Async to release an fd that it is managing
     without closing the underlying file descriptor.  In that case, one should supply
     [~should_close_file_descriptor:false], which will skip the underlying [close()] system
     call.
@@ -173,7 +181,7 @@ val ready_to
      | `Closed
      | `Ready
      ]
-  Deferred.t
+       Deferred.t
 
 (** [interruptible_every_ready_to t read_write ~interrupt f a] enqueus a job to run [f a]
     every time the file descriptor underlying [t] can be read from or written to without

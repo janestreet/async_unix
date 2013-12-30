@@ -18,7 +18,7 @@ let run_holding_async_lock
     (* We run [f] within the [main_execution_context] so that any errors are sent to its
        monitor, rather than whatever random monitor happened to be in effect. *)
       finish
-        (with_execution_context t Core_scheduler.main_execution_context
+        (with_execution_context t Kernel_scheduler.main_execution_context
            ~f:(fun () -> Result.try_with f)));
 ;;
 

@@ -4,7 +4,8 @@ open Import
 open File_descr_watcher_intf
 open Read_write.Export
 
-module Epoll = Linux_ext.Epoll
+module Epoll   = Linux_ext.Epoll
+module Timerfd = Linux_ext.Timerfd
 
 module Flags = struct
 
@@ -12,43 +13,57 @@ module Flags = struct
 
   let in_out = in_ + out
 
+  (* Use the edge-triggered behavior so we don't have to reset the timerfd when it
+     expires. *)
+  let for_timerfd = in_ + et
+
   let of_rw = function `Read -> in_ | `Write -> out
 
 end
 
 type t =
-  { epoll : Epoll.t;
+  { timerfd : Timerfd.t
+  ; epoll   : Epoll.t
   }
 with sexp_of, fields
 
 let backend = Config.File_descr_watcher.Epoll
 
+let is_timerfd t fd = File_descr.equal fd (Timerfd.to_file_descr t.timerfd)
+
 let invariant t : unit =
   try
     let check f = fun field -> f (Field.get field t) in
     Fields.iter
+      ~timerfd:(check (fun timerfd ->
+        <:test_result< Flags.t option >>
+          (Epoll.find t.epoll (Timerfd.to_file_descr timerfd))
+          ~expected:(Some Flags.for_timerfd)))
       ~epoll:(check (fun epoll ->
         Epoll.iter epoll ~f:(fun _ flags ->
-          assert (List.exists Flags.([ in_; out; in_out ])
+          assert (List.exists Flags.([ in_; out; in_out; for_timerfd ])
                     ~f:(fun flags' -> Flags.equal flags flags')))))
   with exn ->
     failwiths "Epoll_file_descr_watcher.invariant failed" (exn, t) <:sexp_of< exn * t >>
 ;;
 
-let create ~num_file_descrs =
-  let epoll_create = Or_error.ok_exn Epoll.create in
-  { epoll =
-      epoll_create ~num_file_descrs
-        ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events);
-  }
+let create ~num_file_descrs timerfd =
+  let epoll =
+    Or_error.ok_exn Epoll.create ~num_file_descrs
+      ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events)
+  in
+  Epoll.set epoll (Timerfd.to_file_descr timerfd) Flags.for_timerfd;
+  { timerfd; epoll }
 ;;
 
 let reset_in_forked_process t = Epoll.close t.epoll
 
 let iter t ~f =
   Epoll.iter t.epoll ~f:(fun file_descr flags ->
-    if Flags.do_intersect flags Flags.in_ then f file_descr `Read;
-    if Flags.do_intersect flags Flags.out then f file_descr `Write);
+    if not (is_timerfd t file_descr) then begin
+      if Flags.do_intersect flags Flags.in_ then f file_descr `Read;
+      if Flags.do_intersect flags Flags.out then f file_descr `Write;
+    end);
 ;;
 
 let set t file_descr desired =

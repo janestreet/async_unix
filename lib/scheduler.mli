@@ -12,8 +12,8 @@ open Import
 
 type t = Raw_scheduler.t with sexp_of
 
-(** [t ()] returns the async scheduler.  If the scheduler hasn't been created yet, this
-    will create it and acquire the async lock. *)
+(** [t ()] returns the Async scheduler.  If the scheduler hasn't been created yet, this
+    will create it and acquire the Async lock. *)
 val t : unit -> t
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
@@ -24,8 +24,8 @@ val t : unit -> t
     [go ()] calls [handle_signal Sys.sigpipe], which causes the SIGPIPE signal to be
     ignored.  Low-level syscalls (e.g. write) still raise EPIPE.
 
-    If any async job raises an unhandled exception that is not handled by any monitor,
-    async execution ceases.  Then, by default, async pretty prints the exception, and
+    If any Async job raises an unhandled exception that is not handled by any monitor,
+    Async execution ceases.  Then, by default, Async pretty prints the exception, and
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
@@ -34,7 +34,7 @@ val go
   -> never_returns
 
 (** [go_main] is like [go], except that one supplies a [main] function that will be run to
-    initialize the async computation, and that [go_main] will fail if any async has been
+    initialize the Async computation, and that [go_main] will fail if any Async has been
     used prior to [go_main] being called.  Moreover it allows to configure more static
     options of the scheduler. *)
 val go_main
@@ -80,7 +80,7 @@ val with_local : 'a Univ_map.Key.t -> 'a option -> f:(unit -> 'b) -> 'b
 val find_local : 'a Univ_map.Key.t -> 'a option
 
 (** Just like [within'], but instead of running thunk right now, adds
-    it to the async queue to be run with other async jobs. *)
+    it to the Async queue to be run with other Async jobs. *)
 val schedule' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
 
 (** Just like schedule', but doesn't require thunk to return a deferred. *)
@@ -102,11 +102,11 @@ val cycle_start : unit -> Time.t
 val cycle_times : unit -> Time.Span.t Stream.t
 
 (** [report_long_cycle_times ?cutoff ()] sets up something that will print a warning to
-    stderr whenever there is an async cycle that is too long, as specified by [cutoff],
+    stderr whenever there is an Async cycle that is too long, as specified by [cutoff],
     whose default is 1s. *)
 val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 
-(** [cycle_count ()] returns the total number of async cycles that have happened. *)
+(** [cycle_count ()] returns the total number of Async cycles that have happened. *)
 val cycle_count : unit -> int
 
 (** [force_current_cycle_to_end ()] causes no more normal priority jobs to run in the
@@ -118,27 +118,27 @@ val force_current_cycle_to_end : unit -> unit
 val is_running : unit -> bool
 
 (** [set_max_num_jobs_per_priority_per_cycle int] sets the maximum number of jobs that
-    will be done at each priority within each async cycle.  The default is [500]. *)
+    will be done at each priority within each Async cycle.  The default is [500]. *)
 val set_max_num_jobs_per_priority_per_cycle : int -> unit
 
 (** [set_max_inter_cycle_timeout span] sets the maximum amount of time the scheduler will
     remain blocked (on epoll or select) between cycles. *)
 val set_max_inter_cycle_timeout : Time.Span.t -> unit
 
-(** [set_check_invariants do_check] sets whether async should check invariants of its
+(** [set_check_invariants do_check] sets whether Async should check invariants of its
     internal data structures.  [set_check_invariants true] can substantially slow down
     your program. *)
 val set_check_invariants : bool -> unit
 
-(** [set_detect_invalid_access_from_thread do_check] sets whether async routines should
+(** [set_detect_invalid_access_from_thread do_check] sets whether Async routines should
     check if they are being accessed from some thread other than the thread currently
-    holding the async lock, which is not allowed and can lead to very confusing
+    holding the Async lock, which is not allowed and can lead to very confusing
     behavior. *)
 val set_detect_invalid_access_from_thread : bool -> unit
 
-(** [set_record_backtraces do_record] sets whether async should keep in the execution
+(** [set_record_backtraces do_record] sets whether Async should keep in the execution
     context the history of stack backtraces (obtained via [Backtrace.get]) that led to the
-    current job.  If an async job has an unhandled exception, this backtrace history will
+    current job.  If an Async job has an unhandled exception, this backtrace history will
     be recorded in the exception.  In particular the history will appean in an unhandled
     exception that reaches the main monitor.  This can have a substantial performance
     impact, both in running time and space usage. *)
@@ -153,26 +153,26 @@ val fold_fields : init:'b -> 'b folder -> 'b
 
 val is_ready_to_initialize : unit -> bool
 
-(** If a process that has already created, but not started, the async scheduler would like
-    to fork, and would like the child to have a clean async, i.e. not inherit any of the
-    async work that was done in the parent, it can call [reset_in_forked_process] at the
-    start of execution in the child process.  After that, the child can do async stuff and
-    then start the async scheduler. *)
+(** If a process that has already created, but not started, the Async scheduler would like
+    to fork, and would like the child to have a clean Async, i.e. not inherit any of the
+    Async work that was done in the parent, it can call [reset_in_forked_process] at the
+    start of execution in the child process.  After that, the child can do Async stuff and
+    then start the Async scheduler. *)
 val reset_in_forked_process : unit -> unit
 
 (** Async supports "busy polling", which runs a thread that busy loops running
-    user-supplied polling functions.  The busy-loop thread is distinct from async's
+    user-supplied polling functions.  The busy-loop thread is distinct from Async's
     scheduler thread.
 
     Busy polling is useful for a situation like a shared-memory ringbuffer being used for
     IPC.  One can poll the ringbuffer with a busy poller, and then when data is detected,
-    fill some ivar that causes async code to handle the data.
+    fill some ivar that causes Async code to handle the data.
 
     [add_busy_poller poll] adds [poll] to the busy loop.  [poll] will be called
     continuously, once per iteration of the busy loop, until it returns [`Stop_polling a]
     at which point the result of [add_busy_poller] will become determined.  [poll] will
-    hold the async lock while running, so it is fine to do ordinary async operations,
-    e.g. fill an ivar.  The busy loop will run an ordinary async cycle if any of the
+    hold the Async lock while running, so it is fine to do ordinary Async operations,
+    e.g. fill an ivar.  The busy loop will run an ordinary Async cycle if any of the
     pollers add jobs.
 
     [poll] will run in monitor in effect when [add_busy_poller] was called; exceptions
@@ -182,10 +182,10 @@ val add_busy_poller
   :  (unit -> [ `Continue_polling | `Stop_polling of 'a ])
   -> 'a Deferred.t
 
-(** [handle_thread_pool_stuck f] causes [f] to run whenever async detects its thread pool
+(** [handle_thread_pool_stuck f] causes [f] to run whenever Async detects its thread pool
     is stuck (i.e. hasn't completed a job for over a second and has no available threads).
     Async checks every second.  By default, if thread pool has been stuck for less than
-    60s, async will [eprintf] a message.  If more than 60s, async will send an exception
+    60s, Async will [eprintf] a message.  If more than 60s, Async will send an exception
     to the main monitor, which will abort the program unless there is a custom handler for
     the main monitor.
 

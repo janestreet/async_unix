@@ -35,7 +35,7 @@ module Poller = struct
 end
 
 type t =
-  { core_scheduler : Core_scheduler.t;
+  { kernel_scheduler : Kernel_scheduler.t;
     mutable pollers : Poller.t array;
   }
 with fields, sexp_of
@@ -43,7 +43,7 @@ with fields, sexp_of
 let is_empty t = Array.is_empty t.pollers
 
 let create () =
-  { core_scheduler = Core_scheduler.t ();
+  { kernel_scheduler = Kernel_scheduler.t ();
     pollers = [||];
   }
 ;;
@@ -52,7 +52,7 @@ let invariant t =
   Invariant.invariant _here_ t <:sexp_of< t >> (fun () ->
     let check f = Invariant.check_field t f in
     Fields.iter
-      ~core_scheduler:(check Core_scheduler.invariant)
+      ~kernel_scheduler:(check Kernel_scheduler.invariant)
       ~pollers:(check (fun pollers ->
         Array.iter pollers ~f:(fun poller ->
           Poller.invariant poller;
@@ -60,13 +60,13 @@ let invariant t =
 ;;
 
 let poll t =
-  let core_scheduler = t.core_scheduler in
+  let kernel_scheduler = t.kernel_scheduler in
   let pollers = t.pollers in
   let killed_some = ref false in
   for i = 0 to Array.length pollers - 1 do
     let Poller.T u = pollers.(i) in
     let module U = Poller.U in
-    Core_scheduler.set_execution_context core_scheduler u.U.execution_context;
+    Kernel_scheduler.set_execution_context kernel_scheduler u.U.execution_context;
     let should_kill =
       try
         match u.U.poll () with
@@ -83,7 +83,7 @@ let poll t =
 ;;
 
 let add t poll =
-  let execution_context = Core_scheduler.current_execution_context t.core_scheduler in
+  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
   let result = Ivar.create () in
   let poller = Poller.(T { U. execution_context; result; poll; is_alive = true }) in
   let n = Array.length t.pollers in

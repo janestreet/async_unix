@@ -1,6 +1,6 @@
 (** A thread-safe pipe is a thread-safe interface to the write end of a normal
     [Async.Pipe].  All operations except for [create] must be called from threads outside
-    async.  [create] can be called from inside or outside async.
+    Async.  [create] can be called from inside or outside Async.
 
     For [Pipe] functions that return a [unit Deferred.t], the analog in [Thread_safe_pipe]
     blocks.
@@ -12,11 +12,11 @@ open Import
 
 type 'a t with sexp_of
 
-(** [create ()] returns a reader end, which must be used inside async, and a writer end,
-    which must be used outside async.  [create] can be called inside or outside async. *)
+(** [create ()] returns a reader end, which must be used inside Async, and a writer end,
+    which must be used outside Async.  [create] can be called inside or outside Async. *)
 val create : unit -> 'a Pipe.Reader.t * 'a t
 
-(** All the following functions must be called outside async.  They behave as their
+(** All the following functions must be called outside Async.  They behave as their
     counterpart in the {!Pipe} module. *)
 
 (** [pushback writer] blocks the current thread until the pipe is empty or closed. *)

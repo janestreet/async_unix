@@ -40,12 +40,17 @@ let to_string t = Sexp.to_string_hum (sexp_of_t t)
 
 let the_one_and_only () = Scheduler.the_one_and_only ~should_lock:true
 
-let create kind file_descr info =
-  Scheduler.create_fd (the_one_and_only ()) kind file_descr info;
+let create ?avoid_nonblock_if_possible kind file_descr info =
+  Scheduler.create_fd ?avoid_nonblock_if_possible (the_one_and_only ()) kind file_descr
+    info;
 ;;
 
+(* If possible, we try not to treat [stdin], [stdout], or [stderr] as nonblocking so that
+   one can use Core I/O libraries simultaneously with async without them failing due to
+   [Sys_blocked_io]. *)
 let create_std_descr file_descr info =
   create (Kind.blocking_infer_using_stat file_descr) file_descr info
+    ~avoid_nonblock_if_possible:true
 ;;
 
 let stdin  =
@@ -169,7 +174,7 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
   if debug then
     Debug.log "Fd.interruptible_every_ready_to" (t, read_or_write)
       <:sexp_of< t * Read_write.Key.t >>;
-  let job = Async_core.Job.create (Scheduler.(current_execution_context (t ()))) f x in
+  let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watching.Watch_repeatedly (job, finished)) with
   | `Already_closed -> return `Closed
@@ -182,7 +187,7 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
 let every_ready_to t read_or_write f x =
   if debug then
     Debug.log "Fd.every_ready_to" (t, read_or_write) <:sexp_of< t * Read_write.Key.t >>;
-  let job = Async_core.Job.create (Scheduler.(current_execution_context (t ()))) f x in
+  let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watching.Watch_repeatedly (job, finished)) with
   | `Already_closed -> return `Closed

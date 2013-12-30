@@ -27,12 +27,12 @@ val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
     Various signals whose [default_sys_behavior] is [`Terminate] are not included:
 
     | kill   | it's not allowed to be handled                            |
-    | pipe   | async already ignores this signal, since it handles EPIPE |
+    | pipe   | Async already ignores this signal, since it handles EPIPE |
     | prof   | so that we can profile things with -p                     |
     | vtalrm | it already has a handler                                  |
 *)
 val terminating : t list
 
-(** [is_managed_by_async signal] returns true iff [signal] is being managed by async, and
+(** [is_managed_by_async signal] returns true iff [signal] is being managed by Async, and
     hence its default behavior is no longer in effect. *)
 val is_managed_by_async : t -> bool

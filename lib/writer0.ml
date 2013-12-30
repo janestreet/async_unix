@@ -724,55 +724,54 @@ let give_buf t desired =
   end
 ;;
 
-let make_write (type a)
+let write_gen (type a)
       ~(length : a -> int)
-      ~(blit_to_bigstring : (a, Bigstring.t) Blit.blit) =
-  stage (fun ?pos ?len t src ->
-    let src_pos, src_len =
-      Core.Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(length src)
-    in
-    if is_stopped_permanently t then
-      got_bytes t src_len
-    else begin
-      let available = Bigstring.length t.buf - t.back in
-      if available >= src_len then begin
-        got_bytes t src_len;
-        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos:t.back;
-        t.back <- t.back + src_len;
-      end else begin
-        got_bytes t available;
-        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos:t.back;
-        t.back <- t.back + available;
-        let remaining = src_len - available in
-        let dst, dst_pos = give_buf t remaining in
-        blit_to_bigstring
-          ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos;
-      end;
-      maybe_start_writer t;
-    end)
+      ~(blit_to_bigstring : (a, Bigstring.t) Blit.blit)
+      ?pos ?len t src =
+  let src_pos, src_len =
+    Core.Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(length src)
+  in
+  if is_stopped_permanently t then
+    got_bytes t src_len
+  else begin
+    let available = Bigstring.length t.buf - t.back in
+    if available >= src_len then begin
+      got_bytes t src_len;
+      blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos:t.back;
+      t.back <- t.back + src_len;
+    end else begin
+      got_bytes t available;
+      blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos:t.back;
+      t.back <- t.back + available;
+      let remaining = src_len - available in
+      let dst, dst_pos = give_buf t remaining in
+      blit_to_bigstring
+        ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos;
+    end;
+    maybe_start_writer t;
+  end
 ;;
 
-let write =
-  unstage (make_write
-             ~length:String.length
-             ~blit_to_bigstring:Bigstring.From_string.blit)
+let write ?pos ?len t src =
+  write_gen
+    ~length:String.length
+    ~blit_to_bigstring:Bigstring.From_string.blit
+    ?pos ?len t src
 ;;
 
-let write_bigstring =
-  unstage (make_write
-           ~length:Bigstring.length
-           ~blit_to_bigstring:Bigstring.blit)
+let write_bigstring ?pos ?len t src =
+  write_gen
+    ~length:Bigstring.length
+    ~blit_to_bigstring:Bigstring.blit
+    ?pos ?len t src
 ;;
 
 let write_iobuf ?pos ?len t iobuf =
-  unstage (make_write
-            ~length:Iobuf.length
-            ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-              let old_src_pos = Iobuf.Lo_bound.window src in
-              Iobuf.advance src src_pos;
-              Iobuf.consume_into_bigstring src dst ~pos:dst_pos ~len;
-              Iobuf.Lo_bound.restore old_src_pos src))
-    ?pos ?len t iobuf
+  let iobuf = Iobuf.read_only (Iobuf.no_seek iobuf) in
+  write_gen
+    ~length:Iobuf.length
+    ~blit_to_bigstring:Iobuf.Peek.To_bigstring.blit
+    ?pos ?len t iobuf;
 ;;
 
 let write_substring t substring =

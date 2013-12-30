@@ -1,6 +1,6 @@
 (** An interruptor provides a file descriptor that can be used to cause a
     file-descr-watcher to detect the file descriptor is ready for reading.  We use an
-    interruptor when a thread needs the async scheduler to service a request. *)
+    interruptor when a thread needs the Async scheduler to service a request. *)
 
 open Core.Std
 

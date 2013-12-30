@@ -2,7 +2,7 @@
     [Core.Std.Out_channel].
 
     Each writer has an internal buffer, to which [Writer.write*] adds data.  Each writer
-    uses an async microthread that makes [write()] system calls to move the data from the
+    uses an Async microthread that makes [write()] system calls to move the data from the
     writer's buffer to an OS buffer via the file descriptor.  There is no guarantee that
     the data sync on the other side of the writer can keep up with the rate at which you
     are writing.  If it cannot, the OS buffer will fill up and the writer's micro-thread
@@ -34,14 +34,14 @@ include Invariant.S with type t := t
 val io_stats : Io_stats.t
 
 (** [stdout] and [stderr] are writers for file descriptors 1 and 2.  They are lazy because
-    we don't want to create them in all programs that happen to link with async.
+    we don't want to create them in all programs that happen to link with Async.
 
     When either [stdout] or [stderr] is created, they both are created.  Furthermore, if
     they point to the same inode, then they will be the same writer to [Fd.stdout].  This
     can be confusing, because [fd (force stderr)] will be [Fd.stdout], not [Fd.stderr].
     And subsequent modifications of [Fd.stderr] will have no effect on [Writer.stderr].
 
-    Unfortunately, the sharing is necessary because async uses OS threads to do write()
+    Unfortunately, the sharing is necessary because Async uses OS threads to do write()
     syscalls using the writer buffer.  When calling a program that redirects stdout and
     stderr to the same file, as in:
 
@@ -139,20 +139,62 @@ val fd : t -> Fd.t
     understand how the writer works and what one is doing to use this. *)
 val set_fd : t -> Fd.t -> unit Deferred.t
 
-(** [make_write] returns a function that can write to a writer, with [length] specifying
-    the number of bytes needed and [blit_to_bigstring] blitting the value directly into
-    the writer's buffer. *)
-val make_write
+(** [write_gen t a] writes [a] to writer [t], with [length] specifying the number of bytes
+    needed and [blit_to_bigstring] blitting [a] directly into the [t]'s buffer.  If one
+    has a type that has [length] and [blit_to_bigstring] functions, like:
+
+    {[
+      module A : sig
+        type t
+        val length : t -> int
+        val blit_to_bigstring : (t, Bigstring.t) Blit.blit
+      end
+    ]}
+
+    then one can use [write_gen] to implement a custom analog of [Writer.write], like:
+
+    {[
+      module Write_a : sig
+        val write : ?pos:int -> ?len:int -> A.t -> Writer.t -> unit
+      end = struct
+        let write ?pos ?len a writer =
+          Writer.write_gen
+            ~length:A.length
+            ~blit_to_bigstring:A.blit_to_bigstring
+            ?pos ?len writer a
+      end
+    ]}
+
+    If it is difficult to write only part of a value, one can choose to not support [?pos]
+    and [?len]:
+
+    {[
+      module Write_a : sig
+        val write : A.t -> Writer.t -> unit
+      end = struct
+        let write a writer =
+          Writer.write_gen
+            ~length:A.length
+            ~blit_to_bigstring:A.blit_to_bigstring
+            writer a
+      end
+    ]}
+*)
+val write_gen
   :  length:('a -> int)
   -> blit_to_bigstring:('a, Bigstring.t) Blit.blit
-  -> (?pos:int -> ?len:int -> t -> 'a -> unit) Staged.t
+  -> ?pos:int
+  -> ?len:int
+  -> t
+  -> 'a
+  -> unit
 
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
     contents of the string are copied to an internal buffer before [write] returns, so
     clients can do whatever they want with [s] after that. *)
-val write           : ?pos:int -> ?len:int -> t -> string                  -> unit
-val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t             -> unit
-val write_iobuf     : ?pos:int -> ?len:int -> t -> (_, Iobuf.seek) Iobuf.t -> unit
+val write           : ?pos:int -> ?len:int -> t -> string         -> unit
+val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t    -> unit
+val write_iobuf     : ?pos:int -> ?len:int -> t -> (_, _) Iobuf.t -> unit
 
 val write_substring    : t -> Substring   .t -> unit
 val write_bigsubstring : t -> Bigsubstring.t -> unit

@@ -696,13 +696,15 @@ module Socket = struct
     Fd.with_file_descr_exn t.fd (fun file_descr -> opt.Opt.set file_descr a)
   ;;
 
-  let mcast_group f ?ifname t address =
-    let sockaddr = Address.to_sockaddr address in
-    Fd.with_file_descr_exn t.fd (fun file_descr -> f ?ifname file_descr sockaddr)
+  let mcast_join ?ifname ?source t address =
+    Fd.with_file_descr_exn t.fd (fun file_descr ->
+      Unix.mcast_join ?ifname ?source file_descr (Address.to_sockaddr address))
   ;;
 
-  let mcast_join  ?ifname t address = mcast_group Unix.mcast_join  ?ifname t address
-  let mcast_leave ?ifname t address = mcast_group Unix.mcast_leave ?ifname t address
+  let mcast_leave ?ifname t address =
+    Fd.with_file_descr_exn t.fd (fun file_descr ->
+      Unix.mcast_leave ?ifname file_descr (Address.to_sockaddr address))
+  ;;
 
   let bind t address =
     setopt t Opt.reuseaddr true;

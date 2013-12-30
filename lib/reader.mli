@@ -44,7 +44,7 @@ val io_stats : Io_stats.t
 val last_read_time : t -> Time.t
 
 (** [stdin] is a reader for file descriptor 0.  It is lazy because we don't want
-   to create it in all programs that happen to link with async. *)
+   to create it in all programs that happen to link with Async. *)
 val stdin : t Lazy.t
 
 (** [open_file file] opens [file] for reading and returns a reader reading from it. *)

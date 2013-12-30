@@ -62,15 +62,16 @@ module Watching = struct
      Initially, watching state starts as [Not_watching].  When one initially requests that
      the fd be monitored via [request_start_watching], the state transitions to
      [Watch_once] or [Watch_repeatedly].  After the file_descr_watcher detects I/O is
-     available, the the job in [Watch_repeatedly] is enqueued, or the ivar in [Watch_once]
-     is filled and the state transitions to [Stop_requested].  Or, if one calls
+     available, the job in [Watch_repeatedly] is enqueued, or the ivar in [Watch_once] is
+     filled and the state transitions to [Stop_requested].  Or, if one calls
      [request_stop_watching], the state transitions to [Stop_requested].  Finally,
      [Stop_requested] will transition to [Not_watching] when the desired state is
      synchronized with the file_descr_watcher. *)
   type t =
   | Not_watching
   | Watch_once of ready_to_result Ivar.t
-  | Watch_repeatedly of Async_core.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
+  | Watch_repeatedly
+    of Async_kernel.Jobs.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
   | Stop_requested
   with sexp_of
 
@@ -170,15 +171,8 @@ let invariant t : unit =
 
 let to_int t = File_descr.to_int t.file_descr
 
-let create kind file_descr info =
+let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
   let supports_nonblock =
-    (* We don't treat [stdin], [stdout], or [stderr] as nonblocking so that one can use
-       Core I/O libraries simultaneously with async without them failing due to
-       [Sys_blocked_io]. *)
-    not (File_descr.equal file_descr Core.Std.Unix.stdin
-        || File_descr.equal file_descr Core.Std.Unix.stdout
-        || File_descr.equal file_descr Core.Std.Unix.stderr)
-    &&
     let module K = Kind in
     match kind with
     (* No point in setting nonblocking for files.  Unix doesn't care. *)
@@ -192,14 +186,20 @@ let create kind file_descr info =
        We don't really care about doing nonblocking I/O on other character devices,
        e.g. /dev/random. *)
     | K.Char -> false
-    | K.Fifo -> true
+    | K.Fifo -> not avoid_nonblock_if_possible
     (* All one can do on a `Bound socket is listen() to it, and we don't use listen()
        in a nonblocking way. *)
     | K.Socket `Bound -> false
     (* `Unconnected sockets support nonblocking so we can connect() them.
        `Passive     sockets support nonblocking so we can accept() them.
-       `Active      sockets support nonblocking so we can read() and write() them. *)
-    | K.Socket (`Unconnected | `Passive | `Active) -> true
+       `Active      sockets support nonblocking so we can read() and write() them.
+
+       We can't use [avoid_nonblock_if_possible] for [`Unconnected] and [`Passive]
+       sockets, because [accept_interruptible] and [connect_interruptible] in
+       unix_syscalls.ml assume that such sockets are nonblocking.  On the other hand,
+       there is no such assumption about [`Active] sockets. *)
+    | K.Socket (`Unconnected | `Passive) -> true
+    | K.Socket `Active -> not avoid_nonblock_if_possible
   in
   let t =
     { info;

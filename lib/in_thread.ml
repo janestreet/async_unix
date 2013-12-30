@@ -20,16 +20,25 @@ module Helper_thread = struct
   ;;
 end
 
-let run ?priority ?thread ?name f =
+let run ?priority ?thread ?(when_finished = `Best) ?name f =
   let t = the_one_and_only ~should_lock:true in
   let doit () =
     Deferred.create (fun ivar ->
       let doit () =
         (* At this point, we are in a thread-pool thread, not the async thread. *)
         let result = Result.try_with f in
-        with_lock t (fun () ->
-          Ivar.fill ivar result;
-          have_lock_do_cycle t);
+        let locked =
+          match when_finished with
+          | `Take_the_async_lock  -> lock t; true
+          | `Notify_the_scheduler -> false
+          | `Best                 -> try_lock t
+        in
+        if locked then
+          protect ~finally:(fun () -> unlock t) ~f:(fun () ->
+            Ivar.fill ivar result;
+            have_lock_do_cycle t)
+        else
+          thread_safe_enqueue_external_action t (fun () -> Ivar.fill ivar result);
       in
       match thread with
       | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)

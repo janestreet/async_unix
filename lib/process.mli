@@ -1,6 +1,6 @@
 (** [Async.Process] is for creating child processes of the current process, and
     communicating with children via their stdin, stdout, and stderr.  [Async.Process] is
-    the async analog of [Core.Unix.create_process] and related functions. *)
+    the Async analog of [Core.Unix.create_process] and related functions. *)
 open Core.Std
 open Import
 
@@ -48,7 +48,7 @@ val create : t Or_error.t Deferred.t with_create_args
 
 (** [wait t] closes [stdin t] and then begins collecting the output produced on [t]'s
     [stdout] and [stderr], continuing to collect output until [t] terminates.  As usual,
-    other async jobs can run before the deferred returned by [wait] becomes determined. *)
+    other Async jobs can run before the deferred returned by [wait] becomes determined. *)
 module Output : sig
   type t =
     { stdout : string;

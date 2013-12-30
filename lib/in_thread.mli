@@ -2,11 +2,11 @@
     (kernel) threads.  The name is to remind us to think about threads and race
     conditions.
 
-    All threads come from the one thread pool used for all async-managed threads.
+    All threads come from the one thread pool used for all Async-managed threads.
 *)
 
 open Core.Std
-open Async_core
+open Async_kernel
 
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
@@ -20,7 +20,7 @@ module Helper_thread : sig
       thread name for any work that that is done by the thread that doesn't get its own
       name.
 
-      [create] uses a thread from async's thread pool, reserving that thread for exclusive
+      [create] uses a thread from Async's thread pool, reserving that thread for exclusive
       use by the helper thread until the helper thread is no longer used (specifically,
       finalized and is finished with all its work), at which point the thread is made
       available for general use by the pool. *)
@@ -64,10 +64,20 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     [f3 ()] to completion.
 
     If [name] is supplied, the name of the thread will be set to it for the duration of
-    the execution of [f ()]. *)
+    the execution of [f ()].
+
+    [when_finished] describes how the helper thread behaves once [f ()] has completed:
+    - with [`Take_the_lock] it takes the Async lock and runs a cycle immediately
+    - with [`Notify_the_scheduler] it just notifies the scheduler that the result is ready
+    - with [`Best] it tries to take the lock and run a cycle, but will fallback to
+      [`Notify_the_scheduler] method if the Async lock is already held by someone else.
+    The default is [`Best], and one shouldn't need to change it -- it is useful only
+    for unit testing.
+*)
 val run
   :  ?priority:Priority.t
   -> ?thread:Helper_thread.t
+  -> ?when_finished:[ `Take_the_async_lock | `Notify_the_scheduler | `Best ]
   -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t

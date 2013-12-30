@@ -28,10 +28,10 @@ val shutdown : ?force:unit Deferred.t -> int -> unit
       val block : 'a Deferred.t -> 'a
     ]}
 
-    The semantics of such an exit function would allow one to block a running async job,
+    The semantics of such an exit function would allow one to block a running Async job,
     and to switch to another one (to run the [at_shutdown] handlers), without expressing
     that switch in the type system via a [Deferred.t].  That would eliminate all the nice
-    reasoning guarantees that async gives about concurrent jobs. *)
+    reasoning guarantees that Async gives about concurrent jobs. *)
 val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
