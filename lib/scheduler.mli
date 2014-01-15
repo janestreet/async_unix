@@ -190,4 +190,4 @@ val add_busy_poller
     the main monitor.
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
-val handle_thread_pool_stuck : (Time.Span.t -> unit) -> unit
+val handle_thread_pool_stuck : (stuck_for:Time.Span.t -> unit) -> unit

@@ -102,7 +102,7 @@ type t =
 
     (* [handle_thread_pool_stuck] is called once per second if the thread pool is "stuck",
        i.e has not completed a job for one second and has no available threads. *)
-    mutable handle_thread_pool_stuck : Time.Span.t -> unit;
+    mutable handle_thread_pool_stuck : stuck_for:Time.Span.t -> unit;
 
     busy_pollers : Busy_pollers.t;
     mutable busy_poll_thread_is_running : bool;
@@ -305,50 +305,43 @@ let try_create_timerfd () =
       Some timerfd
 ;;
 
-let default_handle_thread_pool_stuck span =
-  if Time.Span.(>=) span Config.report_thread_pool_stuck_for then begin
+let default_handle_thread_pool_stuck ~stuck_for =
+  if Time.Span.(>=) stuck_for Config.report_thread_pool_stuck_for then begin
     let now = Time.now () in
     let message =
-      sprintf "\
-%s: Async's thread pool hasn't completed a job for %s, and is using the
-maximum allowed number of threads (%d)."
+      sprintf "%s: Async's thread pool has been stuck for %s."
         (Time.format now "%F %T %Z")
-        (Time.Span.to_short_string span)
-        (Config.Max_num_threads.raw Config.max_num_threads)
+        (Time.Span.to_short_string stuck_for)
     in
-    if Time.Span.(>=) span Config.abort_after_thread_pool_stuck_for
+    if Time.Span.(>=) stuck_for Config.abort_after_thread_pool_stuck_for
     then Monitor.send_exn Monitor.main (Failure message)
     else
-      Core.Std.eprintf "%s\n%!"
-        (String.concat [ message
-                       ; sprintf "\
-\  This is only a warning.  In %s, it will raise an
-exception.
-"
-                           (Time.Span.to_short_string
-                              (Time.Span.(-)
-                                 Config.abort_after_thread_pool_stuck_for
-                                 span))
-                       ])
+      Core.Std.eprintf "\
+%s
+  This is only a warning.  It will raise an exception in %s.
+%!"
+        message
+        (Time.Span.to_short_string
+           (Time.Span.(-) Config.abort_after_thread_pool_stuck_for stuck_for))
   end;
 ;;
 
 let detect_stuck_thread_pool t =
-  let last_time_work_was_completed = ref (Time.now ()) in
-  let last_num_work_completed = ref (Thread_pool.num_work_completed t.thread_pool) in
+  let most_recently_stuck = ref None in
   every (sec 1.) (fun () ->
-    let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
-    let now = Time.now () in
-    if num_work_completed > !last_num_work_completed then begin
-      last_num_work_completed := num_work_completed;
-      last_time_work_was_completed := now;
-    end else
-      let since_last_work_was_completed =
-        Time.diff now !last_time_work_was_completed
-      in
-      if Time.Span.(>) since_last_work_was_completed (sec 1.)
-      && not (Thread_pool.has_thread_available t.thread_pool)
-      then t.handle_thread_pool_stuck since_last_work_was_completed);
+    if Thread_pool.has_thread_available t.thread_pool
+    then most_recently_stuck := None
+    else begin
+      let now = Time.now () in
+      let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
+      let newly_stuck () = most_recently_stuck := Some (num_work_completed, now) in
+      match !most_recently_stuck with
+      | None -> newly_stuck ()
+      | Some (num_work_previously_completed, stuck_at) ->
+        if num_work_completed <> num_work_previously_completed
+        then newly_stuck ()
+        else t.handle_thread_pool_stuck ~stuck_for:(Time.diff now stuck_at)
+    end);
 ;;
 
 let create
@@ -872,7 +865,12 @@ let fold_fields (type a) ~init folder : a =
 
 let handle_thread_pool_stuck f =
   let t = t () in
-  t.handle_thread_pool_stuck <- unstage (Kernel_scheduler.preserve_execution_context f);
+  let kernel_scheduler = t.kernel_scheduler in
+  let module K = Kernel_scheduler in
+  let execution_context = K.current_execution_context kernel_scheduler in
+  t.handle_thread_pool_stuck <-
+    (fun ~stuck_for ->
+       K.enqueue kernel_scheduler execution_context (fun () -> f ~stuck_for) ());
 ;;
 
 TEST_UNIT = invariant (t ())

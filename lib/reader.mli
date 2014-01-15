@@ -273,7 +273,9 @@ val read_sexps : (t -> Sexp.t Pipe.Reader.t) read
 (** [read_bin_prot ?max_len t bp_reader] reads the next binary protocol message using
     binary protocol reader [bp_reader].  The format is the "size-prefixed binary
     protocol", in which the length of the data is prefixed as a 64-bit integer to the
-    data.  This is the format that Writer.write_bin_prot writes. *)
+    data.  This is the format that [Writer.write_bin_prot] writes.
+
+    For higher performance, consider [Unpack_sequence.unpack_bin_prot_from_reader]. *)
 val read_bin_prot
   :  ?max_len:int
   -> t
