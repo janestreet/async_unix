@@ -38,7 +38,7 @@ let invariant t : unit =
       ~timerfd:(check (fun timerfd ->
         <:test_result< Flags.t option >>
           (Epoll.find t.epoll (Timerfd.to_file_descr timerfd))
-          ~expected:(Some Flags.for_timerfd)))
+          ~expect:(Some Flags.for_timerfd)))
       ~epoll:(check (fun epoll ->
         Epoll.iter epoll ~f:(fun _ flags ->
           assert (List.exists Flags.([ in_; out; in_out; for_timerfd ])

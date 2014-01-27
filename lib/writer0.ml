@@ -51,7 +51,7 @@ type t =
        in [buf], even the current [buf] in the writer. *)
 
     (* [scheduled] holds iovecs that we plan to write. *)
-    mutable scheduled : (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Queue.t sexp_opaque;
+    scheduled : (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Dequeue.t sexp_opaque;
 
     (* [scheduled_bytes] is the sum of the lengths of the iovecs in [scheduled] *)
     mutable scheduled_bytes : int;
@@ -121,7 +121,7 @@ let is_stopped_permanently t =
 ;;
 
 let iovecs_length iovecs =
-  Queue.fold iovecs ~init:0 ~f:(fun n (iovec, _) -> n + iovec.IOVec.len)
+  Dequeue.fold iovecs ~init:0 ~f:(fun n (iovec, _) -> n + iovec.IOVec.len)
 ;;
 
 let invariant t : unit =
@@ -143,7 +143,7 @@ let invariant t : unit =
         assert (Int63.(zero <= bytes_written && bytes_written <= t.bytes_received))))
       ~bytes_received:ignore
       ~scheduled:(check (fun scheduled ->
-        Queue.iter scheduled ~f:(fun (iovec, kind) ->
+        Dequeue.iter scheduled ~f:(fun (iovec, kind) ->
           if phys_equal t.buf iovec.IOVec.buf then
             assert (kind = `Keep))))
       ~scheduled_bytes:(check (fun scheduled_bytes ->
@@ -383,7 +383,7 @@ let fill_flushes { bytes_written; flushes; _ } =
 
 let stop_permanently t =
   t.background_writer_state <- `Stopped_permanently;
-  Queue.clear t.scheduled;
+  Dequeue.clear t.scheduled;
   t.scheduled_bytes <- 0;
   t.buf <- Bigstring.create 0;
   t.scheduled_back <- 0;
@@ -428,20 +428,20 @@ let create
       fd;
       syscall;
       monitor;
-      buf = Bigstring.create buf_len;
-      back = 0;
-      scheduled_back = 0;
-      scheduled = Queue.create ();
-      scheduled_bytes = 0;
-      bytes_received = Int63.zero;
-      bytes_written = Int63.zero;
-      flushes = Queue.create ();
-      background_writer_state = `Not_running;
-      close_state = `Open;
-      close_finished = Ivar.create ();
+      buf                         = Bigstring.create buf_len;
+      back                        = 0;
+      scheduled_back              = 0;
+      scheduled                   = Dequeue.create ();
+      scheduled_bytes             = 0;
+      bytes_received              = Int63.zero;
+      bytes_written               = Int63.zero;
+      flushes                     = Queue.create ();
+      background_writer_state     = `Not_running;
+      close_state                 = `Open;
+      close_finished              = Ivar.create ();
       producers_to_flush_at_close = Bag.create ();
-      flush_at_shutdown_elt = None;
-      check_buffer_age = Check_buffer_age.dummy;
+      flush_at_shutdown_elt       = None;
+      check_buffer_age            = Check_buffer_age.dummy;
       consumer_left;
       raise_when_consumer_leaves;
       open_flags;
@@ -499,7 +499,7 @@ let add_iovec t kind iovec ~count_bytes_as_received =
     got_bytes t iovec.IOVec.len;
   if not (is_stopped_permanently t) then begin
     t.scheduled_bytes <- t.scheduled_bytes + iovec.IOVec.len;
-    Queue.enqueue t.scheduled (iovec, kind);
+    Dequeue.enqueue_back t.scheduled (iovec, kind);
   end
 ;;
 
@@ -517,13 +517,13 @@ let dummy_iovec = IOVec.empty IOVec.bigstring_kind
 
 let mk_iovecs t =
   schedule_unscheduled t `Keep;
-  let n_iovecs = Int.min (Queue.length t.scheduled) IOVec.max_iovecs in
+  let n_iovecs = Int.min (Dequeue.length t.scheduled) IOVec.max_iovecs in
   let iovecs = Array.create ~len:n_iovecs dummy_iovec in
   let contains_mmapped_ref = ref false in
   let iovecs_len = ref 0 in
   with_return (fun {return} ->
     let i = ref 0 in
-    Queue.iter t.scheduled ~f:(fun (iovec, _) ->
+    Dequeue.iter t.scheduled ~f:(fun (iovec, _) ->
       if !i >= n_iovecs then return ();
       if not !contains_mmapped_ref
         && Bigstring.is_mmapped iovec.IOVec.buf
@@ -621,7 +621,7 @@ and write_finished t bytes_written =
   (* Remove processed iovecs from t.scheduled. *)
   let rec remove_done bytes_written =
     assert (bytes_written >= 0);
-    match Queue.dequeue t.scheduled with
+    match Dequeue.dequeue_front t.scheduled with
     | None ->
       if bytes_written > 0 then
         die t (Error.create "writer wrote nonzero amount but IO_queue is empty" t
@@ -642,16 +642,13 @@ and write_finished t bytes_written =
           IOVec.of_bigstring
             buf ~pos:(pos + bytes_written) ~len:(len - bytes_written)
         in
-        let new_scheduled = Queue.create () in
-        Queue.enqueue new_scheduled (new_iovec, kind);
-        Queue.transfer ~src:t.scheduled ~dst:new_scheduled;
-        t.scheduled <- new_scheduled;
+        Dequeue.enqueue_front t.scheduled (new_iovec, kind);
       end
   in
   remove_done bytes_written;
   (* See if there's anything else to do. *)
   schedule_unscheduled t `Keep;
-  if Queue.is_empty t.scheduled then begin
+  if Dequeue.is_empty t.scheduled then begin
     t.back <- 0;
     t.scheduled_back <- 0;
     t.background_writer_state <- `Not_running;

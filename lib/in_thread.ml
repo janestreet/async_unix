@@ -70,11 +70,13 @@ let pipe_of_squeue sq =
   let (r, w) = Pipe.create () in
   (* The functions are defined to avoid unnecessary allocation. *)
   let pull () =
-    let q = Queue.create () in
+    let q = Linked_queue.create () in
     Squeue.transfer_queue sq q;
     q
   in
-  let rec continue q = Pipe.write' w q >>> loop
+  let rec continue q =
+    Linked_queue.iter q ~f:(Pipe.write_without_pushback w);
+    Pipe.pushback w >>> loop
   (* [run pull] runs [pull] in a thread, because [Squeue.transfer_queue] can block. *)
   and loop () = run pull >>> continue in
   loop ();
