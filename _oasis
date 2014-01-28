@@ -83,11 +83,3 @@ Library async_unix
                       core,
                       async_kernel,
                       threads
-
-Document "async_unix"
-  Title:                Jane street's async library (unix)
-  Type:                 ocamlbuild (0.3)
-  BuildTools+:          ocamldoc
-  XOCamlbuildPath:      lib
-  XOCamlbuildLibraries: async_unix
-
