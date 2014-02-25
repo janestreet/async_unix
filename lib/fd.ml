@@ -80,7 +80,8 @@ let close ?(should_close_file_descriptor = true) t =
   let module S = State in
   match t.state with
   | S.Close_requested _ | S.Closed -> Ivar.read t.close_finished
-  | S.Open ->
+  | S.Open close_started ->
+    Ivar.fill close_started ();
     set_state t (S.Close_requested (fun () ->
       if not should_close_file_descriptor then
         Deferred.unit
@@ -103,6 +104,12 @@ let close ?(should_close_file_descriptor = true) t =
 ;;
 
 let close_finished t = Ivar.read t.close_finished
+
+let close_started t =
+  match t.state with
+  | State.Open close_started -> Ivar.read close_started
+  | State.Close_requested _ | State.Closed -> Deferred.unit
+;;
 
 let with_close t ~f = Monitor.protect (fun () -> f t) ~finally:(fun () -> close t)
 

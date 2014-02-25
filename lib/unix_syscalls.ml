@@ -706,8 +706,8 @@ module Socket = struct
       Unix.mcast_leave ?ifname file_descr (Address.to_sockaddr address))
   ;;
 
-  let bind t address =
-    setopt t Opt.reuseaddr true;
+  let bind t ?(reuseaddr = true) address =
+    setopt t Opt.reuseaddr reuseaddr;
     set_close_on_exec t.fd;
     let sockaddr = Address.to_sockaddr address in
     Fd.syscall_in_thread_exn t.fd ~name:"bind"
@@ -787,10 +787,27 @@ module Socket = struct
   ;;
 
   let accept t =
-    accept_interruptible t ~interrupt:(Deferred.never ())
+    accept_interruptible t ~interrupt:(Fd.close_started t.fd)
     >>| function
-      | `Interrupted -> assert false  (* impossible *)
-      | `Socket_closed | `Ok _ as x -> x
+    | `Interrupted -> `Socket_closed
+    | `Socket_closed | `Ok _ as x -> x
+  ;;
+
+  TEST_UNIT "accept interrupted by Fd.close" =
+    Thread_safe.block_on_async_exn (fun () ->
+      let test socket_type address =
+        let t = create socket_type in
+        bind t address
+        >>= fun t ->
+        let t = listen t in
+        don't_wait_for (after (sec 0.1) >>= fun () -> Fd.close t.fd);
+        Clock.with_timeout (sec 0.2) (accept t)
+        >>| function
+        | `Result (`Ok _) -> failwith "accepted an unexpected connection"
+        | `Result `Socket_closed -> ()
+        | `Timeout -> failwith "timed out despite closure of listening socket"
+      in
+      test Type.tcp (Address.Inet.create_bind_any ~port:0))
   ;;
 
   let connect_interruptible t address ~interrupt =

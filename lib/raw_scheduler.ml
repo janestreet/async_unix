@@ -210,7 +210,7 @@ let maybe_start_closing_fd t fd =
   if fd.Fd.num_active_syscalls = 0 then begin
     let module S = Fd.State in
     match fd.Fd.state with
-    | S.Closed | S.Open -> ()
+    | S.Closed | S.Open _ -> ()
     | S.Close_requested close ->
       (* We must remove the fd now and not after the close has finished.  If we waited
          until after the close had finished, then the fd might have already been

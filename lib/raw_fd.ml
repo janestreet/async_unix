@@ -20,29 +20,30 @@ module State = struct
 
      Open --> Close_requested --> Closed *)
   type t =
-  (* [Close_requested] indicates that [Fd.close t] has been called, but that we haven't
-     yet started the close() syscall, because there are still active syscalls using the
-     file descriptor.  The argument is a function that will do the close syscall,
-     and return when it is complete. *)
-  | Close_requested of (unit -> unit Deferred.t)
-  (* [Closed] indicates that there are no more active syscalls and we have
-     started the close() syscall. *)
-  | Closed
-  (* [Open] is the initial state of a file descriptor, and the normal state when it
-     is in use.  It indicates that it has not not yet been closed. *)
-  | Open
+    (* [Close_requested] indicates that [Fd.close t] has been called, but that we haven't
+       yet started the close() syscall, because there are still active syscalls using the
+       file descriptor.  The argument is a function that will do the close syscall, and
+       return when it is complete. *)
+    | Close_requested of (unit -> unit Deferred.t)
+    (* [Closed] indicates that there are no more active syscalls and we have started the
+       close() syscall. *)
+    | Closed
+    (* [Open] is the initial state of a file descriptor, and the normal state when it is
+       in use.  It indicates that it has not not yet been closed.  The argument is an ivar
+       to be filled when [close] is called. *)
+    | Open of unit Ivar.t
   with sexp_of
 
   let transition_is_allowed t t' =
     match t, t' with
-    | Open             , Close_requested _
+    | Open _           , Close_requested _
     | Close_requested _, Closed
       -> true
     | _ -> false
   ;;
 
   let is_open = function
-    | Open -> true
+    | Open _ -> true
     | Close_requested _ | Closed -> false
   ;;
 end
@@ -159,12 +160,15 @@ let invariant t : unit =
         let module S = State in
         match t.state with
         | S.Closed -> assert (num_active_syscalls = 0);
-        | S.Close_requested _ | S.Open -> ()))
+        | S.Close_requested _ | S.Open _ -> ()))
       ~close_finished:(check (fun close_finished ->
         let module S = State in
         match t.state with
         | S.Closed -> ()
-        | S.Close_requested _ | S.Open -> assert (Ivar.is_empty close_finished)));
+        | S.Close_requested _ -> assert (Ivar.is_empty close_finished)
+        | S.Open close_started ->
+          assert (Ivar.is_empty close_finished);
+          assert (Ivar.is_empty close_started)))
   with exn ->
     failwiths "Fd.invariant failed" (exn, t) <:sexp_of< exn * t >>
 ;;
@@ -207,7 +211,7 @@ let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
       kind;
       supports_nonblock;
       have_set_nonblock = false;
-      state = State.Open;
+      state = State.Open (Ivar.create ());
       watching = Read_write.create_both Watching.Not_watching;
       watching_has_changed = false;
       num_active_syscalls = 0;
@@ -222,7 +226,7 @@ let inc_num_active_syscalls t =
   let module S = State in
   match t.state with
   | S.Close_requested _ | S.Closed -> `Already_closed
-  | S.Open -> t.num_active_syscalls <- t.num_active_syscalls + 1; `Ok
+  | S.Open _ -> t.num_active_syscalls <- t.num_active_syscalls + 1; `Ok
 ;;
 
 let set_state t new_state =

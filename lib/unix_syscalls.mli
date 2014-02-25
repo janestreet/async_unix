@@ -54,7 +54,7 @@ type file_perm = int
 
 val openfile
   :  ?perm:file_perm
-  -> ?close_on_exec:bool (** default: false *)
+  -> ?close_on_exec:bool (** default is [false] *)
   -> string
   -> mode:open_flag list
   -> Fd.t Deferred.t
@@ -408,10 +408,14 @@ module Socket : sig
        ] Deferred.t
 
   (** [bind socket addr] sets close_on_exec for the fd of [socket]. *)
-  val bind : ([ `Unconnected ], 'addr) t -> 'addr -> ([ `Bound ], 'addr) t Deferred.t
+  val bind
+    :  ([ `Unconnected ], 'addr) t
+    -> ?reuseaddr : bool  (** default is [true] *)
+    -> 'addr
+    -> ([ `Bound ], 'addr) t Deferred.t
 
   val listen
-    :  ?max_pending_connections:int  (** default: 10 *)
+    :  ?max_pending_connections:int  (** default is 10 *)
     -> ([ `Bound ], 'addr) t
     -> ([ `Passive ], 'addr) t
 

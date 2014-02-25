@@ -105,17 +105,19 @@ val clear_nonblock : t -> unit
     underlying file descriptor returns.  [close_finished] differs from [close] in that it
     does not have the side effect of initiating a close.
 
-    [is_closed t] returns [true] iff [close t] has been called. *)
+    [is_closed t] returns [true] iff [close t] has been called.
+
+    [close_started t] becomes determined when [close t] is called. *)
 val close
   :  ?should_close_file_descriptor:bool (** default is [true] *)
   -> t
   -> unit Deferred.t
+val close_started  : t -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
 val is_closed : t -> bool
 
 (** [with_close t f] applies [f] to [t], returns the result of [f], and closes [t]. *)
 val with_close : t -> f:(t -> 'a Deferred.t) -> 'a Deferred.t
-
 
 (** [is_open t] is [not (is_closed t]) *)
 val is_open : t -> bool

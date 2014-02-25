@@ -70,9 +70,11 @@ val within : ((unit -> unit) -> unit) with_options
 (** [within_v] is like [within], but allows a value to be returned by [f]. *)
 val within_v : ((unit -> 'a) -> 'a option) with_options
 
-(** [with_local key value ~f] runs [f] right now with the binding [key = value].  All
-    calls to [find_local key] in [f] and computations started from [f] will return
-    [value]. *)
+(** [with_local key value ~f], when run in the current execution context, [e], runs [f]
+    right now in a new execution context, [e'], that is identical to [e], except that
+    [find_local key = value].  As usual, [e'] will be in effect in asynchronous
+    computations started by [f].  When [with_local] returns, the execution context is
+    restored to [e]. *)
 val with_local : 'a Univ_map.Key.t -> 'a option -> f:(unit -> 'b) -> 'b
 
 (** [find_local key] returns the value associated to [key] in the current execution
