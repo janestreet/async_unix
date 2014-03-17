@@ -70,6 +70,8 @@ let remove_handler _t (Handler.T handler) =
 ;;
 
 let handle_delivered t =
-  Thread_safe_queue.dequeue_until_empty t.delivered (fun (signal, handlers) ->
-    Handlers.deliver handlers signal)
+  while Thread_safe_queue.length t.delivered > 0 do
+    let signal, handlers = Thread_safe_queue.dequeue_exn t.delivered in
+    Handlers.deliver handlers signal;
+  done;
 ;;
