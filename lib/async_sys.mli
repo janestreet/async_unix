@@ -18,6 +18,11 @@ val file_exists_exn : string -> bool Deferred.t
     [`Unknown]. *)
 val when_file_exists : ?poll_delay:Time.Span.t -> string -> unit Deferred.t
 
+(** [when_file_changes file] polls [file] using [stat] and writes [file]'s mtime to the
+    pipe every time it changes.  The first time in the pipe will be [file]'s current
+    mtime.  To stop polling, close the pipe. *)
+val when_file_changes : ?poll_delay:Time.Span.t -> string -> Time.t Pipe.Reader.t
+
 val is_directory     : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown ] Deferred.t
 val is_directory_exn : ?follow_symlinks:bool -> string -> bool                     Deferred.t
 

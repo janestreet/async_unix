@@ -40,7 +40,7 @@ let shutdown ?(force = after (sec 10.)) status =
          | `No -> assert false
          | `Yes status -> exit status);
     upon force (fun () ->
-      Core.Std.eprintf "Shutdown forced.\n";
+      Debug.log_string "Shutdown forced.";
       exit 1);
 ;;
 

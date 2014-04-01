@@ -279,7 +279,8 @@ let update_check_access t do_check =
        Some (fun () ->
          if not (am_holding_lock t) then begin
            Debug.log "attempt to access async from thread not holding the async lock"
-             (Backtrace.get_opt (), t) <:sexp_of< Backtrace.t option * t >>;
+             (Backtrace.get_opt (), t, Time.now ())
+             <:sexp_of< Backtrace.t option * t * Time.t >>;
            exit 1;
          end))
 ;;
@@ -703,7 +704,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   if raise_unhandled_exn then
     Error.raise error
   else begin
-    Core.Std.eprintf "%s\n%!" (Sexp.to_string_hum (Error.sexp_of_t error));
+    Debug.log "unhandled exception in Async scheduler" error <:sexp_of< Error.t >>;
     exit 1;
   end
 ;;

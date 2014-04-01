@@ -1,6 +1,8 @@
 open Core.Std
 open Import
 
+module Unix = Unix_syscalls
+
 let argv = Sys.argv
 let executable_name = Sys.executable_name
 
@@ -15,11 +17,34 @@ let when_file_exists ?(poll_delay = sec 0.5) file =
     let rec loop () =
       file_exists file >>> function
         | `Yes -> Ivar.fill i ()
-        | `No -> upon (Clock.after poll_delay) loop
+        | `No -> upon (after poll_delay) loop
         | `Unknown ->
           failwiths "when_file_exists can not check file" file <:sexp_of< string >>
     in
     loop ())
+;;
+
+let when_file_changes ?(poll_delay = sec 0.5) file =
+  let last_reported_mtime = ref Time.epoch in
+  let (reader, writer) = Pipe.create () in
+  let rec loop () =
+    Monitor.try_with (fun () -> Unix.stat file)
+    >>> fun stat_result ->
+    if not (Pipe.is_closed writer) then begin
+      begin match stat_result with
+      | Error _ -> ()
+      | Ok st ->
+        let mtime = st.Unix.Stats.mtime in
+        if mtime <> !last_reported_mtime then begin
+          last_reported_mtime := mtime;
+          Pipe.write_without_pushback writer mtime;
+        end
+      end;
+      after poll_delay >>> loop
+    end
+  in
+  loop ();
+  reader
 ;;
 
 let chdir            = wrap1 Sys.chdir
