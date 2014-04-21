@@ -78,8 +78,9 @@ val add_work
 
 val num_work_completed : t -> int
 
-(** [has_thread_available t] returns [true] if [t] has a thread available to do work. *)
-val has_thread_available : t -> bool
+(** [has_unstarted_work t] returns [true] if [t] has work that it hasn't been assigned
+    to start running in a thread. *)
+val has_unstarted_work : t -> bool
 
 module Helper_thread : sig
   (** A helper thread is a thread with its own dedicated work queue.  Work added for the

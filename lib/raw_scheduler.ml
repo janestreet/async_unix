@@ -109,6 +109,8 @@ type t =
 
     mutable next_tsc_calibration : Time_stamp_counter.t;
 
+    mutable yield_ivar : unit Ivar.t option;
+
     kernel_scheduler : Kernel_scheduler.t;
 
     (* configuration *)
@@ -265,6 +267,7 @@ let invariant t : unit =
       ~busy_pollers:(check Busy_pollers.invariant)
       ~busy_poll_thread_is_running:ignore
       ~next_tsc_calibration:ignore
+      ~yield_ivar:ignore
       ~kernel_scheduler:(check Kernel_scheduler.invariant)
       ~max_inter_cycle_timeout:ignore
   with exn ->
@@ -330,7 +333,7 @@ let default_handle_thread_pool_stuck ~stuck_for =
 let detect_stuck_thread_pool t =
   let most_recently_stuck = ref None in
   every (sec 1.) (fun () ->
-    if Thread_pool.has_thread_available t.thread_pool
+    if not (Thread_pool.has_unstarted_work t.thread_pool)
     then most_recently_stuck := None
     else begin
       let now = Time.now () in
@@ -407,6 +410,7 @@ Async will be unable to timeout with sub-millisecond precision."
       busy_pollers = Busy_pollers.create ();
       busy_poll_thread_is_running = false;
       next_tsc_calibration = Time_stamp_counter.now ();
+      yield_ivar = None;
       kernel_scheduler;
       max_inter_cycle_timeout = Config.max_inter_cycle_timeout;
     }
@@ -444,6 +448,10 @@ let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
 let have_lock_do_cycle t =
   if debug then Debug.log "have_lock_do_cycle" t <:sexp_of< t >>;
+  begin match t.yield_ivar with
+  | None -> ()
+  | Some ivar -> Ivar.fill ivar (); t.yield_ivar <- None;
+  end;
   Kernel_scheduler.run_cycle t.kernel_scheduler;
   if not (i_am_the_scheduler t) then
     (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
@@ -860,6 +868,7 @@ let fold_fields (type a) ~init folder : a =
     ~busy_poll_thread_is_running:f
     ~busy_pollers:f
     ~next_tsc_calibration:f
+    ~yield_ivar:f
     ~kernel_scheduler:f
     ~max_inter_cycle_timeout:f
 ;;
@@ -872,6 +881,19 @@ let handle_thread_pool_stuck f =
   t.handle_thread_pool_stuck <-
     (fun ~stuck_for ->
        K.enqueue kernel_scheduler execution_context (fun () -> f ~stuck_for) ());
+;;
+
+let yield () =
+  let t = t () in
+  let ivar =
+    match t.yield_ivar with
+    | Some ivar -> ivar
+    | None ->
+      let ivar = Ivar.create () in
+      t.yield_ivar <- Some ivar;
+      ivar
+  in
+  Ivar.read ivar
 ;;
 
 TEST_UNIT = invariant (t ())

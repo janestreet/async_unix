@@ -194,6 +194,14 @@ module Internal = struct
       (* [num_threads] is the number of threads that have been created by the pool.  The
          thread pool guarantees that [num_threads <= max_num_threads]. *)
       mutable num_threads : int;
+      (* [thread_creation_failure_lockout] is the amount of time that must pass after a
+         thread-creation failure before the thread pool will make another attempt to
+         create a thread. *)
+      mutable thread_creation_failure_lockout : Time.Span.t;
+      (* [last_thread_creation_failure] holds the last time that [Core.Std.Thread.create]
+         raised.  It is used to avoid calling [Thread.create] too frequently when it is
+         failing. *)
+      mutable last_thread_creation_failure : Time.t;
       (* [threads] holds all the threads that have been created by the pool. *)
       mutable threads : Thread.t list;
       (* [available_threads] holds all threads that have [state = `Available].  It is used
@@ -226,6 +234,8 @@ module Internal = struct
         ~num_threads:(check (fun num_threads ->
           assert (num_threads = List.length t.threads);
           assert (num_threads <= t.max_num_threads)))
+        ~thread_creation_failure_lockout:ignore
+        ~last_thread_creation_failure:ignore
         ~threads:(check (fun threads -> List.iter threads ~f:Thread.invariant))
         ~available_threads:(check (fun available_threads ->
           assert (List.length available_threads <= t.num_threads);
@@ -233,9 +243,19 @@ module Internal = struct
             assert (List.exists t.threads ~f:(fun thread' -> phys_equal thread thread'));
             assert (Thread.is_available thread))))
         ~work_queue:(check (fun work_queue ->
+          (* It is possible that:
+
+             {[
+               has_unstarted_work t
+               && t.num_threads < t.max_num_threads
+             ]}
+
+             This happens when adding work and [Core.Std.Thread.create] raises.  In that
+             case, the thread pool enqueues the work and continues with the threads it
+             has.  If the thread pool can't make progress, then Async's thread-pool-stuck
+             detection will later report it. *)
           assert (Queue.is_empty work_queue
-                  || (t.num_threads = t.max_num_threads
-                      && List.is_empty t.available_threads))))
+                  ||  List.is_empty t.available_threads)))
         ~unfinished_work:(check (fun unfinished_work -> assert (unfinished_work >= 0)))
         ~num_work_completed:(check (fun num_work_completed ->
           assert (num_work_completed >= 0)))
@@ -249,9 +269,7 @@ module Internal = struct
     | `Finishing | `Finished -> false
   ;;
 
-  let has_thread_available t =
-    t.num_threads < t.max_num_threads || not (List.is_empty t.available_threads)
-  ;;
+  let has_unstarted_work t = not (Queue.is_empty t.work_queue)
 
   let create ~max_num_threads =
     if max_num_threads < 1 then
@@ -259,17 +277,19 @@ module Internal = struct
         (<:sexp_of< int >>)
     else
       let t =
-        { id = Pool_id.create ();
-          state = `In_use;
-          mutex = Mutex.create ();
-          default_priority = getpriority ();
-          max_num_threads;
-          num_threads = 0;
-          threads = [];
-          available_threads = [];
-          work_queue = Queue.create ();
-          unfinished_work = 0;
-          num_work_completed = 0;
+        { id                                      = Pool_id.create ()
+        ; state                                   = `In_use
+        ; mutex                                   = Mutex.create ()
+        ; default_priority                        = getpriority ()
+        ; max_num_threads
+        ; num_threads                             = 0
+        ; threads                                 = []
+        ; thread_creation_failure_lockout         = sec 1.
+        ; last_thread_creation_failure            = Time.epoch
+        ; available_threads                       = []
+        ; work_queue                              = Queue.create ()
+        ; unfinished_work                         = 0
+        ; num_work_completed                      = 0
         }
       in
       Ok t
@@ -288,6 +308,8 @@ module Internal = struct
           ~default_priority:ignore
           ~max_num_threads:ignore
           ~num_threads:(set 0)
+          ~thread_creation_failure_lockout:ignore
+          ~last_thread_creation_failure:ignore
           ~threads:(fun _ ->
             List.iter t.threads ~f:Thread.stop;
             t.threads <- [])
@@ -339,39 +361,41 @@ module Internal = struct
     if debug then Debug.log "create_thread" t <:sexp_of< t >>;
     let thread = Thread.create t.default_priority in
     let ocaml_thread =
-      Core.Std.Thread.create (fun () ->
-        Thread.initialize_ocaml_thread thread;
-        let rec loop () =
-          match Squeue.pop thread.Thread.work_queue with
-          | Work_queue.Stop -> ()
-          | Work_queue.Work work ->
-            if debug then
-              Debug.log "thread got work" (work, thread, t)
-                (<:sexp_of< Work.t * Thread.t * t >>);
-            Thread.set_name thread work.Work.name;
-            Thread.set_priority thread work.Work.priority;
-            (try
-               work.Work.doit () (* the actual work *)
-             with _ -> ());
-            t.num_work_completed <- t.num_work_completed + 1;
-            if debug then Debug.log "thread finished with work" (work, thread, t)
-              (<:sexp_of< Work.t * Thread.t * t >>);
-            Mutex.critical_section t.mutex ~f:(fun () ->
-              t.unfinished_work <- t.unfinished_work - 1;
-              thread.Thread.unfinished_work <- thread.Thread.unfinished_work - 1;
-              begin match thread.Thread.state with
-              | `Available -> assert false
-              | `Helper helper_thread -> maybe_finish_helper_thread t helper_thread
-              | `Working -> make_thread_available t thread;
-              end);
-            loop ()
-        in
-        loop ()) ()
+      Or_error.try_with (fun () ->
+        Core.Std.Thread.create (fun () ->
+          Thread.initialize_ocaml_thread thread;
+          let rec loop () =
+            match Squeue.pop thread.Thread.work_queue with
+            | Work_queue.Stop -> ()
+            | Work_queue.Work work ->
+              if debug then
+                Debug.log "thread got work" (work, thread, t)
+                  (<:sexp_of< Work.t * Thread.t * t >>);
+              Thread.set_name thread work.Work.name;
+              Thread.set_priority thread work.Work.priority;
+              (try
+                 work.Work.doit () (* the actual work *)
+               with _ -> ());
+              t.num_work_completed <- t.num_work_completed + 1;
+              if debug then Debug.log "thread finished with work" (work, thread, t)
+                              (<:sexp_of< Work.t * Thread.t * t >>);
+              Mutex.critical_section t.mutex ~f:(fun () ->
+                t.unfinished_work <- t.unfinished_work - 1;
+                thread.Thread.unfinished_work <- thread.Thread.unfinished_work - 1;
+                begin match thread.Thread.state with
+                | `Available -> assert false
+                | `Helper helper_thread -> maybe_finish_helper_thread t helper_thread
+                | `Working -> make_thread_available t thread;
+                end);
+              loop ()
+          in
+          loop ()) ())
     in
-    thread.Thread.thread_id <- Some (Core.Std.Thread.id ocaml_thread);
-    t.num_threads <- t.num_threads + 1;
-    t.threads <- thread :: t.threads;
-    thread
+    Or_error.map ocaml_thread ~f:(fun ocaml_thread ->
+      thread.Thread.thread_id <- Some (Core.Std.Thread.id ocaml_thread);
+      t.num_threads <- t.num_threads + 1;
+      t.threads <- thread :: t.threads;
+      thread)
   ;;
 
   let get_available_thread t =
@@ -379,10 +403,19 @@ module Internal = struct
     match t.available_threads with
     | thread :: rest -> t.available_threads <- rest; `Ok thread
     | [] ->
-      if t.num_threads < t.max_num_threads then
-        `Ok (create_thread t)
+      if t.num_threads = t.max_num_threads
+      then `None_available
       else
-        `None_available
+        let now = Time.now () in
+        if Time.Span.( < ) (Time.diff now t.last_thread_creation_failure)
+             t.thread_creation_failure_lockout
+        then `None_available
+        else
+          match create_thread t with
+          | Ok thread -> `Ok thread
+          | Error _ ->
+            t.last_thread_creation_failure <- now;
+            `None_available
   ;;
 
   let inc_unfinished_work t = t.unfinished_work <- t.unfinished_work + 1
@@ -501,11 +534,11 @@ let create ~max_num_threads =
 
 let finished_with t = critical_section t ~f:(fun () -> finished_with t)
 
-let default_priority     = default_priority
-let has_thread_available = has_thread_available
-let max_num_threads      = max_num_threads
-let num_threads          = num_threads
-let num_work_completed   = num_work_completed
+let default_priority   = default_priority
+let has_unstarted_work = has_unstarted_work
+let max_num_threads    = max_num_threads
+let num_threads        = num_threads
+let num_work_completed = num_work_completed
 
 module Helper_thread = struct
   open Helper_thread
@@ -823,5 +856,20 @@ TEST_MODULE = struct
                 Ok ());
             finished_with t;
         done)
+  ;;
+
+  (* [Core.Std.Thread.create] failure *)
+  TEST_UNIT =
+    let t = ok_exn (create ~max_num_threads:2) in
+    (* simulate failure *)
+    t.last_thread_creation_failure <- Time.now ();
+    t.thread_creation_failure_lockout <- sec 100.;
+    let finish_work = Ivar.create () in
+    ok_exn (add_work t (fun () -> Ivar.read finish_work));
+    assert (has_unstarted_work t);
+    t.thread_creation_failure_lockout <- sec 0.;
+    ok_exn (add_work t (fun () -> Ivar.read finish_work));
+    Ivar.fill finish_work ();
+    wait_until_no_unfinished_work t;
   ;;
 end

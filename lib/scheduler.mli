@@ -185,11 +185,16 @@ val add_busy_poller
   -> 'a Deferred.t
 
 (** [handle_thread_pool_stuck f] causes [f] to run whenever Async detects its thread pool
-    is stuck (i.e. hasn't completed a job for over a second and has no available threads).
-    Async checks every second.  By default, if thread pool has been stuck for less than
-    60s, Async will [eprintf] a message.  If more than 60s, Async will send an exception
-    to the main monitor, which will abort the program unless there is a custom handler for
-    the main monitor.
+    is stuck (i.e. hasn't completed a job for over a second and has work waiting to
+    start).  Async checks every second.  By default, if thread pool has been stuck for
+    less than 60s, Async will [eprintf] a message.  If more than 60s, Async will send an
+    exception to the main monitor, which will abort the program unless there is a custom
+    handler for the main monitor.
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
 val handle_thread_pool_stuck : (stuck_for:Time.Span.t -> unit) -> unit
+
+(** [yield ()] returns a deferred that becomes determined after the current cycle
+    completes.  This can be useful to improve fairness by [yield]ing within a computation
+    to give other jobs a chance to run. *)
+val yield : unit -> unit Deferred.t

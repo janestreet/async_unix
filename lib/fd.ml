@@ -211,7 +211,7 @@ let syscall_in_thread t ~name f =
     In_thread.syscall ~name (fun () -> f file_descr))
   >>| function
     | `Error e ->
-      failwiths "Fd.syscall_in_thread bug -- should be impossible" e (<:sexp_of< exn >>)
+      failwiths "Fd.syscall_in_thread problem -- please report this" e <:sexp_of< exn >>
     | `Already_closed -> `Already_closed
     | `Ok x ->
       match x with
