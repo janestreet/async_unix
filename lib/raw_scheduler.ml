@@ -896,4 +896,21 @@ let yield () =
   Ivar.read ivar
 ;;
 
+let yield_every ~n =
+  if n <= 0
+  then failwiths "Scheduler.yield_every got nonpositive count" n <:sexp_of< int >>
+  else if n = 1
+  then stage yield
+  else
+    let count_until_yield = ref n in
+    stage (fun () ->
+      decr count_until_yield;
+      if !count_until_yield > 0
+      then Deferred.unit
+      else begin
+        count_until_yield := n;
+        yield ();
+      end)
+;;
+
 TEST_UNIT = invariant (t ())

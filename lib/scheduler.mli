@@ -141,7 +141,7 @@ val set_detect_invalid_access_from_thread : bool -> unit
 (** [set_record_backtraces do_record] sets whether Async should keep in the execution
     context the history of stack backtraces (obtained via [Backtrace.get]) that led to the
     current job.  If an Async job has an unhandled exception, this backtrace history will
-    be recorded in the exception.  In particular the history will appean in an unhandled
+    be recorded in the exception.  In particular the history will appear in an unhandled
     exception that reaches the main monitor.  This can have a substantial performance
     impact, both in running time and space usage. *)
 val set_record_backtraces : bool -> unit
@@ -198,3 +198,11 @@ val handle_thread_pool_stuck : (stuck_for:Time.Span.t -> unit) -> unit
     completes.  This can be useful to improve fairness by [yield]ing within a computation
     to give other jobs a chance to run. *)
 val yield : unit -> unit Deferred.t
+
+(** [yield_every ~n] returns a function that will act as [yield] every [n] calls and as
+    [Deferred.unit] the rest of the time.  This is useful for improving fairness in
+    circumstances where you don't have good control of the batch size, but can insert a
+    deferred into every iteration.
+
+    [yield_every] raises if [n <= 0]. *)
+val yield_every : n:int -> (unit -> unit Deferred.t) Staged.t
