@@ -1,3 +1,11 @@
+## 111.13.00
+
+- Added `Scheduler.yield_every`, which returns a function that calls
+  `Scheduler.yield` every n-th call.
+
+    This is useful in circumstances where you don't have strict control
+    over where a deferred is examined, as in a `Deferred.List.iter`.
+
 ## 111.11.00
 
 - Added `val Scheduler.yield : unit -> unit Deferred.t`, which becomes
