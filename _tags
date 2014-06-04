@@ -1,3 +1,68 @@
 # OASIS_START
+# DO NOT EDIT (digest: 0c6012ddf4273469fe1ce59353623e15)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
+# useless stuff for the build process
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Library async_unix
+"lib/async_unix.cmxs": use_async_unix
+"lib/async_print.cmx": for-pack(Async_unix)
+"lib/async_sys.cmx": for-pack(Async_unix)
+"lib/busy_pollers.cmx": for-pack(Async_unix)
+"lib/epoll_file_descr_watcher.cmx": for-pack(Async_unix)
+"lib/fd.cmx": for-pack(Async_unix)
+"lib/fd_by_descr.cmx": for-pack(Async_unix)
+"lib/file_descr_watcher_intf.cmx": for-pack(Async_unix)
+"lib/import.cmx": for-pack(Async_unix)
+"lib/interruptor.cmx": for-pack(Async_unix)
+"lib/in_thread.cmx": for-pack(Async_unix)
+"lib/io_stats.cmx": for-pack(Async_unix)
+"lib/process.cmx": for-pack(Async_unix)
+"lib/raw_fd.cmx": for-pack(Async_unix)
+"lib/raw_scheduler.cmx": for-pack(Async_unix)
+"lib/raw_signal_manager.cmx": for-pack(Async_unix)
+"lib/reader0.cmx": for-pack(Async_unix)
+"lib/reader.cmx": for-pack(Async_unix)
+"lib/read_write.cmx": for-pack(Async_unix)
+"lib/scheduler.cmx": for-pack(Async_unix)
+"lib/select_file_descr_watcher.cmx": for-pack(Async_unix)
+"lib/shutdown.cmx": for-pack(Async_unix)
+"lib/signal.cmx": for-pack(Async_unix)
+"lib/signal_manager.cmx": for-pack(Async_unix)
+"lib/std.cmx": for-pack(Async_unix)
+"lib/syscall.cmx": for-pack(Async_unix)
+"lib/thread_pool.cmx": for-pack(Async_unix)
+"lib/thread_safe.cmx": for-pack(Async_unix)
+"lib/thread_safe_pipe.cmx": for-pack(Async_unix)
+"lib/unix_syscalls.cmx": for-pack(Async_unix)
+"lib/writer0.cmx": for-pack(Async_unix)
+"lib/writer.cmx": for-pack(Async_unix)
+<lib/*.ml{,i}>: package(async_kernel)
+<lib/*.ml{,i}>: package(bin_prot)
+<lib/*.ml{,i}>: package(bin_prot.syntax)
+<lib/*.ml{,i}>: package(comparelib)
+<lib/*.ml{,i}>: package(comparelib.syntax)
+<lib/*.ml{,i}>: package(core)
+<lib/*.ml{,i}>: package(fieldslib)
+<lib/*.ml{,i}>: package(fieldslib.syntax)
+<lib/*.ml{,i}>: package(herelib)
+<lib/*.ml{,i}>: package(herelib.syntax)
+<lib/*.ml{,i}>: package(pa_ounit)
+<lib/*.ml{,i}>: package(pa_ounit.syntax)
+<lib/*.ml{,i}>: package(pa_pipebang)
+<lib/*.ml{,i}>: package(pa_test)
+<lib/*.ml{,i}>: package(pa_test.syntax)
+<lib/*.ml{,i}>: package(sexplib)
+<lib/*.ml{,i}>: package(sexplib.syntax)
+<lib/*.ml{,i}>: package(threads)
 # OASIS_STOP
 <lib/*.ml{,i}>: syntax_camlp4o, pa_ounit_lib(async_unix)
