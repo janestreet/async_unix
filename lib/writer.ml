@@ -89,7 +89,7 @@ TEST_MODULE = struct
     >>= fun (writer, `Closed_and_flushed_downstream _upstream_closed) ->
     Pipe.close pipe_w;
     Monitor.try_with (fun () ->
-      Stream.iter (Monitor.errors (monitor writer)) ~f:raise;
+      Stream.iter (Monitor.detach_and_get_error_stream (monitor writer)) ~f:raise;
       write writer "ABC";
       Clock.after (sec 0.1)
       >>= fun () ->

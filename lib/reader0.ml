@@ -22,6 +22,8 @@ module Read_result = struct
       | `Eof -> `Eof
     ;;
 
+    let map = `Custom map
+
     let return a = `Ok a
   end
   include Z
