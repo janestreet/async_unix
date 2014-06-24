@@ -3,15 +3,19 @@ open Import
 
 module Unix = Unix_syscalls
 
+type env = Core.Std.Unix.env with sexp
+
 type t =
-  { pid    : Pid.t;
-    stdin  : Writer.t;
-    stdout : Reader.t;
-    stderr : Reader.t;
+  { pid         : Pid.t
+  ; stdin       : Writer.t
+  ; stdout      : Reader.t
+  ; stderr      : Reader.t
+  ; prog        : string
+  ; args        : string list
+  ; working_dir : string option
+  ; env         : env
   }
 with fields, sexp_of
-
-type env = Core.Std.Unix.env with sexp
 
 type 'a with_create_args =
      ?working_dir : string
@@ -34,10 +38,14 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
                string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]
             >>))
     in
-    Ok { pid;
-         stdin  = Writer.create (create_fd "stdin"  stdin );
-         stdout = Reader.create (create_fd "stdout" stdout);
-         stderr = Reader.create (create_fd "stderr" stderr);
+    Ok { pid
+       ; stdin  = Writer.create (create_fd "stdin"  stdin )
+       ; stdout = Reader.create (create_fd "stdout" stdout)
+       ; stderr = Reader.create (create_fd "stderr" stderr)
+       ; prog
+       ; args
+       ; working_dir
+       ; env
        }
 ;;
 
@@ -78,35 +86,45 @@ end
 
 module Failure = struct
   type t =
-    { prog : string;
-      args : string list;
-      working_dir : string option;
-      env : env option;
-      exit_status : Unix.Exit_or_signal.error;
-      stdout : Lines_or_sexp.t;
-      stderr : Lines_or_sexp.t;
+    { prog        : string
+    ; args        : string list
+    ; working_dir : string option
+    ; env         : env
+    ; exit_status : Unix.Exit_or_signal.error
+    ; stdout      : Lines_or_sexp.t
+    ; stderr      : Lines_or_sexp.t
     }
   with sexp_of
 end
 
-let run ?(accept_nonzero_exit = []) ?working_dir ?env ~prog ~args () =
+let wait_stdout ?(accept_nonzero_exit = []) t =
+  wait t
+  >>| fun { Output. stdout; stderr; exit_status } ->
+  match exit_status with
+  | Ok () -> Ok stdout
+  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
+  | Error exit_status ->
+    let { prog; args; working_dir; env; _ } = t in
+    Or_error.error "Process.run failed"
+      { Failure.
+        prog; args; working_dir; env; exit_status;
+        stdout = Lines_or_sexp.create stdout;
+        stderr = Lines_or_sexp.create stderr;
+      }
+      (<:sexp_of< Failure.t >>)
+;;
+
+let wait_stdout_lines ?accept_nonzero_exit t =
+  wait_stdout ?accept_nonzero_exit t
+  >>|? fun s ->
+  String.split_lines s
+;;
+
+let run ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
   create ?working_dir ?env ~prog ~args ()
   >>= function
   | Error _ as e -> return e
-  | Ok t ->
-    wait t
-    >>| fun { Output. stdout; stderr; exit_status } ->
-    match exit_status with
-    | Ok () -> Ok stdout
-    | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
-    | Error exit_status ->
-      Or_error.error "Process.run failed"
-        { Failure.
-          prog; args; working_dir; env; exit_status;
-          stdout = Lines_or_sexp.create stdout;
-          stderr = Lines_or_sexp.create stderr;
-        }
-        (<:sexp_of< Failure.t >>)
+  | Ok t -> wait_stdout ?accept_nonzero_exit t
 ;;
 
 let run_lines ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =

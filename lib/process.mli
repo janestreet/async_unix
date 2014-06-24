@@ -79,3 +79,16 @@ val run
 val run_lines
   :  ?accept_nonzero_exit:int list  (** default is [] *)
   -> string list Or_error.t Deferred.t with_create_args
+
+(** [wait_stdout] and [wait_stdout_lines] are alike [run] and [run_lines] but work from an
+    existing process instead of creating a new one. *)
+
+val wait_stdout
+  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  -> t
+  -> string Or_error.t Deferred.t
+
+val wait_stdout_lines
+  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  -> t
+  -> string list Or_error.t Deferred.t
