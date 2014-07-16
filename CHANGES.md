@@ -1,3 +1,8 @@
+## 111.21.00
+
+- Added `Process.wait_stdout` and `wait_stdout_lines`, which are like
+  `run` and `run_lines`, but take a `Process.t`.
+
 ## 111.13.00
 
 - Added `Scheduler.yield_every`, which returns a function that calls
