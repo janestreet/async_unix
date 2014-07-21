@@ -1,7 +1,6 @@
 (** This module overrides everything in the [Sys] module that might block.  Functions do
     the same thing as their counterparts in [Sys], but instead return deferreds.  For a
-    description of the semantics of their semantics see the documentation for the [Sys]
-    module. *)
+    description of their semantics see the documentation for the [Sys] module. *)
 
 open Core.Std
 open Import

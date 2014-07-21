@@ -313,8 +313,11 @@ let default_handle_thread_pool_stuck ~stuck_for =
   if Time.Span.(>=) stuck_for Config.report_thread_pool_stuck_for then begin
     let now = Time.now () in
     let message =
-      sprintf "%s: Async's thread pool has been stuck for %s."
+      sprintf "\
+%s: All %d threads in Async's thread pool have been blocked for at least %s.
+  Please check code in your program that uses threads, e.g. [In_thread.run]."
         (Time.format now "%F %T %Z")
+        (Validated.raw Config.max_num_threads)
         (Time.Span.to_short_string stuck_for)
     in
     if Time.Span.(>=) stuck_for Config.abort_after_thread_pool_stuck_for

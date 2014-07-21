@@ -916,6 +916,67 @@ module Host = struct
   let have_address_in_common = Unix.Host.have_address_in_common
 end
 
+type socket_domain = Unix.socket_domain =
+  | PF_UNIX
+  | PF_INET
+  | PF_INET6
+with sexp, bin_io
+
+type socket_type = Unix.socket_type =
+  | SOCK_STREAM
+  | SOCK_DGRAM
+  | SOCK_RAW
+  | SOCK_SEQPACKET
+with sexp, bin_io
+
+type sockaddr = Unix.sockaddr =
+  | ADDR_UNIX of string
+  | ADDR_INET of Inet_addr.t * int
+with sexp, bin_io
+
+module Addr_info = struct
+  type t = Unix.addr_info = {
+    ai_family : socket_domain;
+    ai_socktype : socket_type;
+    ai_protocol : int;
+    ai_addr : sockaddr;
+    ai_canonname : string;
+  } with sexp,bin_io
+
+  type getaddrinfo_option = Unix.getaddrinfo_option =
+    | AI_FAMILY of socket_domain
+    | AI_SOCKTYPE of socket_type
+    | AI_PROTOCOL of int
+    | AI_NUMERICHOST
+    | AI_CANONNAME
+    | AI_PASSIVE
+  with sexp,bin_io
+
+  let get ?(service="") ~host options =
+    In_thread.syscall_exn ~name:"getaddrinfo"
+      (fun () -> Unix.getaddrinfo host service options)
+  ;;
+end
+
+module Name_info = struct
+  type t = Unix.name_info = {
+    ni_hostname : string;
+    ni_service : string;
+  } with sexp,bin_io
+
+  type getnameinfo_option = Unix.getnameinfo_option =
+    | NI_NOFQDN
+    | NI_NUMERICHOST
+    | NI_NAMEREQD
+    | NI_NUMERICSERV
+    | NI_DGRAM
+  with sexp,bin_io
+
+  let get addr options =
+    In_thread.syscall_exn ~name:"getnameinfo" (fun () -> Unix.getnameinfo addr options)
+  ;;
+end
+
 let gethostname () = Unix.gethostname ()
 
 let setuid  uid = Unix.setuid  uid
