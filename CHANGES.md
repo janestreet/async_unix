@@ -1,3 +1,10 @@
+## 111.25.00
+
+- Added `Unix.Addr_info` and `Name_info`, which wrap `getaddrinfo` and
+  `getnameinfo`.
+- Improved the scheduler's error message when the thread pool is
+  stuck.
+
 ## 111.21.00
 
 - Added `Process.wait_stdout` and `wait_stdout_lines`, which are like
