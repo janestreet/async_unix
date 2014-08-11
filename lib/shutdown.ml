@@ -15,9 +15,13 @@ let at_shutdown f =
 
 let shutting_down_ref = ref `No
 
+let default_force_ref = ref (fun () -> after (sec 10.))
+
+let set_default_force force = default_force_ref := force
+
 let shutting_down () = !shutting_down_ref
 
-let shutdown ?(force = after (sec 10.)) status =
+let shutdown ?(force = !default_force_ref ()) status =
   if debug then Debug.log "shutdown" status <:sexp_of< int >>;
   match !shutting_down_ref with
   | `Yes status' ->

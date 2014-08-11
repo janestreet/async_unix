@@ -47,8 +47,8 @@ type 'a with_create_args =
 val create : t Or_error.t Deferred.t with_create_args
 
 (** [wait t] closes [stdin t] and then begins collecting the output produced on [t]'s
-    [stdout] and [stderr], continuing to collect output until [t] terminates.  As usual,
-    other Async jobs can run before the deferred returned by [wait] becomes determined. *)
+    [stdout] and [stderr], continuing to collect output until [t] terminates and the pipes
+    are closed. *)
 module Output : sig
   type t =
     { stdout : string;

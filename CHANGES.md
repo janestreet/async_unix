@@ -1,3 +1,12 @@
+## 111.28.00
+
+- Added `Shutdown.set_default_force`, which allows one to change the
+  default `force` value used by `shutdown`.
+
+    This is useful for applications that call `shutdown` indirectly.
+
+        val set_default_force : (unit -> unit Deferred.t) -> unit
+
 ## 111.25.00
 
 - Added `Unix.Addr_info` and `Name_info`, which wrap `getaddrinfo` and

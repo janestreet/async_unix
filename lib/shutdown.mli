@@ -34,6 +34,18 @@ val shutdown : ?force:unit Deferred.t -> int -> unit
     reasoning guarantees that Async gives about concurrent jobs. *)
 val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 
+(** [set_default_force f] sets to [f] the default [force] value used by [shutdown] and
+    [exit].  Initially, the default value is [fun () -> after (sec 10.)].  A subsequent
+    call to [shutdown] or [exit] that doesn't supply [~force] will call [f] and will force
+    shutdown when its result becomes determined.
+
+    [set_default_force] has no effect if [shutdown] or [exit] has already been called, or
+    if the next call to [shutdown] or [exit] supplies [~force].
+
+    [set_default_force] is useful for applications that call [shutdown] indirectly via
+    a library, yet want to modify its behavior.  *)
+val set_default_force : (unit -> unit Deferred.t) -> unit
+
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
     what status. *)
 val shutting_down : unit -> [ `No | `Yes of int ]
