@@ -1,3 +1,25 @@
+## 112.01.00
+
+- Changed `Writer.transfer write pipe` to close `pipe` when the
+  `writer`, is closed.
+
+  Previously, `Writer.transfer` did not close the pipe when the
+  underlying writer is closed.  This was strange because:
+
+  1. Callers would have to consistently check for the writer being
+     closed and close the `Pipe.Reader`t= themselves
+  2. The analogous function `Pipe.transfer` closes the reader on
+     similar circumstances.
+
+  The absence of the close was noticed as a bug in `Rpc`, which
+  assumed that `Writer.transfer` did the close.
+- Fixed a bug in `Scheduler.yield` that caused it to pause for 50ms if
+  there is no other pending work and no I/O.
+- Exposed type equivalence between `Unix.Passwd.t` and
+  `Core.Std.Unix.Passwd.t`.
+- Changed `Writer.write_bin_prot` to use the new
+  `Bigstring.write_bin_prot`.
+
 ## 111.28.00
 
 - Added `Shutdown.set_default_force`, which allows one to change the

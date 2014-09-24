@@ -6,7 +6,7 @@ open Import
 
 type t with sexp_of
 
-(* accessors *)
+(** accessors *)
 val pid : t -> Pid.t
 val stdin : t -> Writer.t
 val stdout : t -> Reader.t
@@ -48,7 +48,10 @@ val create : t Or_error.t Deferred.t with_create_args
 
 (** [wait t] closes [stdin t] and then begins collecting the output produced on [t]'s
     [stdout] and [stderr], continuing to collect output until [t] terminates and the pipes
-    are closed. *)
+    for [stdout] and [stderr] are closed.  Usually when [t] terminates, the pipes are
+    closed; however, [t] could fork other processes which survive after [t] terminates and
+    in turn keep the pipes open -- [wait] will not become determined until both pipes are
+    closed in all descendant processes. *)
 module Output : sig
   type t =
     { stdout : string;

@@ -641,7 +641,7 @@ end
 
 (** Structure of entries in the [passwd] database. *)
 module Passwd : sig
-  type t =
+  type t = Core.Std.Unix.Passwd.t =
     { name : string;
       passwd : string;
       uid : int;

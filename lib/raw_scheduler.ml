@@ -572,7 +572,15 @@ let create_job ?execution_context t f x =
   Kernel_scheduler.create_job t.kernel_scheduler execution_context f x
 ;;
 
+let dump_core_on_job_delay () =
+  match Config.dump_core_on_job_delay with
+  | Do_not_watch -> ()
+  | Watch { dump_if_delayed_by; how_to_dump } ->
+    Dump_core_on_job_delay.start_watching ~dump_if_delayed_by ~how_to_dump
+;;
+
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
+  dump_core_on_job_delay ();
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   Kernel_scheduler.set_thread_safe_external_action_hook t.kernel_scheduler
     (fun () -> thread_safe_wakeup_scheduler t);
@@ -582,9 +590,12 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   Raw_signal_manager.manage t.signal_manager Signal.pipe;
   let compute_timeout () =
     if debug then Debug.log_string "compute_timeout";
-    if Kernel_scheduler.num_pending_jobs t.kernel_scheduler > 0 then
-      (* We want to timeout immediately if there are still jobs remaining, so that we
-         immediately come back and start running them after checking for I/O. *)
+    if Kernel_scheduler.num_pending_jobs t.kernel_scheduler > 0
+    || Option.is_some t.yield_ivar
+    then
+      (* We want to timeout immediately if there are still jobs remaining, or if someone
+         [yield]ed, so that we immediately come back and start running after checking for
+         I/O. *)
       `Immediately
     else begin
       let timeout_after span =

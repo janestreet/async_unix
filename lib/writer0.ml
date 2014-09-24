@@ -841,40 +841,16 @@ let write_sexp =
       write_char t ' ';
 ;;
 
-include (struct
-  let len_len = 8
-
-  module Write_bin_prot_bug = struct
-    type t =
-      { pos : int;
-        start_pos : int;
-        tot_len : int;
-        len : int;
-        len_len : int;
-        pos_len : int;
-      }
-    with sexp
+let write_bin_prot t writer v =
+  let len     = writer.Bin_prot.Type_class.size v in
+  let tot_len = len + Bigstring.bin_prot_size_header_length in
+  if is_stopped_permanently t then
+    got_bytes t tot_len
+  else begin
+    let buf, start_pos = give_buf t tot_len in
+    ignore (Bigstring.write_bin_prot buf ~pos:start_pos writer v : int);
+    maybe_start_writer t;
   end
-
-  let write_bin_prot t writer v =
-    let len            = writer.Bin_prot.Type_class.size v in
-    let tot_len        = len + len_len in
-    if is_stopped_permanently t then
-      got_bytes t tot_len
-    else begin
-      let buf, start_pos = give_buf t tot_len in
-      let pos_len        = Bin_prot.Write.bin_write_int_64bit buf ~pos:start_pos len in
-      let pos            = writer.Bin_prot.Type_class.write buf ~pos:pos_len v in
-      if pos - start_pos <> tot_len then begin
-        failwiths "write_bin_prot"
-          { Write_bin_prot_bug. pos; start_pos; tot_len; len; len_len; pos_len }
-          (<:sexp_of< Write_bin_prot_bug.t >>)
-      end;
-      maybe_start_writer t;
-    end
-end : sig
-  val write_bin_prot : t -> 'a Bin_prot.Type_class.writer -> 'a -> unit
-end)
 
 let write_marshal t ~flags v =
   schedule_unscheduled t `Keep;
@@ -1045,31 +1021,43 @@ let make_transfer ?(stop = Deferred.never ()) t pipe_r write_f =
   let stop =
     choice (Deferred.any [ stop; consumer_left t ]) (fun () -> `Stop)
   in
+  let writer_closed =
+    choice (close_finished t) (fun () -> `Writer_closed)
+  in
+  let finished why =
+    begin match why with
+    | `Stop | `Eof -> ()
+    | `Consumer_left | `Writer_closed -> Pipe.close_read pipe_r
+    end;
+    `Finished ()
+  in
   let doit () =
     Deferred.repeat_until_finished () (fun () ->
       let module Choice = struct
-        type t = [ `Stop | `Eof | `Ok ] Deferred.choice
+        type t = [ `Stop | `Eof | `Ok | `Writer_closed ] Deferred.choice
       end in
-      choose [ (stop :> Choice.t)
+      choose [ (stop                                        :> Choice.t)
+             ; (writer_closed                               :> Choice.t)
              ; (choice (Pipe.values_available pipe_r) Fn.id :> Choice.t)
              ]
       >>= function
-      | `Stop | `Eof -> return (`Finished ())
+      | `Stop | `Writer_closed | `Eof as x -> return (finished x)
       | `Ok ->
         if Ivar.is_full t.consumer_left
-        then return (`Finished ())
+        then return (finished `Consumer_left)
         else
           match Pipe.read_now' pipe_r ~consumer with
-          | `Eof -> return (`Finished ())
+          | `Eof as x -> return (finished x)
           | `Nothing_available -> return (`Repeat ())
           | `Ok q ->
             write_f q ~cont:(fun () ->
               Pipe.Consumer.values_sent_downstream consumer;
               choose [ stop
+                     ; writer_closed
                      ; choice (flushed t) (fun () -> `Flushed)
                      ]
               >>| function
-              | `Stop -> `Finished ()
+              | `Stop | `Writer_closed as x -> finished x
               | `Flushed -> `Repeat ()))
   in
   with_flushed_at_close t ~f:doit

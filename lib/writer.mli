@@ -403,8 +403,9 @@ val save_sexp
     which should in turn write them to [t].  It provides pushback to [pipe_r] by not
     reading when [t] cannot keep up with the data being pushed in.
 
-    The [transfer'] stops and the result becomes determined when [pipe_r] reaches its EOF,
-    when [t]'s consumer leaves, or when [stop] becomes determined.
+    The [transfer'] stops and the result becomes determined when [stop] becomes
+    determined, when [pipe_r] reaches its EOF, when [t] is closed, or when [t]'s consumer
+    leaves.  In the latter two cases, [transfer'] closes [pipe_r].
 
     [transfer'] causes [Pipe.flushed] on [pipe_r]'s writer to ensure that the bytes have
     been flushed to [t] before returning.  It also waits on [Pipe.upstream_flushed] at
