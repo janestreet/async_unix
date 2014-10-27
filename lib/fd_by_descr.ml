@@ -25,10 +25,10 @@ let create ~num_file_descrs =
 
 let find t file_descr = Table.find t file_descr
 
-let remove t fd = Table.remove t fd.Fd.file_descr
+let remove t (fd : Fd.t) = Table.remove t fd.file_descr
 
-let add_exn t fd =
-  match Table.add t ~key:fd.Fd.file_descr ~data:fd with
+let add_exn t (fd : Fd.t) =
+  match Table.add t ~key:fd.file_descr ~data:fd with
   | `Ok -> ()
   | `Duplicate _ ->
     failwiths "\

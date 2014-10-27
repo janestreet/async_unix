@@ -8,18 +8,18 @@ let of_pipe info pipe_w =
   >>| fun (`Reader reader_fd, `Writer writer_fd) ->
   let reader = Reader.create reader_fd in
   let writer = create writer_fd in
-  if Debug.writer then
-    Debug.log "Writer.of_pipe" (pipe_w, reader, writer)
-      <:sexp_of< string Pipe.Writer.t * Reader.t * t >>;
+  if Debug.writer
+  then Debug.log "Writer.of_pipe" (pipe_w, reader, writer)
+         <:sexp_of< string Pipe.Writer.t * Reader.t * t >>;
   (* Shuttle bytes from [reader] to [pipe_w].  If the user calls [close writer],
      then [reader] will see EOF, which will cause [transfer] to complete.  If [pipe_w]
      is closed, then [transfer] will complete. *)
   let closed_and_flushed_downstream =
     Reader.transfer reader pipe_w
     >>= fun () ->
-    if raise_when_consumer_leaves writer && not (is_closed writer) then
-      Monitor.send_exn (monitor writer)
-        (Unix.Unix_error (Unix.EPIPE, "Writer.of_pipe", ""));
+    if raise_when_consumer_leaves writer && not (is_closed writer)
+    then Monitor.send_exn (monitor writer)
+           (Unix.Unix_error (EPIPE, "Writer.of_pipe", ""));
     Deferred.both
       (Reader.close reader)
       (close writer)
@@ -101,17 +101,16 @@ TEST_MODULE = struct
         <:sexp_of< string Queue.t >>
     | Error exn ->
       match Monitor.extract_exn exn with
-      | Unix.Unix_error ((Unix.EPIPE | Unix.ECONNRESET), _, _) -> begin
-        close_finished writer
-        >>= fun () ->
-        Pipe.read_all pipe_r
-        >>= fun read ->
-        if Queue.is_empty read then
-          return ()
-        else
-          failwiths "nothing should have been read, but got" read
-            <:sexp_of< string Queue.t >>
-      end
+      | Unix.Unix_error ((EPIPE | ECONNRESET), _, _) -> begin
+          close_finished writer
+          >>= fun () ->
+          Pipe.read_all pipe_r
+          >>= fun read ->
+          if Queue.is_empty read
+          then return ()
+          else failwiths "nothing should have been read, but got" read
+                 <:sexp_of< string Queue.t >>
+        end
       | exn -> raise exn)
   ;;
 end

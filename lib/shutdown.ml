@@ -25,20 +25,20 @@ let shutdown ?(force = !default_force_ref ()) status =
   if debug then Debug.log "shutdown" status <:sexp_of< int >>;
   match !shutting_down_ref with
   | `Yes status' ->
-    if status <> 0 && status' <> 0 && status <> status' then
-      failwiths "shutdown with inconsistent status" (status, status')
-        (<:sexp_of< int * int >>)
-    else if status' = 0 && status <> 0 then
-      shutting_down_ref := `Yes status
+    if status <> 0 && status' <> 0 && status <> status'
+    then failwiths "shutdown with inconsistent status" (status, status')
+           <:sexp_of< int * int >>
+    else if status' = 0 && status <> 0
+    then shutting_down_ref := `Yes status
   | `No ->
     shutting_down_ref := `Yes status;
     upon (Deferred.all
             (List.map !todo ~f:(fun (backtrace, f) ->
                f ()
                >>| fun () ->
-               if debug then
-                 Debug.log "one at_shutdown function finished" backtrace
-                   <:sexp_of< Backtrace.t option >>)))
+               if debug
+               then Debug.log "one at_shutdown function finished" backtrace
+                      <:sexp_of< Backtrace.t option >>)))
       (fun _ ->
          match shutting_down () with
          | `No -> assert false

@@ -7,8 +7,8 @@ open Import
 type t with sexp_of
 
 (** accessors *)
-val pid : t -> Pid.t
-val stdin : t -> Writer.t
+val pid    : t -> Pid.t
+val stdin  : t -> Writer.t
 val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
@@ -24,26 +24,28 @@ type env = [ `Replace of (string * string) list
 with sexp
 
 (** [with_create_args] specifies the arguments used to create a child process. *)
-type 'a with_create_args =
-     ?working_dir : string
-  -> ?env : env (** default is [`Extend []] *)
-  -> prog : string
-  -> args : string list
+type 'a with_create_args
+  =  ?working_dir : string
+  -> ?env         : env  (** default is [`Extend []] *)
+  -> prog         : string
+  -> args         : string list
   -> unit
   -> 'a
 
-(** [create ~prog ~args ?working_dir ?env ()] uses fork+exec to create a child process
-    that runs the executable [prog] with [args] as arguments.  It creates pipes to
-    communicate with the child process's stdin, stdout, and stderr.
+(** [create ~prog ~args ?working_dir ?env ()] uses [fork] and [exec] to create a child
+    process that runs the executable [prog] with [args] as arguments.  It creates pipes to
+    communicate with the child process's [stdin], [stdout], and [stderr].
 
-    If [working_dir] is supplied, then the child process will chdir() there before calling
-    exec().
+    Unlike [exec], [args] should not include [prog] as the first argument.
+
+    If [working_dir] is supplied, then the child process will [chdir()] there before
+    calling [exec()].
 
     [env] specifies the environment of the child process.
 
     [create] returns [Error] if it is unable to create the child process.  This can happen
-    in any number of situations (unable to fork, unable to create the pipes, unable to
-    cd to [working_dir], unable to exec, etc.). *)
+    in any number of situations (unable to fork, unable to create the pipes, unable to cd
+    to [working_dir], unable to exec, etc.). *)
 val create : t Or_error.t Deferred.t with_create_args
 
 (** [wait t] closes [stdin t] and then begins collecting the output produced on [t]'s
@@ -54,9 +56,9 @@ val create : t Or_error.t Deferred.t with_create_args
     closed in all descendant processes. *)
 module Output : sig
   type t =
-    { stdout : string;
-      stderr : string;
-      exit_status : Unix.Exit_or_signal.t;
+    { stdout      : string
+    ; stderr      : string
+    ; exit_status : Unix.Exit_or_signal.t
     }
   with sexp_of
 end
@@ -74,24 +76,24 @@ val wait : t -> Output.t Deferred.t
     on newlines into a list of strings, so that it displays on multiple lines rather than
     a single giant line with embedded "\n"'s. *)
 val run
-  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> string Or_error.t Deferred.t with_create_args
 
 (** [run_lines] is like [run] but returns the lines of stdout as a string list, using
     [String.split_lines]. *)
 val run_lines
-  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> string list Or_error.t Deferred.t with_create_args
 
 (** [wait_stdout] and [wait_stdout_lines] are alike [run] and [run_lines] but work from an
     existing process instead of creating a new one. *)
 
 val wait_stdout
-  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> t
   -> string Or_error.t Deferred.t
 
 val wait_stdout_lines
-  :  ?accept_nonzero_exit:int list  (** default is [] *)
+  :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> t
   -> string list Or_error.t Deferred.t

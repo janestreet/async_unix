@@ -15,7 +15,7 @@ let invariant t : unit =
     Read_write.iter t ~f:(Table.invariant ignore ignore);
   with exn ->
     failwiths "Select_file_descr_watcher.invariant failed" (exn, t)
-      (<:sexp_of< exn * t >>)
+      <:sexp_of< exn * t >>
 ;;
 
 let create ~num_file_descrs =
@@ -41,18 +41,17 @@ end
 
 let set t file_descr desired =
   Read_write.iteri t ~f:(fun read_or_write table ->
-    if Read_write.get desired read_or_write then
-      Table.set table ~key:file_descr ~data:()
-    else
-      Table.remove table file_descr)
+    if Read_write.get desired read_or_write
+    then Table.set table ~key:file_descr ~data:()
+    else Table.remove table file_descr)
 ;;
 
 let pre_check t = Read_write.map t ~f:Table.keys
 
 module Check_result = struct
   type t =
-    { pre : Pre.t;
-      select_result : (Unix.Select_fds.t, exn) Result.t;
+    { pre           : Pre.t
+    ; select_result : (Unix.Select_fds.t, exn) Result.t
     }
   with sexp_of
 end
@@ -67,10 +66,10 @@ let thread_safe_check _t pre ~timeout =
       `After (Float.min 1. (Time.Span.to_sec span))
   in
   { Check_result.
-    pre;
-    select_result =
+    pre
+  ; select_result =
       Result.try_with (fun () ->
-        Unix.select ~read:pre.read ~write:pre.write ~except:[] ~timeout ());
+        Unix.select ~read:pre.read ~write:pre.write ~except:[] ~timeout ())
   }
 ;;
 
@@ -78,12 +77,12 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
   try
     match select_result with
     (* We think 514 should be treated like EINTR. *)
-    | Error (Unix.Unix_error ((Unix.EINTR | Unix.EUNKNOWNERR 514), _, _)) ->
+    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) ->
       `Syscall_interrupted
-    | Ok { Unix.Select_fds. read; write; except } ->
+    | Ok { read; write; except } ->
       assert (List.is_empty except);
-      if List.is_empty read && List.is_empty write then
-        `Timeout
+      if List.is_empty read && List.is_empty write
+      then `Timeout
       else
         `Ok (Read_write.createi (fun read_or_write ->
           let ready =
@@ -92,20 +91,20 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
             | `Write -> write
           in
           { Post. ready; bad = [] }))
-    | Error (Unix.Unix_error (Unix.EBADF, _, _)) ->
+    | Error (Unix.Unix_error (EBADF, _, _)) ->
       `Ok (Read_write.map pre ~f:(fun fds ->
         let bad =
           List.fold fds ~init:[] ~f:(fun ac file_descr ->
             match Syscall.syscall (fun () -> ignore (Unix.fstat file_descr)) with
             | Ok () -> ac
-            | Error (Unix.Unix_error (Unix.EBADF, _, _)) -> file_descr :: ac
+            | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
             | Error exn ->
               failwiths "fstat raised unexpected exn" (file_descr, exn)
-                (<:sexp_of< File_descr.t * exn >>))
+                <:sexp_of< File_descr.t * exn >>)
         in
         { Post. ready = []; bad }))
     | Error exn -> failwiths "select raised unexpected exn" exn <:sexp_of< exn >>
   with exn ->
     failwiths "File_descr_watcher.post_check bug" (exn, check_result, t)
-      (<:sexp_of< exn * Check_result.t * t >>)
+      <:sexp_of< exn * Check_result.t * t >>
 ;;

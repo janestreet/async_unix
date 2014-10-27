@@ -37,14 +37,14 @@ open Import
 
 module Kind : sig
   type t =
-  | Char (* a terminal *)
-  | Fifo (* a pipe *)
-  | File (* a regular file *)
-  | Socket of [ `Unconnected (* the result of socket() *)
-              | `Bound       (* the result of bind() *)
-              | `Passive     (* the result of listen() *)
-              | `Active      (* the result of connect() or accept() *)
-              ]
+    | Char  (** a terminal *)
+    | Fifo  (** a pipe *)
+    | File  (** a regular file *)
+    | Socket of [ `Unconnected  (** the result of socket() *)
+                | `Bound        (** the result of bind() *)
+                | `Passive      (** the result of listen() *)
+                | `Active       (** the result of connect() or accept() *)
+                ]
 
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
@@ -109,7 +109,7 @@ val clear_nonblock : t -> unit
 
     [close_started t] becomes determined when [close t] is called. *)
 val close
-  :  ?should_close_file_descriptor:bool (** default is [true] *)
+  :  ?should_close_file_descriptor : bool  (** default is [true] *)
   -> t
   -> unit Deferred.t
 val close_started  : t -> unit Deferred.t
@@ -124,7 +124,7 @@ val is_open : t -> bool
 
 (** [stdin], [stdout], and [stderr] are wrappers around the standard Unix file
     descriptors. *)
-val stdin : unit -> t
+val stdin  : unit -> t
 val stdout : unit -> t
 val stderr : unit -> t
 
@@ -132,7 +132,7 @@ val stderr : unit -> t
     and returns [`Ok] or [`Error] according to [f].  If [is_closed t], then it does not
     call [f] and returns [`Already_closed]. *)
 val with_file_descr
-  :  ?nonblocking:bool (** default is [false] *)
+  :  ?nonblocking : bool  (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> [ `Ok of 'a
@@ -143,7 +143,7 @@ val with_file_descr
 (** [with_file_descr_exn] is like [with_file_descr] except that it raises rather than
     return [`Already_closed] or [`Error]. *)
 val with_file_descr_exn
-  :  ?nonblocking:bool (** default is [false] *)
+  :  ?nonblocking : bool  (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -167,7 +167,7 @@ val with_file_descr_deferred
 val interruptible_ready_to
   :  t
   -> [ `Read | `Write ]
-  -> interrupt:unit Deferred.t
+  -> interrupt : unit Deferred.t
   -> [ `Bad_fd
      | `Closed
      | `Interrupted
@@ -192,7 +192,7 @@ val ready_to
 val interruptible_every_ready_to
   :  t
   -> [ `Read | `Write ]
-  -> interrupt:unit Deferred.t
+  -> interrupt : unit Deferred.t
   -> ('a -> unit)
   -> 'a
   -> [ `Bad_fd
@@ -217,7 +217,7 @@ val every_ready_to
     [t], if [is_open t], and returns [`Ok] or [`Error] according to [f].  If
     [is_closed t], it does not call [f] and returns [`Already_closed]. *)
 val syscall
-  :  ?nonblocking:bool (** default is [false] *)
+  :  ?nonblocking : bool  (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> [ `Already_closed
@@ -228,7 +228,7 @@ val syscall
 (** [syscall_exn t f] is like [syscall], except it raises rather than return
     [`Already_closed] or [`Error]. *)
 val syscall_exn
-  :  ?nonblocking:bool (** default is [false] *)
+  :  ?nonblocking : bool  (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -239,7 +239,7 @@ val syscall_exn
     [f] and returns [`Already_closed]. *)
 val syscall_in_thread
   :  t
-  -> name:string
+  -> name : string
   -> (Unix.File_descr.t -> 'a)
   -> [ `Already_closed
      | `Ok of 'a
@@ -250,13 +250,13 @@ val syscall_in_thread
     return [`Already_closed] or [`Error]. *)
 val syscall_in_thread_exn
   :  t
-  -> name:string
+  -> name : string
   -> (Unix.File_descr.t -> 'a)
   -> 'a Deferred.t
 
 (** [of_in_channel] and [of_out_channel] create an fd from their underlying file
     descriptor. *)
-val of_in_channel : In_channel.t -> Kind.t -> t
+val of_in_channel  : In_channel.t  -> Kind.t -> t
 val of_out_channel : Out_channel.t -> Kind.t -> t
 
 (** [of_in_channel_auto ic] is just like of_in_channel, but uses [fstat] to determine the

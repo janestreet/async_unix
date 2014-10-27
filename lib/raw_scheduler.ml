@@ -63,58 +63,58 @@ type t =
        this when [detect_invalid_access_from_thread = true].  We also detect errors in
        which code tries to acquire the async lock while it already holds it, or releases
        the lock when it doesn't hold it. *)
-    mutex : Nano_mutex.t;
+    mutex                                  : Nano_mutex.t
 
-    mutable is_running : bool;
-    mutable have_called_go : bool;
+  ; mutable is_running                     : bool
+  ; mutable have_called_go                 : bool
 
-    (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
-       the last time their desired state was set in the [file_descr_watcher]. *)
-    mutable fds_whose_watching_has_changed : Fd.t list;
-    file_descr_watcher : File_descr_watcher.t;
+  (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
+     the last time their desired state was set in the[file_descr_watcher]. *)
+  ; mutable fds_whose_watching_has_changed : Fd.t list
+  ; file_descr_watcher                     : File_descr_watcher.t
 
-    (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
-       when they are created, and removed when they transition to [Closed]. *)
-    fd_by_descr : Fd_by_descr.t;
+  (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
+     when they are created, and removed when they transition to[Closed]. *)
+  ; fd_by_descr                            : Fd_by_descr.t
 
-    (* If we are using a file descriptor watcher that does not support sub-millisecond
-       timeout, this contains a timerfd used to handle the next expiration. *)
-    mutable timerfd : Linux_ext.Timerfd.t option;
+  (* If we are using a file descriptor watcher that does not support sub-millisecond
+     timeout, this contains a timerfd used to handle the next expiration. *)
+  ; mutable timerfd                        : Linux_ext.Timerfd.t option
 
-    (* A distinguished thread, called the "scheduler" thread, is continually looping,
-       checking file descriptors for I/O and then running a cycle.  It manages
-       the [file_descr_watcher] and runs signal handlers.
+  (* A distinguished thread, called the "scheduler" thread, is continually looping,
+     checking file descriptors for I/O and then running a cycle.  It manages
+     the [file_descr_watcher] and runs signal handlers.
 
-       [scheduler_thread_id] is mutable because we create the scheduler before starting
-       the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
-       is set and never changes again. *)
-    mutable scheduler_thread_id : int;
+     [scheduler_thread_id] is mutable because we create the scheduler before starting
+     the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
+     is set and never changes again. *)
+  ; mutable scheduler_thread_id            : int
 
-    (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
-       descriptor watcher. *)
-    interruptor : Interruptor.t;
+  (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
+     descriptor watcher. *)
+  ; interruptor                            : Interruptor.t
 
-    signal_manager : Raw_signal_manager.t;
+  ; signal_manager                         : Raw_signal_manager.t
 
-    (* The [thread_pool] is used for making blocking system calls in threads other than
-       the scheduler thread, and for servicing [In_thread.run] requests. *)
-    thread_pool : Thread_pool.t;
+  (* The [thread_pool] is used for making blocking system calls in threads other than
+     the scheduler thread, and for servicing [In_thread.run] requests. *)
+  ; thread_pool                            : Thread_pool.t
 
-    (* [handle_thread_pool_stuck] is called once per second if the thread pool is "stuck",
-       i.e has not completed a job for one second and has no available threads. *)
-    mutable handle_thread_pool_stuck : stuck_for:Time.Span.t -> unit;
+  (* [handle_thread_pool_stuck] is called once per second if the thread pool is"stuck",
+     i.e has not completed a job for one second and has no available threads. *)
+  ; mutable handle_thread_pool_stuck       : stuck_for:Time.Span.t -> unit
 
-    busy_pollers : Busy_pollers.t;
-    mutable busy_poll_thread_is_running : bool;
+  ; busy_pollers                           : Busy_pollers.t
+  ; mutable busy_poll_thread_is_running    : bool
 
-    mutable next_tsc_calibration : Time_stamp_counter.t;
+  ; mutable next_tsc_calibration           : Time_stamp_counter.t
 
-    mutable yield_ivar : unit Ivar.t option;
+  ; mutable yield_ivar                     : unit Ivar.t option
 
-    kernel_scheduler : Kernel_scheduler.t;
+  ; kernel_scheduler                       : Kernel_scheduler.t
 
-    (* configuration *)
-    mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t;
+  (* configuration*)
+  ; mutable max_inter_cycle_timeout        : Max_inter_cycle_timeout.t
   }
 with fields, sexp_of
 
@@ -160,9 +160,9 @@ let with_lock t f =
 let am_holding_lock t = Nano_mutex.current_thread_has_lock t.mutex
 
 type the_one_and_only =
-| Not_ready_to_initialize
-| Ready_to_initialize of (unit -> t)
-| Initialized of t
+  | Not_ready_to_initialize
+  | Ready_to_initialize of (unit -> t)
+  | Initialized of t
 
 (* We use a mutex to protect creation of the one-and-only scheduler in the event that
    multiple threads attempt to call [the_one_and_only] simultaneously, which can
@@ -208,23 +208,22 @@ let is_main_thread () = current_thread_id () = 0
 
 let remove_fd t fd = Fd_by_descr.remove t.fd_by_descr fd
 
-let maybe_start_closing_fd t fd =
-  if fd.Fd.num_active_syscalls = 0 then begin
-    let module S = Fd.State in
-    match fd.Fd.state with
-    | S.Closed | S.Open _ -> ()
-    | S.Close_requested close ->
+let maybe_start_closing_fd t (fd : Fd.t) =
+  if fd.num_active_syscalls = 0 then begin
+    match fd.state with
+    | Closed | Open _ -> ()
+    | Close_requested close ->
       (* We must remove the fd now and not after the close has finished.  If we waited
          until after the close had finished, then the fd might have already been
          reused by the OS and replaced. *)
       remove_fd t fd;
-      Fd.set_state fd S.Closed;
-      upon (close ()) (fun () -> Ivar.fill fd.Fd.close_finished ());
+      Fd.set_state fd Closed;
+      upon (close ()) (fun () -> Ivar.fill fd.close_finished ());
   end;
 ;;
 
-let dec_num_active_syscalls_fd t fd =
-  fd.Fd.num_active_syscalls <- fd.Fd.num_active_syscalls - 1;
+let dec_num_active_syscalls_fd t (fd : Fd.t) =
+  fd.num_active_syscalls <- fd.num_active_syscalls - 1;
   maybe_start_closing_fd t fd;
 ;;
 
@@ -236,9 +235,9 @@ let invariant t : unit =
       ~is_running:ignore
       ~have_called_go:ignore
       ~fds_whose_watching_has_changed:(check (fun fds_whose_watching_has_changed ->
-        List.iter fds_whose_watching_has_changed ~f:(fun fd ->
-          assert fd.Fd.watching_has_changed;
-          begin match Fd_by_descr.find t.fd_by_descr fd.Fd.file_descr with
+        List.iter fds_whose_watching_has_changed ~f:(fun (fd : Fd.t) ->
+          assert fd.watching_has_changed;
+          begin match Fd_by_descr.find t.fd_by_descr fd.file_descr with
           | None -> assert false
           | Some fd' -> assert (phys_equal fd fd')
           end)))
@@ -251,11 +250,12 @@ let invariant t : unit =
             | None -> failwith "missing from fd_by_descr"
             | Some fd -> assert (Fd.num_active_syscalls fd > 0);
           with exn ->
-            failwiths "fd problem" (exn, file_descr) (<:sexp_of< exn * File_descr.t >>))))
+            failwiths "fd problem" (exn, file_descr) <:sexp_of< exn * File_descr.t >>)))
       ~fd_by_descr:(check (fun fd_by_descr ->
         Fd_by_descr.invariant fd_by_descr;
         Fd_by_descr.iter fd_by_descr ~f:(fun fd ->
-          if fd.Fd.watching_has_changed then
+          if fd.watching_has_changed
+          then
             assert (List.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
               phys_equal fd fd')))))
       ~timerfd:ignore
@@ -276,8 +276,8 @@ let invariant t : unit =
 
 let update_check_access t do_check =
   Kernel_scheduler.set_check_access t.kernel_scheduler
-    (if not do_check then
-       None
+    (if not do_check
+     then None
      else
        Some (fun () ->
          if not (am_holding_lock t) then begin
@@ -292,20 +292,20 @@ let update_check_access t do_check =
    or if it is not available on the current system. *)
 let try_create_timerfd () =
   match Timerfd.create with
-  | Result.Error _ -> None
-  | Result.Ok create ->
+  | Error _ -> None
+  | Ok create ->
     let clock = Timerfd.Clock.realtime in
     try
       Some (create clock ~flags:Timerfd.Flags.(nonblock + cloexec))
     with
-    | Unix.Unix_error (Unix.ENOSYS, _, _) ->
+    | Unix.Unix_error (ENOSYS, _, _) ->
       (* Kernel too old. *)
       None
-    | Unix.Unix_error (Unix.EINVAL, _, _) ->
+    | Unix.Unix_error (EINVAL, _, _) ->
       (* Flags are only supported with Linux >= 2.6.27, try without them. *)
       let timerfd = create clock in
       Unix.set_close_on_exec (timerfd : Timerfd.t :> Unix.File_descr.t);
-      Unix.set_nonblock (timerfd : Timerfd.t :> Unix.File_descr.t);
+      Unix.set_nonblock      (timerfd : Timerfd.t :> Unix.File_descr.t);
       Some timerfd
 ;;
 
@@ -369,16 +369,15 @@ let create
   in
   let interruptor = Interruptor.create ~create_fd in
   let file_descr_watcher, timerfd =
-    let module F = Config.File_descr_watcher in
     match file_descr_watcher with
-    | F.Select ->
+    | Select ->
       let watcher = Select_file_descr_watcher.create ~num_file_descrs in
       let module W = struct
         include Select_file_descr_watcher
         let watcher = watcher
       end in
       ((module W : File_descr_watcher.S), None)
-    | F.Epoll ->
+    | Epoll ->
       let timerfd =
         match try_create_timerfd () with
         | None ->
@@ -396,26 +395,26 @@ Async will be unable to timeout with sub-millisecond precision."
   in
   let kernel_scheduler = Kernel_scheduler.t () in
   let t =
-    { mutex = Nano_mutex.create ();
-      is_running = false;
-      have_called_go = false;
-      fds_whose_watching_has_changed = [];
-      file_descr_watcher;
-      fd_by_descr;
-      timerfd;
-      scheduler_thread_id = -1; (* set when [be_the_scheduler] is called *)
-      interruptor;
-      signal_manager =
+    { mutex                          = Nano_mutex.create ()
+    ; is_running                     = false
+    ; have_called_go                 = false
+    ; fds_whose_watching_has_changed = []
+    ; file_descr_watcher
+    ; fd_by_descr
+    ; timerfd
+    ; scheduler_thread_id            = -1 (* set when [be_the_scheduler] is called *)
+    ; interruptor
+    ; signal_manager                 =
         Raw_signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
-          Interruptor.thread_safe_interrupt interruptor);
-      thread_pool;
-      handle_thread_pool_stuck = default_handle_thread_pool_stuck;
-      busy_pollers = Busy_pollers.create ();
-      busy_poll_thread_is_running = false;
-      next_tsc_calibration = Time_stamp_counter.now ();
-      yield_ivar = None;
-      kernel_scheduler;
-      max_inter_cycle_timeout = Config.max_inter_cycle_timeout;
+          Interruptor.thread_safe_interrupt interruptor)
+    ; thread_pool
+    ; handle_thread_pool_stuck       = default_handle_thread_pool_stuck
+    ; busy_pollers                   = Busy_pollers.create ()
+    ; busy_poll_thread_is_running    = false
+    ; next_tsc_calibration           = Time_stamp_counter.now ()
+    ; yield_ivar                     = None
+    ; kernel_scheduler
+    ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
     }
   in
   detect_stuck_thread_pool t;
@@ -456,39 +455,37 @@ let have_lock_do_cycle t =
   | Some ivar -> Ivar.fill ivar (); t.yield_ivar <- None;
   end;
   Kernel_scheduler.run_cycle t.kernel_scheduler;
-  if not (i_am_the_scheduler t) then
-    (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
-       events, or an unhandled exception. *)
-    thread_safe_wakeup_scheduler t;
+  (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
+     events, or an unhandled exception. *)
+  if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
 ;;
 
-let set_fd_desired_watching t fd read_or_write desired =
-  Read_write.set fd.Fd.watching read_or_write desired;
-  if not fd.Fd.watching_has_changed then begin
-    fd.Fd.watching_has_changed <- true;
+let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
+  Read_write.set fd.watching read_or_write desired;
+  if not fd.watching_has_changed then begin
+    fd.watching_has_changed <- true;
     t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed;
   end
 ;;
 
 let request_start_watching t fd read_or_write watching =
-  if Debug.file_descr_watcher then
-    Debug.log "request_start_watching" (read_or_write, fd, t)
-      (<:sexp_of< Read_write.Key.t * Fd.t * t >>);
-  if not fd.Fd.supports_nonblock then
-    (* Some versions of epoll complain if one asks it to monitor a file descriptor that
-       doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
-       file-descr-watcher to monitor such descriptors. *)
-    `Unsupported
+  if Debug.file_descr_watcher
+  then Debug.log "request_start_watching" (read_or_write, fd, t)
+         <:sexp_of< Read_write.Key.t * Fd.t * t >>;
+  if not fd.supports_nonblock
+  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
+     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
+     file-descr-watcher to monitor such descriptors. *)
+  then `Unsupported
   else begin
-    let module W = Fd.Watching in
     let start_watching () =
       set_fd_desired_watching t fd read_or_write watching;
       if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
       `Watching
     in
-    match Read_write.get fd.Fd.watching read_or_write with
-    | W.Watch_once _ | W.Watch_repeatedly _ -> `Already_watching
-    | W.Stop_requested ->
+    match Read_write.get fd.watching read_or_write with
+    | Watch_once _ | Watch_repeatedly _ -> `Already_watching
+    | Stop_requested ->
       (* We don't [inc_num_active_syscalls] in this case, because we already did when we
          transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
          was closed since we transitioned to [Stop_requested], in which case we don't want
@@ -498,7 +495,7 @@ let request_start_watching t fd read_or_write watching =
       if Fd.is_closed fd
       then `Already_closed
       else start_watching ()
-    | W.Not_watching ->
+    | Not_watching ->
       match Fd.inc_num_active_syscalls fd with
       | `Already_closed -> `Already_closed
       | `Ok -> start_watching ()
@@ -506,45 +503,43 @@ let request_start_watching t fd read_or_write watching =
 ;;
 
 let request_stop_watching t fd read_or_write value =
-  if Debug.file_descr_watcher then
-    Debug.log "request_stop_watching" (read_or_write, value, fd, t)
-      (<:sexp_of< Read_write.Key.t * Fd.ready_to_result * Fd.t * t >>);
-  let module W = Fd.Watching in
-  match Read_write.get fd.Fd.watching read_or_write with
-  | W.Stop_requested | W.Not_watching -> ()
-  | W.Watch_once ready_to ->
+  if Debug.file_descr_watcher
+  then Debug.log "request_stop_watching" (read_or_write, value, fd, t)
+         <:sexp_of< Read_write.Key.t * Fd.ready_to_result * Fd.t * t >>;
+  match Read_write.get fd.watching read_or_write with
+  | Stop_requested | Not_watching -> ()
+  | Watch_once ready_to ->
     Ivar.fill ready_to value;
-    set_fd_desired_watching t fd read_or_write W.Stop_requested;
+    set_fd_desired_watching t fd read_or_write Stop_requested;
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
-  | W.Watch_repeatedly (job, finished) ->
+  | Watch_repeatedly (job, finished) ->
     match value with
     | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
     | `Closed | `Bad_fd | `Interrupted as value ->
       Ivar.fill finished value;
-      set_fd_desired_watching t fd read_or_write W.Stop_requested;
+      set_fd_desired_watching t fd read_or_write Stop_requested;
       if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-  let make_file_descr_watcher_agree_with fd =
-    fd.Fd.watching_has_changed <- false;
+  let make_file_descr_watcher_agree_with (fd : Fd.t) =
+    fd.watching_has_changed <- false;
     let desired =
-      Read_write.mapi fd.Fd.watching ~f:(fun read_or_write watching ->
-        let module W = Watching in
+      Read_write.mapi fd.watching ~f:(fun read_or_write watching ->
         match watching with
-        | W.Watch_once _ | W.Watch_repeatedly _ -> true
-        | W.Not_watching -> false
-        | W.Stop_requested ->
-          Read_write.set fd.Fd.watching read_or_write W.Not_watching;
+        | Watch_once _ | Watch_repeatedly _ -> true
+        | Not_watching -> false
+        | Stop_requested ->
+          Read_write.set fd.watching read_or_write Not_watching;
           dec_num_active_syscalls_fd t fd;
           false)
     in
-    if Debug.file_descr_watcher then
-      Debug.log "File_descr_watcher.set" (fd.Fd.file_descr, desired, F.watcher)
-        (<:sexp_of< File_descr.t * bool Read_write.t * F.t >>);
+    if Debug.file_descr_watcher
+    then Debug.log "File_descr_watcher.set" (fd.file_descr, desired, F.watcher)
+           <:sexp_of< File_descr.t * bool Read_write.t * F.t >>;
     try
-      F.set F.watcher fd.Fd.file_descr desired
+      F.set F.watcher fd.file_descr desired
     with exn ->
       failwiths "sync_changed_fds_to_file_descr_watcher unable to set fd"
         (desired, fd, exn, t) <:sexp_of< bool Read_write.t * Fd.t * exn * t >>
@@ -616,10 +611,9 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       | None -> timeout_after max_inter_cycle_timeout
       | Some time ->
         let now = Time.now () in
-        if Time.(>) time now then
-          timeout_after (Time.Span.min (Time.diff time now) max_inter_cycle_timeout)
-        else
-          `Immediately
+        if Time.(>) time now
+        then timeout_after (Time.Span.min (Time.diff time now) max_inter_cycle_timeout)
+        else `Immediately
     end
   in
   let handle_post post =
@@ -645,11 +639,11 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
                 | `Write ->
                   failwiths
                     "File_descr_watcher returned the timerfd as ready to be written to"
-                    file_descr (<:sexp_of< File_descr.t >>)
+                    file_descr <:sexp_of< File_descr.t >>
               end
             | _ ->
               failwiths "File_descr_watcher returned unknown file descr" file_descr
-                (<:sexp_of< File_descr.t >>))
+                <:sexp_of< File_descr.t >>)
       in
       fill bad `Bad_fd;
       fill ready `Ready)
@@ -662,8 +656,9 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     in
     begin match
       request_start_watching t interruptor_read_fd `Read
-        (Watching.Watch_repeatedly
-           (Kernel_scheduler.create_job t.kernel_scheduler Execution_context.main Fn.ignore (),
+        (Watch_repeatedly
+           (Kernel_scheduler.create_job t.kernel_scheduler
+              Execution_context.main Fn.ignore (),
             interruptor_finished))
     with
     | `Already_watching | `Watching -> ()
@@ -679,8 +674,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     | Some error -> unlock t; error
     | None ->
       sync_changed_fds_to_file_descr_watcher t;
-      if Debug.file_descr_watcher then
-        Debug.log "File_descr_watcher.pre_check" t (<:sexp_of< t >>);
+      if Debug.file_descr_watcher
+      then Debug.log "File_descr_watcher.pre_check" t <:sexp_of< t >>;
       let pre = F.pre_check F.watcher in
       (* [compute_timeout] must be the last thing before [thread_safe_check], because we
          want to make sure the timeout is zero if there are any scheduled jobs. *)
@@ -688,7 +683,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       unlock t;
       if Debug.file_descr_watcher then
         Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
-          (<:sexp_of< File_descr_watcher_intf.Timeout.t * t >>);
+          <:sexp_of< File_descr_watcher_intf.Timeout.t * t >>;
       let check_result = F.thread_safe_check F.watcher pre ~timeout in
       lock t;
       (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
@@ -697,15 +692,15 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
          serviced yet, the interrupt will still be serviced by the immediately following
          processing. *)
       Interruptor.clear t.interruptor;
-      if Debug.file_descr_watcher then
-        Debug.log "File_descr_watcher.post_check" (check_result, t)
-          (<:sexp_of< F.Check_result.t * t >>);
+      if Debug.file_descr_watcher
+      then Debug.log "File_descr_watcher.post_check" (check_result, t)
+             <:sexp_of< F.Check_result.t * t >>;
       begin match F.post_check F.watcher check_result with
       | `Timeout | `Syscall_interrupted -> ()
       | `Ok post ->
-        if Debug.file_descr_watcher then
-          Debug.log "File_descr_watcher.post_check returned" (post, t)
-            (<:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>);
+        if Debug.file_descr_watcher
+        then Debug.log "File_descr_watcher.post_check returned" (post, t)
+               <:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>;
         handle_post post;
       end;
       if debug then Debug.log_string "handling delivered signals";
@@ -723,8 +718,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     | `Async_uncaught exn ->
       Error.create "bug in async scheduler" (exn, t) <:sexp_of< exn * t >>
   in
-  if raise_unhandled_exn then
-    Error.raise error
+  if raise_unhandled_exn
+  then Error.raise error
   else begin
     Debug.log "unhandled exception in Async scheduler" error <:sexp_of< Error.t >>;
     exit 1;
@@ -768,8 +763,8 @@ let go_main
       ?max_num_open_file_descrs
       ?max_num_threads
       ~main () =
-  if not (is_ready_to_initialize ()) then
-    failwith "Async was initialized prior to [Scheduler.go_main]";
+  if not (is_ready_to_initialize ())
+  then failwith "Async was initialized prior to [Scheduler.go_main]";
   let max_num_open_file_descrs =
     Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
   in
@@ -788,19 +783,18 @@ let go_main
 ;;
 
 let is_running () =
-  if (is_ready_to_initialize ()) then
-    false
-  else
-    (the_one_and_only ~should_lock:false).is_running
+  if (is_ready_to_initialize ())
+  then false
+  else (the_one_and_only ~should_lock:false).is_running
 ;;
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
   Stream.iter (cycle_times ())
     ~f:(fun span ->
-      if Time.Span.(>) span cutoff then
-        eprintf "%s\n%!"
-          (Error.to_string_hum
-             (Error.create "long async cycle" span <:sexp_of< Time.Span.t >>)))
+      if Time.Span.(>) span cutoff
+      then eprintf "%s\n%!"
+             (Error.to_string_hum
+                (Error.create "long async cycle" span <:sexp_of< Time.Span.t >>)))
 ;;
 
 let set_check_invariants bool =
@@ -834,8 +828,8 @@ let start_busy_poller_thread_if_not_running t =
             (* We don't loop here, thus exiting the thread. *)
           end else begin
             Busy_pollers.poll t.busy_pollers;
-            if Kernel_scheduler.num_pending_jobs kernel_scheduler > 0 then
-              Kernel_scheduler.run_cycle kernel_scheduler;
+            if Kernel_scheduler.num_pending_jobs kernel_scheduler > 0
+            then Kernel_scheduler.run_cycle kernel_scheduler;
             unlock t;
             (* The purpose of this [yield] is to release the OCaml lock while not holding
                the async lock, so that the busy-poll loop spends a significant fraction of
@@ -890,11 +884,11 @@ let fold_fields (type a) ~init folder : a =
 let handle_thread_pool_stuck f =
   let t = t () in
   let kernel_scheduler = t.kernel_scheduler in
-  let module K = Kernel_scheduler in
-  let execution_context = K.current_execution_context kernel_scheduler in
+  let execution_context = Kernel_scheduler.current_execution_context kernel_scheduler in
   t.handle_thread_pool_stuck <-
     (fun ~stuck_for ->
-       K.enqueue kernel_scheduler execution_context (fun () -> f ~stuck_for) ());
+       Kernel_scheduler.enqueue kernel_scheduler execution_context
+         (fun () -> f ~stuck_for) ());
 ;;
 
 let yield () =

@@ -7,10 +7,10 @@ module File_descr = Unix.File_descr
 
 module Kind = struct
   type t =
-  | Char
-  | Fifo
-  | File
-  | Socket of [ `Unconnected | `Bound | `Passive | `Active ]
+    | Char
+    | Fifo
+    | File
+    | Socket of [ `Unconnected | `Bound | `Passive | `Active ]
   with sexp_of
 end
 
@@ -69,11 +69,11 @@ module Watching = struct
      [Stop_requested] will transition to [Not_watching] when the desired state is
      synchronized with the file_descr_watcher. *)
   type t =
-  | Not_watching
-  | Watch_once of ready_to_result Ivar.t
-  | Watch_repeatedly
-    of Async_kernel.Jobs.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
-  | Stop_requested
+    | Not_watching
+    | Watch_once of ready_to_result Ivar.t
+    | Watch_repeatedly
+      of Async_kernel.Jobs.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
+    | Stop_requested
   with sexp_of
 
   let invariant t : unit =
@@ -89,28 +89,27 @@ module Watching = struct
 end
 
 module T = struct
-
   type t =
-    { file_descr : File_descr.t;
+    { file_descr                   : File_descr.t
       (* [info] is for debugging info. It is mutable because it changes after [bind],
-         [listen], or [connect]. *)
-      mutable info : Info.t;
+         [listen], or[connect]. *)
+    ; mutable info                 : Info.t
       (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
-      mutable kind : Kind.t;
+    ; mutable kind                 : Kind.t
       (* [supports_nonblock] reflects whether the file_descr supports nonblocking
          system calls (read, write, etc.).  It is mutable because we allow users to
          change from [supports_nonblock = true] to [supports_nonblock = false]. *)
-      mutable supports_nonblock : bool;
+    ; mutable supports_nonblock    : bool
       (* [have_set_nonblock] is true if we have called [Unix.set_nonblock file_descr],
          which we must do before making any system calls that we expect to not block. *)
-      mutable have_set_nonblock : bool;
-      mutable state : State.t;
-      watching : Watching.t Read_write.Mutable.t;
+    ; mutable have_set_nonblock    : bool
+    ; mutable state                : State.t
+    ; watching                     : Watching.t Read_write.Mutable.t
       (* [watching_has_changed] is true if [watching] has changed since the last time
          [watching] was synchronized with the file_descr_watcher.  In this case, the
          fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
          it can be synchronized later. *)
-      mutable watching_has_changed : bool;
+    ; mutable watching_has_changed : bool
       (* [num_active_syscalls] is used to ensure that we don't call [close] on a file
          descriptor until there are no active system calls involving that file descriptor.
          This prevents races in which the OS assigns that file descriptor to a new
@@ -122,10 +121,10 @@ module T = struct
          [num_active_syscalls] is abused slightly to include the syscall to the
          file_descr_watcher to check for ready I/O.  Watching for read and for write
          each potentially count for one active syscall. *)
-      mutable num_active_syscalls : int;
+    ; mutable num_active_syscalls  : int
       (* [close_finished] becomes determined after the file descriptor has been closed
          and the underlying close() system call has finished. *)
-      close_finished : unit Ivar.t;
+    ; close_finished               : unit Ivar.t
     }
   with fields, sexp_of
 end
@@ -136,7 +135,6 @@ let equal (t : t) t' = phys_equal t t'
 
 let invariant t : unit =
   try
-    let module W = Watching in
     let check f field = f (Field.get field t) in
     Fields.iter
       ~info:ignore
@@ -153,20 +151,18 @@ let invariant t : unit =
         assert (t.num_active_syscalls >= 0);
         let watching read_or_write =
           match Read_write.get t.watching read_or_write with
-          | W.Not_watching -> 0
-          | W.Stop_requested | W.Watch_once _ | W.Watch_repeatedly _ -> 1
+          | Not_watching -> 0
+          | Stop_requested | Watch_once _ | Watch_repeatedly _ -> 1
         in
         assert (t.num_active_syscalls >= watching `Read + watching `Write);
-        let module S = State in
         match t.state with
-        | S.Closed -> assert (num_active_syscalls = 0);
-        | S.Close_requested _ | S.Open _ -> ()))
+        | Closed -> assert (num_active_syscalls = 0);
+        | Close_requested _ | Open _ -> ()))
       ~close_finished:(check (fun close_finished ->
-        let module S = State in
         match t.state with
-        | S.Closed -> ()
-        | S.Close_requested _ -> assert (Ivar.is_empty close_finished)
-        | S.Open close_started ->
+        | Closed -> ()
+        | Close_requested _ -> assert (Ivar.is_empty close_finished)
+        | Open close_started ->
           assert (Ivar.is_empty close_finished);
           assert (Ivar.is_empty close_started)))
   with exn ->
@@ -175,12 +171,11 @@ let invariant t : unit =
 
 let to_int t = File_descr.to_int t.file_descr
 
-let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
+let create ?(avoid_nonblock_if_possible = false) (kind : Kind.t) file_descr info =
   let supports_nonblock =
-    let module K = Kind in
     match kind with
     (* No point in setting nonblocking for files.  Unix doesn't care. *)
-    | K.File -> false
+    | File -> false
     (* We don't use nonblocking I/O for char devices because we don't want to change the
        blocking status of TTYs, which would affect all processes currently attached to
        that TTY and even persist after this process terminates.
@@ -189,11 +184,11 @@ let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
 
        We don't really care about doing nonblocking I/O on other character devices,
        e.g. /dev/random. *)
-    | K.Char -> false
-    | K.Fifo -> not avoid_nonblock_if_possible
+    | Char -> false
+    | Fifo -> not avoid_nonblock_if_possible
     (* All one can do on a `Bound socket is listen() to it, and we don't use listen()
        in a nonblocking way. *)
-    | K.Socket `Bound -> false
+    | Socket `Bound -> false
     (* `Unconnected sockets support nonblocking so we can connect() them.
        `Passive     sockets support nonblocking so we can accept() them.
        `Active      sockets support nonblocking so we can read() and write() them.
@@ -202,20 +197,20 @@ let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
        sockets, because [accept_interruptible] and [connect_interruptible] in
        unix_syscalls.ml assume that such sockets are nonblocking.  On the other hand,
        there is no such assumption about [`Active] sockets. *)
-    | K.Socket (`Unconnected | `Passive) -> true
-    | K.Socket `Active -> not avoid_nonblock_if_possible
+    | Socket (`Unconnected | `Passive) -> true
+    | Socket `Active -> not avoid_nonblock_if_possible
   in
   let t =
-    { info;
-      file_descr;
-      kind;
-      supports_nonblock;
-      have_set_nonblock = false;
-      state = State.Open (Ivar.create ());
-      watching = Read_write.create_both Watching.Not_watching;
-      watching_has_changed = false;
-      num_active_syscalls = 0;
-      close_finished = Ivar.create ();
+    { info
+    ; file_descr
+    ; kind
+    ; supports_nonblock
+    ; have_set_nonblock    = false
+    ; state                = State.Open (Ivar.create ())
+    ; watching             = Read_write.create_both Watching.Not_watching
+    ; watching_has_changed = false
+    ; num_active_syscalls  = 0
+    ; close_finished       = Ivar.create ()
     }
   in
   if debug then Debug.log "Fd.create" t <:sexp_of< t >>;
@@ -223,10 +218,9 @@ let create ?(avoid_nonblock_if_possible = false) kind file_descr info =
 ;;
 
 let inc_num_active_syscalls t =
-  let module S = State in
   match t.state with
-  | S.Close_requested _ | S.Closed -> `Already_closed
-  | S.Open _ -> t.num_active_syscalls <- t.num_active_syscalls + 1; `Ok
+  | Close_requested _ | Closed -> `Already_closed
+  | Open _ -> t.num_active_syscalls <- t.num_active_syscalls + 1; `Ok
 ;;
 
 let set_state t new_state =
@@ -244,9 +238,10 @@ let is_closed t = not (is_open t)
 
 let set_nonblock_if_necessary ?(nonblocking = false) t =
   if nonblocking then begin
-    if not t.supports_nonblock then
-      failwiths "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
-        t <:sexp_of< t >>;
+    if not t.supports_nonblock
+    then failwiths
+           "Fd.set_nonblock_if_necessary called on fd that does not support nonblock" t
+           <:sexp_of< t >>;
     if not t.have_set_nonblock then begin
       Unix.set_nonblock t.file_descr;
       t.have_set_nonblock <- true;

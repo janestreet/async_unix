@@ -44,13 +44,13 @@ val io_stats : Io_stats.t
 val last_read_time : t -> Time.t
 
 (** [stdin] is a reader for file descriptor 0.  It is lazy because we don't want
-   to create it in all programs that happen to link with Async. *)
+    to create it in all programs that happen to link with Async. *)
 val stdin : t Lazy.t
 
 (** [open_file file] opens [file] for reading and returns a reader reading from it. *)
 val open_file
-  :  ?close_on_exec:bool (** default is [true] *)
-  -> ?buf_len:int
+  :  ?close_on_exec : bool  (** default is [true] *)
+  -> ?buf_len       : int
   -> string
   -> t Deferred.t
 
@@ -93,10 +93,10 @@ val of_in_channel : in_channel -> Fd.Kind.t -> t
     you return a deferred that becomes determined when the EOF is reached on the pipe,
     not when you get the pipe (because you get it straight away). *)
 val with_file
-  :  ?buf_len:int
-  -> ?exclusive:bool (** default is [false] *)
+  :  ?buf_len   : int
+  -> ?exclusive : bool  (** default is [false] *)
   -> string
-  -> f:(t -> 'a Deferred.t)
+  -> f          : (t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [close t] prevents further use of [t] and closes [t]'s underlying file descriptor.
@@ -152,37 +152,36 @@ with sexp_of
 
 val read_one_chunk_at_a_time
   :  t
-  -> handle_chunk:(Bigstring.t
-                   -> pos:int
-                   -> len:int
-                   -> [
-                     (** [`Stop a] means that [handle_chunk] consumed all [len] bytes,
-                         and that [read_one_chunk_at_a_time] should stop reading and
-                         return [`Stopped a]. *)
-                     | `Stop of 'a
-                     (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n]
-                         bytes, and that [read_one_chunk_at_a_time] should stop reading
-                         and return [`Stopped a]. *)
-                     | `Stop_consumed of 'a * int
-                     (** [`Continue] means that [handle_chunk] has consumed all [len]
-                         bytes. *)
-                     | `Continue
-                     (** [`Consumed (c, need)] means that [c] bytes were consumed and
-                         [need] says how many bytes are needed (including the data
-                         remaining in the buffer after the [c] were already consumed).
-                         It is an error if [c < 0 || c > len].  For [`Need n], it is an
-                         error if [n < 0 || c + n <= len]. *)
-                     | `Consumed of int * [ `Need of int
-                                          | `Need_unknown
-                                          ]
-                   ] Deferred.t)
+  -> handle_chunk : (Bigstring.t
+                     -> pos : int
+                     -> len : int
+                     -> [
+                       (** [`Stop a] means that [handle_chunk] consumed all [len] bytes,
+                           and that [read_one_chunk_at_a_time] should stop reading and
+                           return [`Stopped a]. *)
+                       | `Stop of 'a
+                       (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n]
+                           bytes, and that [read_one_chunk_at_a_time] should stop reading
+                           and return [`Stopped a]. *)
+                       | `Stop_consumed of 'a * int
+                       (** [`Continue] means that [handle_chunk] has consumed all [len]
+                           bytes. *)
+                       | `Continue
+                       (** [`Consumed (c, need)] means that [c] bytes were consumed and
+                           [need] says how many bytes are needed (including the data
+                           remaining in the buffer after the [c] were already consumed).
+                           It is an error if [c < 0 || c > len].  For [`Need n], it is an
+                           error if [n < 0 || c + n <= len]. *)
+                       | `Consumed of int * [ `Need of int
+                                            | `Need_unknown
+                                            ]
+                     ] Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss],
     blocking until some data is available or Eof is reched.  The resulting [i]
     satisfies [0 < i <= Substring.length ss]. *)
-val read_substring : t -> Substring.t -> int Read_result.t Deferred.t
-
+val read_substring    : t -> Substring.t    -> int Read_result.t Deferred.t
 val read_bigsubstring : t -> Bigsubstring.t -> int Read_result.t Deferred.t
 
 val read_char : t -> char Read_result.t Deferred.t
@@ -193,8 +192,8 @@ val read_char : t -> char Read_result.t Deferred.t
     were read before end of input, and [0 <= n < String.length ss]. *)
 val really_read
   :  t
-  -> ?pos:int
-  -> ?len:int
+  -> ?pos : int
+  -> ?len : int
   -> string
   -> [ `Ok
      | `Eof of int
@@ -228,7 +227,7 @@ val really_read_bigsubstring
 val read_until
   :  t
   -> [`Pred of (char -> bool) | `Char of char]
-  -> keep_delim:bool
+  -> keep_delim : bool
   ->  [ `Ok of string
       | `Eof_without_delim of string
       | `Eof
@@ -239,8 +238,8 @@ val read_until
 val read_until_max
   :  t
   -> [`Pred of (char -> bool) | `Char of char]
-  -> keep_delim:bool
-  -> max:int
+  -> keep_delim : bool
+  -> max        : int
   -> [ `Ok of string
      | `Eof_without_delim of string
      | `Eof
@@ -258,9 +257,9 @@ val read_line : t -> string Read_result.t Deferred.t
     to but not including the newline character.  If [really_read_line] encounters EOF
     before the newline char, then a time span of [wait_time] will be used before the input
     operation is retried.  If the descriptor is closed, [None] will be returned. *)
-val really_read_line : wait_time : Time.Span.t -> t -> string option Deferred.t
+val really_read_line : wait_time:Time.Span.t -> t -> string option Deferred.t
 
-type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a
+type 'a read = ?parse_pos:Sexp.Parse_pos.t -> 'a
 
 (** [read_sexp t] reads the next sexp. *)
 val read_sexp : (t -> Sexp.t Read_result.t Deferred.t) read
@@ -277,7 +276,7 @@ val read_sexps : (t -> Sexp.t Pipe.Reader.t) read
 
     For higher performance, consider [Unpack_sequence.unpack_bin_prot_from_reader]. *)
 val read_bin_prot
-  :  ?max_len:int
+  :  ?max_len : int
   -> t
   -> 'a Bin_prot.Type_class.reader
   -> 'a Read_result.t Deferred.t
@@ -303,7 +302,7 @@ val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
     descriptor.  The [`Cur] mode is not exposed because seeking relative to the current
     position of the file descriptor is not the same as seeking to relative to the current
     position of the reader. *)
-val lseek : t -> int64 -> mode:[< `Set | `End] -> int64 Deferred.t
+val lseek : t -> int64 -> mode:[< `Set | `End ] -> int64 Deferred.t
 
 (** [lines t] reads all the lines from [t] and puts them in the pipe, one line per pipe
     element.  The lines do not contain the trailing newline.  When the reader reaches EOF
@@ -330,9 +329,9 @@ val file_lines : string -> string list Deferred.t
 
     Using [~expand_macros:true] expands macros as defined in {!Sexplib.Macro}. If
     [~expand_macros:true] then the [exclusive] flag is ignored. *)
-type ('a, 'b) load =
-  ?exclusive:bool        (** default is [false] *)
-  -> ?expand_macros:bool (** default is [false] *)
+type ('a, 'b) load
+  =  ?exclusive     : bool  (** default is [false] *)
+  -> ?expand_macros : bool  (** default is [false] *)
   -> string
   -> (Sexp.t -> 'a)
   -> 'b Deferred.t

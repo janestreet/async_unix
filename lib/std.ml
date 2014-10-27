@@ -13,7 +13,6 @@ module Thread_safe      = Thread_safe
 module Thread_safe_pipe = Thread_safe_pipe
 module Writer           = Writer
 
-
 module Unix = struct
   module Fd = Fd
   include Unix_syscalls

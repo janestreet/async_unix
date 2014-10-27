@@ -79,10 +79,10 @@ type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, se
     eventually fail with a writer-buffer-older-than error if the application remains open
     long enough. *)
 val create
-  :  ?buf_len:int
-  -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
-  -> ?buffer_age_limit:buffer_age_limit
-  -> ?raise_when_consumer_leaves:bool (** default is [true] *)
+  :  ?buf_len                    : int
+  -> ?syscall                    : [ `Per_cycle | `Periodic of Time.Span.t ]
+  -> ?buffer_age_limit           : buffer_age_limit
+  -> ?raise_when_consumer_leaves : bool  (** default is [true] *)
   -> Fd.t
   -> t
 
@@ -107,9 +107,9 @@ val of_out_channel : out_channel -> Fd.Kind.t -> t
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file.  *)
 val open_file
-  :  ?append:bool        (** default is [false] *)
-  -> ?close_on_exec:bool (** default is [true] *)
-  -> ?perm:int           (** default is [0o666] *)
+  :  ?append        : bool  (** default is [false] *)
+  -> ?close_on_exec : bool  (** default is [true] *)
+  -> ?perm          : int   (** default is [0o666] *)
   -> string
   -> t Deferred.t
 
@@ -121,11 +121,11 @@ val open_file
     writer to be flushed before closing it.  [Writer.close] will already wait for the
     flush. *)
 val with_file
-  :  ?perm:int       (** default is [0o666] *)
-  -> ?append:bool    (** default is [false] *)
-  -> ?exclusive:bool (** default is [false] *)
+  :  ?perm      : int   (** default is [0o666] *)
+  -> ?append    : bool  (** default is [false] *)
+  -> ?exclusive : bool  (** default is [false] *)
   -> string
-  -> f:(t -> 'a Deferred.t)
+  -> f          : (t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [id t] @return an id for this writer that is unique among all other writers *)
@@ -181,10 +181,10 @@ val set_fd : t -> Fd.t -> unit Deferred.t
     ]}
 *)
 val write_gen
-  :  length:('a -> int)
-  -> blit_to_bigstring:('a, Bigstring.t) Blit.blit
-  -> ?pos:int
-  -> ?len:int
+  :  length            : ('a -> int)
+  -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
+  -> ?pos              : int
+  -> ?len              : int
   -> t
   -> 'a
   -> unit
@@ -242,8 +242,8 @@ val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
 (** [schedule_bigstring t bstr] schedules a write of bigstring [bstr].
     It is not safe to change the bigstring until the writer has been
     successfully flushed or closed after this operation. *)
-val schedule_bigstring : t -> ?pos:int -> ?len:int -> Bigstring.t -> unit
-val schedule_bigsubstring : t -> Bigsubstring.t -> unit
+val schedule_bigstring    : t -> ?pos:int -> ?len:int -> Bigstring.t    -> unit
+val schedule_bigsubstring : t                         -> Bigsubstring.t -> unit
 
 (** [schedule_iovec t iovec] schedules a write of I/O-vector [iovec].  It is not safe to
     change the bigstrings underlying the I/O-vector until the writer has been successfully
@@ -321,8 +321,8 @@ val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
    producers that should be flushed-at-close, for the duration of [f]. *)
 val with_flushed_at_close
   :  t
-  -> flushed:(unit -> unit Deferred.t)
-  -> f:(unit -> 'a Deferred.t)
+  -> flushed : (unit -> unit Deferred.t)
+  -> f       : (unit -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [bytes_to_write t] returns how many bytes have been requested to write but have not
@@ -361,27 +361,27 @@ val bytes_received : t -> Int63.t
     given sexp to the specified file. *)
 
 val with_file_atomic
-  :  ?temp_file:string
-  -> ?perm:Unix.file_perm
-  -> ?fsync:bool (** default is [false] *)
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
   -> string
-  -> f:(t -> 'a Deferred.t)
+  -> f          : (t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 val save
-  :  ?temp_file:string
-  -> ?perm:Unix.file_perm
-  -> ?fsync:bool (** default is [false] *)
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
   -> string
-  -> contents:string
+  -> contents   : string
   -> unit Deferred.t
 
 (** [save_lines file lines] writes all lines in [lines] to [file], with each line followed
     by a newline. *)
 val save_lines
-  :  ?temp_file:string
-  -> ?perm:Unix.file_perm
-  -> ?fsync:bool (** default is [false] *)
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
   -> string
   -> string list
   -> unit Deferred.t
@@ -391,10 +391,10 @@ val save_lines
     with the additional whitespace and works nicely with converting the sexp to a
     value. *)
 val save_sexp
-  :  ?temp_file:string
-  -> ?perm:Unix.file_perm
-  -> ?fsync:bool (** default is [false] *)
-  -> ?hum:bool (** default is [true] *)
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
+  -> ?hum       : bool  (** default is [true] *)
   -> string
   -> Sexp.t
   -> unit Deferred.t
@@ -418,13 +418,13 @@ val save_sexp
     ]}
 *)
 val transfer'
-  :  ?stop:unit Deferred.t
+  :  ?stop : unit Deferred.t
   -> t
   -> 'a Pipe.Reader.t
   -> ('a Queue.t -> unit Deferred.t)
   -> unit Deferred.t
 val transfer
-  :  ?stop:unit Deferred.t
+  :  ?stop : unit Deferred.t
   -> t
   -> 'a Pipe.Reader.t
   -> ('a -> unit)
@@ -442,4 +442,13 @@ val pipe : t -> string Pipe.Writer.t
 val of_pipe
   :  Info.t
   -> string Pipe.Writer.t
-  -> (t * [`Closed_and_flushed_downstream of unit Deferred.t]) Deferred.t
+  -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t
+
+(** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit status
+    zero if any of the consumers of [writers] go away.  It also sets the buffer age to
+    unlimited, in case there is a human (e.g. using [less]) on the other side of the
+    pipeline. *)
+val behave_nicely_in_pipeline
+  :  ?writers : t list  (** defaults to [stdout; stderr] *)
+  -> unit
+  -> unit

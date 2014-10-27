@@ -3,7 +3,10 @@ open Core.Std
 module Signal = Core.Std.Signal
 
 module Handlers = struct
-  type t = { bag : (Signal.t -> unit) sexp_opaque Bag.t } with sexp_of
+  type t =
+    { bag : (Signal.t -> unit) sexp_opaque Bag.t
+    }
+  with sexp_of
 
   let create () = { bag = Bag.create () }
 
@@ -20,19 +23,21 @@ module Handlers = struct
   ;;
 end
 
+type delivered = (Signal.t * Handlers.t) Thread_safe_queue.t
+
 type t =
-  { handlers_by_signal : Handlers.t Signal.Table.t;
-    delivered : (Signal.t * Handlers.t) Thread_safe_queue.t sexp_opaque;
-    thread_safe_notify_signal_delivered : unit -> unit;
+  { handlers_by_signal                  : Handlers.t Signal.Table.t
+  ; delivered                           : delivered sexp_opaque
+  ; thread_safe_notify_signal_delivered : unit -> unit
   }
 with sexp_of
 
 let invariant _ = ()
 
 let create ~thread_safe_notify_signal_delivered =
-  { handlers_by_signal = Signal.Table.create ();
-    delivered = Thread_safe_queue.create ();
-    thread_safe_notify_signal_delivered;
+  { handlers_by_signal                  = Signal.Table.create ()
+  ; delivered                           = Thread_safe_queue.create ()
+  ; thread_safe_notify_signal_delivered
   }
 ;;
 
@@ -60,8 +65,8 @@ let manage t signal = ignore (get_handlers t signal : Handlers.t)
 let install_handler t signals handler =
   Handler.T
     (List.map signals ~f:(fun signal ->
-      let handlers = get_handlers t signal in
-      (handlers, Handlers.add handlers handler)))
+       let handlers = get_handlers t signal in
+       (handlers, Handlers.add handlers handler)))
 ;;
 
 let remove_handler _t (Handler.T handler) =

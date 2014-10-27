@@ -25,12 +25,12 @@ val pushback : _ t -> unit
 (** [write_without_pushback'] and [write_without_pushback] transfer the element(s) into
     the pipe and return immediately. *)
 val write_without_pushback'
-  :  ?wakeup_scheduler:bool  (** default is [true] *)
+  :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> 'a t
   -> 'a Queue.t
   -> unit
 val write_without_pushback
-  :  ?wakeup_scheduler:bool  (** default is [true] *)
+  :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> 'a t
   -> 'a
   -> unit

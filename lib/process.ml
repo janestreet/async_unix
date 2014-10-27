@@ -18,7 +18,7 @@ type t =
 with fields, sexp_of
 
 type 'a with_create_args =
-     ?working_dir : string
+  ?working_dir : string
   -> ?env : env
   -> prog : string
   -> args : string list
@@ -30,13 +30,13 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
     Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
   >>| function
   | Error exn -> Or_error.of_exn exn
-  | Ok { Core.Std.Unix.Process_info. pid; stdin; stdout; stderr } ->
+  | Ok { pid; stdin; stdout; stderr } ->
     let create_fd name file_descr =
-      Fd.create Fd.Kind.Fifo file_descr
+      Fd.create Fifo file_descr
         (Info.create "child process" ~here:_here_ (name, `pid pid, `prog prog, `args args)
-           (<:sexp_of<
+           <:sexp_of<
                string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]
-            >>))
+            >>)
     in
     Ok { pid
        ; stdin  = Writer.create (create_fd "stdin"  stdin )
@@ -51,9 +51,9 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
 
 module Output = struct
   type t =
-    { stdout : string;
-      stderr : string;
-      exit_status : Unix.Exit_or_signal.t;
+    { stdout      : string
+    ; stderr      : string
+    ; exit_status : Unix.Exit_or_signal.t
     }
   with sexp_of
 end
@@ -74,8 +74,8 @@ let wait t =
 
 module Lines_or_sexp = struct
   type t =
-  | Lines of string list
-  | Sexp of Sexp.t
+    | Lines of string list
+    | Sexp of Sexp.t
   with sexp_of
 
   let create string =
@@ -99,7 +99,7 @@ end
 
 let wait_stdout ?(accept_nonzero_exit = []) t =
   wait t
-  >>| fun { Output. stdout; stderr; exit_status } ->
+  >>| fun { stdout; stderr; exit_status } ->
   match exit_status with
   | Ok () -> Ok stdout
   | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
@@ -107,11 +107,11 @@ let wait_stdout ?(accept_nonzero_exit = []) t =
     let { prog; args; working_dir; env; _ } = t in
     Or_error.error "Process.run failed"
       { Failure.
-        prog; args; working_dir; env; exit_status;
-        stdout = Lines_or_sexp.create stdout;
-        stderr = Lines_or_sexp.create stderr;
+        prog; args; working_dir; env; exit_status
+      ; stdout = Lines_or_sexp.create stdout
+      ; stderr = Lines_or_sexp.create stderr
       }
-      (<:sexp_of< Failure.t >>)
+      <:sexp_of< Failure.t >>
 ;;
 
 let wait_stdout_lines ?accept_nonzero_exit t =

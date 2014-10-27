@@ -6,8 +6,6 @@ include module type of Core.Std.Signal with type t = Core.Std.Signal.t
     Async. *)
 val handle_default : [ `Do_not_use_with_async ] -> _
 val ignore         : [ `Do_not_use_with_async ] -> _
-val set            : [ `Do_not_use_with_async ] -> _ -> _
-val signal         : [ `Do_not_use_with_async ] -> _ -> _
 
 (** [handle ?stop signals ~f] arranges so that whenever a signal in [signals] is
     delivered, [f] is called on that signal.  If [f] raises, then an exception will be

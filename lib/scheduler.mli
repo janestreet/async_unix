@@ -29,7 +29,7 @@ val t : unit -> t
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
-  :  ?raise_unhandled_exn:bool (** default is [false] *)
+  :  ?raise_unhandled_exn : bool  (** default is [false] *)
   -> unit
   -> never_returns
 
@@ -38,17 +38,17 @@ val go
     used prior to [go_main] being called.  Moreover it allows to configure more static
     options of the scheduler. *)
 val go_main
-  :  ?raise_unhandled_exn:bool (** default is [false] *)
-  -> ?file_descr_watcher:Config.File_descr_watcher.t (** default to [Config] *)
-  -> ?max_num_open_file_descrs:int                   (** default to [Config] *)
-  -> ?max_num_threads:int                            (** default to [Config] *)
-  -> main:(unit -> unit)
+  :  ?raise_unhandled_exn      : bool                         (** default is [false] *)
+  -> ?file_descr_watcher       : Config.File_descr_watcher.t  (** default is [Config] *)
+  -> ?max_num_open_file_descrs : int                          (** default is [Config] *)
+  -> ?max_num_threads          : int                          (** default is [Config] *)
+  -> main                      : (unit -> unit)
   -> unit
   -> never_returns
 
-type 'a with_options =
-  ?monitor:Monitor.t
-  -> ?priority:Priority.t
+type 'a with_options
+  =  ?monitor  : Monitor.t
+  -> ?priority : Priority.t
   -> 'a
 
 (* val current_execution_context : unit -> Execution_context.t *)
@@ -193,6 +193,7 @@ val add_busy_poller
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
 val handle_thread_pool_stuck : (stuck_for:Time.Span.t -> unit) -> unit
+
 
 (** [yield ()] returns a deferred that becomes determined after the current cycle
     completes.  This can be useful to improve fairness by [yield]ing within a computation

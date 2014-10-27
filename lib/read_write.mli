@@ -7,7 +7,11 @@ module Key : sig
   val flip : t -> t
 end
 
-type ('a, +'z) any = private { mutable read : 'a; mutable write : 'a }
+type ('a, +'z) any =
+  private
+  { mutable read  : 'a
+  ; mutable write : 'a
+  }
 with sexp
 
 module Immutable : sig
@@ -55,7 +59,10 @@ val replace_all : 'a Mutable.t ->          f:(Key.t -> 'a -> 'a) -> unit
 val set : 'a Mutable.t -> Key.t -> 'a -> unit
 
 module Export : sig
-  type ('a, 'z) read_write_ =
-    ('a, 'z) any =
-    private { mutable read : 'a; mutable write : 'a }
+  type ('a, 'z) read_write_
+    = ('a, 'z) any
+    = private
+      { mutable read  : 'a
+      ; mutable write : 'a
+      }
 end

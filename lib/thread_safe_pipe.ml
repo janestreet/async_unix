@@ -10,10 +10,9 @@ let in_async ?wakeup_scheduler f = Thread_safe.run_in_async_exn ?wakeup_schedule
 let in_async_wait f = Thread_safe.run_in_async_wait_exn f
 
 let create () =
-  if Thread_safe.am_holding_async_lock () then
-    Pipe.create ()
-  else
-    in_async Pipe.create
+  if Thread_safe.am_holding_async_lock ()
+  then Pipe.create ()
+  else in_async Pipe.create
 ;;
 
 let pushback t = in_async_wait (fun () -> Pipe.pushback t)

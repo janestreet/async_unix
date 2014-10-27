@@ -33,27 +33,27 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
           | `Notify_the_scheduler -> false
           | `Best                 -> try_lock t
         in
-        if locked then
+        if locked
+        then
           protect ~finally:(fun () -> unlock t) ~f:(fun () ->
             Ivar.fill ivar result;
             have_lock_do_cycle t)
-        else
-          thread_safe_enqueue_external_action t (fun () -> Ivar.fill ivar result);
+        else thread_safe_enqueue_external_action t (fun () -> Ivar.fill ivar result);
       in
       match thread with
       | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
       | Some helper_thread ->
         ok_exn
           (Thread_pool.add_work_for_helper_thread
-            t.thread_pool
-            helper_thread
-            doit
-            ?name
-            ?priority))
+             t.thread_pool
+             helper_thread
+             doit
+             ?name
+             ?priority))
     >>| Result.ok_exn
   in
-  if t.is_running then
-    doit ()
+  if t.is_running
+  then doit ()
   else
     (* We use [bind unit ...] to force calls to [run_no_exn] to wait until after the
        scheduler is started.  We do this because [run_no_exn] will cause things to run in

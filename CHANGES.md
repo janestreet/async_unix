@@ -1,3 +1,15 @@
+## 112.06.00
+
+- Added `Writer.behave_nicely_in_pipeline`, which makes a program behave
+  nicely when used in a shell pipeline where the consumer goes away.
+- Modernized code style.
+- Removed spurious overrides in `Signal`: `set` and `signal`.
+
+    These overrides are no longer necessary because the functions moved
+    from `Core.Signal` to `Core.Signal.Expert`.
+
+- Moved `async_extra`'s `Udp.bind_to_interface_exn` to `Unix`.
+
 ## 112.01.00
 
 - Changed `Writer.transfer write pipe` to close `pipe` when the

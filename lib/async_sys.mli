@@ -22,8 +22,10 @@ val when_file_exists : ?poll_delay:Time.Span.t -> string -> unit Deferred.t
     mtime.  To stop polling, close the pipe. *)
 val when_file_changes : ?poll_delay:Time.Span.t -> string -> Time.t Pipe.Reader.t
 
-val is_directory     : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown ] Deferred.t
-val is_directory_exn : ?follow_symlinks:bool -> string -> bool                     Deferred.t
+val is_directory
+  : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown ] Deferred.t
+val is_directory_exn
+  : ?follow_symlinks:bool -> string -> bool                     Deferred.t
 
 val is_file     : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val is_file_exn : ?follow_symlinks:bool -> string -> bool                      Deferred.t
@@ -32,7 +34,7 @@ val remove : string -> unit Deferred.t
 val rename : string -> string -> unit Deferred.t
 val getenv : string -> string option
 val getenv_exn : string -> string
-val command : string -> int Deferred.t
+val command     : string -> int  Deferred.t
 val command_exn : string -> unit Deferred.t
 val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t

@@ -16,10 +16,10 @@ let when_file_exists ?(poll_delay = sec 0.5) file =
   Deferred.create (fun i ->
     let rec loop () =
       file_exists file >>> function
-        | `Yes -> Ivar.fill i ()
-        | `No -> upon (after poll_delay) loop
-        | `Unknown ->
-          failwiths "when_file_exists can not check file" file <:sexp_of< string >>
+      | `Yes -> Ivar.fill i ()
+      | `No -> upon (after poll_delay) loop
+      | `Unknown ->
+        failwiths "when_file_exists can not check file" file <:sexp_of< string >>
     in
     loop ())
 ;;
@@ -34,7 +34,7 @@ let when_file_changes ?(poll_delay = sec 0.5) file =
       begin match stat_result with
       | Error _ -> ()
       | Ok st ->
-        let mtime = st.Unix.Stats.mtime in
+        let mtime = st.mtime in
         if mtime <> !last_reported_mtime then begin
           last_reported_mtime := mtime;
           Pipe.write_without_pushback writer mtime;

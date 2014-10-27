@@ -6,14 +6,14 @@ module Fd = Raw_fd
 let debug = Debug.interruptor
 
 type t =
-  { pipe : Fd.t Read_write.t;
+  { pipe                        : Fd.t Read_write.t
     (* [already_interrupted] keeps track of whether we've already interrupted since the
        most recent call to [clear], and if so, avoid writing to the pipe again.
        [already_interrupted] does not exactly track the state of [pipe].  It is possible
        for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
-       property is that if [already_interrupted] is true then [pipe] is nonempty *)
-    mutable already_interrupted : bool;
-    clearbuffer : string sexp_opaque;
+       property is that if [already_interrupted] is true then [pipe] is nonempty*)
+  ; mutable already_interrupted : bool
+  ; clearbuffer                 : string sexp_opaque
   }
 with sexp_of
 
@@ -29,11 +29,11 @@ let create ~create_fd =
     create_fd Fd.Kind.Fifo pipe_read  (Info.of_string "interruptor_pipe_read" )
   in
   let pipe_write =
-    create_fd Fd.Kind.Fifo pipe_write (Info.of_string "interruptor_pipe_write")
+    create_fd Fifo pipe_write (Info.of_string "interruptor_pipe_write")
   in
-  { pipe = Read_write.create ~read:pipe_read ~write:pipe_write;
-    already_interrupted = false;
-    clearbuffer = String.make 1024 ' ';
+  { pipe                = Read_write.create ~read:pipe_read ~write:pipe_write
+  ; already_interrupted = false
+  ; clearbuffer         = String.make 1024 ' '
   }
 ;;
 
@@ -51,11 +51,10 @@ let thread_safe_interrupt t =
     if debug then Debug.log_string "writing to interrupt_pipe_write";
     Fd.syscall_exn (Read_write.get t.pipe `Write) ~nonblocking:true
       (fun file_descr ->
-        let module U = Unix in
-        try
-          ignore (U.write_assume_fd_is_nonblocking file_descr "w")
-        with
-        | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> ())
+         try
+           ignore (Unix.write_assume_fd_is_nonblocking file_descr "w")
+         with
+           Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ())
   end
 ;;
 
@@ -66,22 +65,21 @@ let clear t =
   if t.already_interrupted then begin
     Fd.syscall_exn (Read_write.get t.pipe `Read) ~nonblocking:true
       (fun file_descr ->
-        let rec loop () =
-          let module U = Unix in
-          let read_again =
-            try
-              let bytes_read =
-                U.read_assume_fd_is_nonblocking file_descr t.clearbuffer
-                  ~pos:0 ~len:(String.length t.clearbuffer)
-              in
-              ignore (bytes_read : int);
-              true
-            with
-            | U.Unix_error ((U.EWOULDBLOCK | U.EAGAIN), _, _) -> false
-          in
-          if read_again then loop ()
-        in
-        loop ());
+         let rec loop () =
+           let read_again =
+             try
+               let bytes_read =
+                 Unix.read_assume_fd_is_nonblocking file_descr t.clearbuffer
+                   ~pos:0 ~len:(String.length t.clearbuffer)
+               in
+               ignore (bytes_read : int);
+               true
+             with
+             | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> false
+           in
+           if read_again then loop ()
+         in
+         loop ());
   end;
   (* We must clear [already_interrupted] after emptying the pipe.  If we did it before,
      a [thread_safe_interrupt] could come along in between.  We would then be left with

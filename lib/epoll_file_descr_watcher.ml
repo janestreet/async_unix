@@ -101,8 +101,7 @@ let post_check t check_result =
   try
     match check_result with
     (* We think 514 should be treated like EINTR. *)
-    | Error (Unix.Unix_error ((Unix.EINTR | Unix.EUNKNOWNERR 514), _, _)) ->
-      `Syscall_interrupted
+    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> `Syscall_interrupted
     | Error exn -> failwiths "epoll raised unexpected exn" exn <:sexp_of< exn >>
     | Ok e ->
       match e with
@@ -118,13 +117,11 @@ let post_check t check_result =
           Read_write.replace_all ready ~f:(fun read_or_write ready ->
             let bit = Flags.of_rw read_or_write in
             if Flags.do_intersect flags bit
-              || (hup && Flags.do_intersect (Epoll.find_exn t.epoll file_descr) bit)
-            then
-              file_descr :: ready
-            else
-              ready));
+            || (hup && Flags.do_intersect (Epoll.find_exn t.epoll file_descr) bit)
+            then file_descr :: ready
+            else ready));
         `Ok (Read_write.map ready ~f:(fun ready -> { Post. ready; bad = [] }))
   with exn ->
     failwiths "Epoll.post_check bug" (exn, check_result, t)
-      (<:sexp_of< exn * Check_result.t * t >>)
+      <:sexp_of< exn * Check_result.t * t >>
 ;;

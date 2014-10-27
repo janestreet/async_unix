@@ -25,7 +25,7 @@ val deferred : unit -> 'a Deferred.t * ('a -> unit)
 (** [run_in_async_with_optional_cycle f] acquires the Async lock and runs [f ()] while
     holding the lock.  Depending on the result of [f], it may also run a cycle. *)
 val run_in_async_with_optional_cycle
-  :  ?wakeup_scheduler:bool  (** default is [true] *)
+  :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
   -> ('a, exn) Result.t
 
@@ -38,11 +38,11 @@ val run_in_async_with_optional_cycle
     [run_in_async] does not automatically start the Async scheduler.  You still need to
     call [Scheduler.go] elsewhere in your program. *)
 val run_in_async
-  :  ?wakeup_scheduler:bool  (** default is [true] *)
+  :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> (unit -> 'a)
   -> ('a, exn) Result.t
 val run_in_async_exn
-  :  ?wakeup_scheduler:bool  (** default is [true] *)
+  :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> (unit -> 'a)
   ->  'a
 

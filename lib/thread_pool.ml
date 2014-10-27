@@ -38,18 +38,18 @@ module Internal = struct
   module Work = struct
     type t =
       { (* When this work starts running, the name of the thread will be set (via
-           [Linux_ext.pr_set_name]) to [name]. *)
-        name : string;
-        doit : unit -> unit;
-        priority : Priority.t;
+           [Linux_ext.pr_set_name]) to[name]. *)
+        name     : string
+      ; doit     : unit -> unit
+      ; priority : Priority.t
       }
     with sexp_of
   end
 
   module Work_queue = struct
     type elt =
-    | Stop
-    | Work of Work.t
+      | Stop
+      | Work of Work.t
     with sexp_of
 
     type t = elt Squeue.t with sexp_of
@@ -64,15 +64,15 @@ module Internal = struct
        pool doesn't interfere with finalizers that clients attach to
        [Helper_thread.t]'s. *)
     type 'thread t =
-      { in_pool : Pool_id.t;
-        mutable state : [ `In_use | `Finishing | `Finished ];
-        thread : 'thread;
+      { in_pool          : Pool_id.t
+      ; mutable state    : [ `In_use | `Finishing | `Finished ]
+      ; thread           : 'thread
         (* [default_name] will be used as the name of work run by the helper thread,
            unless that work is added with an overriding name. *)
-        default_name : string;
+      ; default_name     : string
         (* [default_priority] will be used as the priority of work run by the helper
            thread, unless that work is added with an overriding priority. *)
-        default_priority : Priority.t;
+      ; default_priority : Priority.t
       }
     with fields, sexp_of
   end
@@ -81,30 +81,30 @@ module Internal = struct
     type t =
       { (* [name] is the name of the thread that the OS knows, i.e. the argument supplied
            to the most recent call to [set_thread_name] by the thread. *)
-        mutable name : string;
-        (* [thread_id] is the OCaml thread id of the OCaml thread that this corresponds
-           to.  It is an option only because we create this object before creating the
-           thread.  We set it to [Some] as soon as we create the thread, and then never
-           change it. *)
-        mutable thread_id : int option;
-        (* [priority] is the priority of the thread that the OS knows, i.e. the argument
-           supplied in the most recent call to [setpriority] by the thread. *)
-        mutable priority : Priority.t;
-        (* A thread can be "available", meaning that it isn't working on anything, or
-           doing work added to the thread pool, or serving as a helper thread.  *)
-        mutable state : [ `Available
-                        | `Working
-                        | `Helper of t sexp_opaque Helper_thread.t
-                        ];
-        (* [unfinished_work] is the amount of work remaining for this thread to do.  It
-           includes all the work in [work_queue], plus perhaps an additional work that is
-           running. *)
-        mutable unfinished_work : int;
-        (* [work_queue] is where this thread pulls work from.  Each thread has its own
-           queue.  If a thread is working for the general pool, then its work queue has at
-           most one element.  If a thread is a helper thread, then the work queue has all
-           the unfinished work that has been added for the helper thread. *)
-        work_queue : Work_queue.t;
+        mutable name                    : string
+      (* [thread_id] is the OCaml thread id of the OCaml thread that this corresponds
+         to.  It is an option only because we create this object before creating the
+         thread.  We set it to [Some] as soon as we create the thread, and then never
+         change it. *)
+      ; mutable thread_id       : int option
+      (* [priority] is the priority of the thread that the OS knows, i.e. the argument
+         supplied in the most recent call to [setpriority] by the thread. *)
+      ; mutable priority        : Priority.t
+      (* A thread can be "available", meaning that it isn't working on anything, or
+         doing work added to the thread pool, or serving as a helper thread.  *)
+      ; mutable state           : [ `Available
+                                  | `Working
+                                  | `Helper of t sexp_opaque Helper_thread.t
+                                  ]
+      (* [unfinished_work] is the amount of work remaining for this thread to do.  It
+         includes all the work in [work_queue], plus perhaps an additional work that is
+         running. *)
+      ; mutable unfinished_work : int
+      (* [work_queue] is where this thread pulls work from.  Each thread has its own
+         queue.  If a thread is working for the general pool, then its work queue has at
+         most one element.  If a thread is a helper thread, then the work queue has all
+         the unfinished work that has been added for the helper thread. *)
+      ; work_queue              : Work_queue.t
       }
     with fields, sexp_of
 
@@ -118,7 +118,7 @@ module Internal = struct
           ~state:ignore
           ~unfinished_work:(check (fun unfinished_work ->
             assert (unfinished_work = Squeue.length t.work_queue
-                   || unfinished_work = Squeue.length t.work_queue + 1)))
+                    || unfinished_work = Squeue.length t.work_queue + 1)))
           ~work_queue:ignore
       with exn ->
         failwiths "Thread.invariant failed" (exn, t) <:sexp_of< exn * t >>
@@ -131,21 +131,21 @@ module Internal = struct
     ;;
 
     let create priority =
-      { name = "";
-        thread_id = None;
-        priority;
-        state = `Available;
-        unfinished_work = 0;
-        work_queue = Work_queue.create ();
+      { name            = ""
+      ; thread_id       = None
+      ; priority
+      ; state           = `Available
+      ; unfinished_work = 0
+      ; work_queue      = Work_queue.create ()
       }
     ;;
 
     let enqueue_work t work =
       t.unfinished_work <- t.unfinished_work + 1;
-      Work_queue.enqueue t.work_queue (Work_queue.Work work);
+      Work_queue.enqueue t.work_queue (Work work);
     ;;
 
-    let stop t = Work_queue.enqueue t.work_queue Work_queue.Stop
+    let stop t = Work_queue.enqueue t.work_queue Stop
 
     let initialize_ocaml_thread t =
       set_thread_name t.name;
@@ -154,8 +154,8 @@ module Internal = struct
          optimization.  It is done so that in programs that don't use priorities, we never
          call [setpriority], and thus prevent problems due to the user's "ulimit -e" being
          too restrictive. *)
-      if not (Priority.equal (getpriority ()) t.priority) then
-        setpriority t.priority;
+      if not (Priority.equal (getpriority ()) t.priority)
+      then setpriority t.priority;
     ;;
 
     let set_name t name =
@@ -176,44 +176,44 @@ module Internal = struct
 
   (* [Thread_pool.t] *)
   type t =
-    { id : Pool_id.t;
-      (** [state] starts as [`In_use] when the thread pool is created.  When the user
-          calls [finished_with], it transitions to [`Finishing].  When the last work
-          is done, it transitions to [`Finished]. *)
-      mutable state : [ `In_use | `Finishing | `Finished ];
-      (* [mutex] is used to protect all access to [t] and its substructures, since the
-         threads actually doing the work need to access [t]. *)
-      mutex : Mutex.t;
-      (** [default_priority] is the priority that will be used for work unless that work
-          is added with an overriding priority.  It is set to whatever the priority is
-          when the thread pool is created. *)
-      default_priority : Priority.t;
-      (* [max_num_threads] is the maximum number of threads that the thread pool is
-         allowed to create. *)
-      max_num_threads : int;
-      (* [num_threads] is the number of threads that have been created by the pool.  The
-         thread pool guarantees that [num_threads <= max_num_threads]. *)
-      mutable num_threads : int;
-      (* [thread_creation_failure_lockout] is the amount of time that must pass after a
-         thread-creation failure before the thread pool will make another attempt to
-         create a thread. *)
-      mutable thread_creation_failure_lockout : Time.Span.t;
-      (* [last_thread_creation_failure] holds the last time that [Core.Std.Thread.create]
-         raised.  It is used to avoid calling [Thread.create] too frequently when it is
-         failing. *)
-      mutable last_thread_creation_failure : Time.t;
-      (* [threads] holds all the threads that have been created by the pool. *)
-      mutable threads : Thread.t list;
-      (* [available_threads] holds all threads that have [state = `Available].  It is used
-         as a stack so that the most recently used available thread is used next, on the
-         theory that this is better for locality. *)
-      mutable available_threads : Thread.t list;
-      (* [work_queue] holds work to be done for which no thread is available. *)
-      work_queue : Work.t Queue.t;
-      (* [unfinished_work] holds the amount of work that has been submitted to the pool
-         but not yet been completed. *)
-      mutable unfinished_work : int;
-      mutable num_work_completed : int;
+    { id                                      : Pool_id.t
+    (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
+        [finished_with], it transitions to [`Finishing].  When the last work is done, it
+        transitions to[`Finished]. *)
+    ; mutable state                           : [ `In_use | `Finishing | `Finished ]
+    (* [mutex] is used to protect all access to [t] and its substructures, since the
+       threads actually doing the work need to access[t]. *)
+    ; mutex                                   : Mutex.t
+    (** [default_priority] is the priority that will be used for work unless that work is
+        added with an overriding priority.  It is set to whatever the priority is when the
+        thread pool is created. *)
+    ; default_priority                        : Priority.t
+    (* [max_num_threads] is the maximum number of threads that the thread pool is allowed
+       to create. *)
+    ; max_num_threads                         : int
+    (* [num_threads] is the number of threads that have been created by the pool.  The
+       thread pool guarantees that [num_threads <= max_num_threads]. *)
+    ; mutable num_threads                     : int
+    (* [thread_creation_failure_lockout] is the amount of time that must pass after a
+       thread-creation failure before the thread pool will make another attempt to create
+       a thread. *)
+    ; mutable thread_creation_failure_lockout : Time.Span.t
+    (* [last_thread_creation_failure] holds the last time that[Core.Std.Thread.create]
+       raised.  It is used to avoid calling [Thread.create] too frequently when it is
+       failing. *)
+    ; mutable last_thread_creation_failure    : Time.t
+    (* [threads] holds all the threads that have been created by the pool. *)
+    ; mutable threads                         : Thread.t list
+    (* [available_threads] holds all threads that have [state = `Available].  It is used
+       as a stack so that the most recently used available thread is used next, on the
+       theory that this is better for locality. *)
+    ; mutable available_threads               : Thread.t list
+    (* [work_queue] holds work to be done for which no thread is available. *)
+    ; work_queue                              : Work.t Queue.t
+    (* [unfinished_work] holds the amount of work that has been submitted to the pool but
+       not yet been completed. *)
+    ; mutable unfinished_work                 : int
+    ; mutable num_work_completed              : int
     }
   with fields, sexp_of
 
@@ -223,10 +223,10 @@ module Internal = struct
       Fields.iter
         ~id:ignore
         ~state:(check (function
-                  | `In_use | `Finishing -> ()
-                  | `Finished ->
-                    assert (t.unfinished_work = 0);
-                    assert (t.num_threads = 0)))
+          | `In_use | `Finishing -> ()
+          | `Finished ->
+            assert (t.unfinished_work = 0);
+            assert (t.num_threads = 0)))
         ~mutex:(check Mutex.invariant)
         ~default_priority:ignore
         ~max_num_threads:(check (fun max_num_threads ->
@@ -272,9 +272,9 @@ module Internal = struct
   let has_unstarted_work t = not (Queue.is_empty t.work_queue)
 
   let create ~max_num_threads =
-    if max_num_threads < 1 then
-      error "Thread_pool.create max_num_threads was < 1" max_num_threads
-        (<:sexp_of< int >>)
+    if max_num_threads < 1
+    then error "Thread_pool.create max_num_threads was < 1" max_num_threads
+           <:sexp_of< int >>
     else
       let t =
         { id                                      = Pool_id.create ()
@@ -329,30 +329,29 @@ module Internal = struct
       maybe_finish t;
   ;;
 
-  let assign_work_to_thread thread work =
-    thread.Thread.state <- `Working;
+  let assign_work_to_thread (thread : Thread.t) work =
+    thread.state <- `Working;
     Thread.enqueue_work thread work;
   ;;
 
   let make_thread_available t thread =
-    if debug then
-      Debug.log "make_thread_available" (thread, t) (<:sexp_of< Thread.t * t >>);
+    if debug
+    then Debug.log "make_thread_available" (thread, t) <:sexp_of< Thread.t * t >>;
     match Queue.dequeue t.work_queue with
     | Some work -> assign_work_to_thread thread work
     | None ->
-      thread.Thread.state <- `Available;
+      thread.state <- `Available;
       t.available_threads <- thread :: t.available_threads;
       maybe_finish t;
   ;;
 
-  let maybe_finish_helper_thread t helper_thread =
-    let module H = Helper_thread in
-    match helper_thread.H.state with
+  let maybe_finish_helper_thread t (helper_thread : Thread.t Helper_thread.t) =
+    match helper_thread.state with
     | `In_use | `Finished -> ()
     | `Finishing ->
-      let thread = helper_thread.H.thread in
-      if thread.Thread.unfinished_work = 0 then begin
-        helper_thread.H.state <- `Finished;
+      let thread = helper_thread.thread in
+      if thread.unfinished_work = 0 then begin
+        helper_thread.state <- `Finished;
         make_thread_available t thread;
       end;
   ;;
@@ -365,24 +364,25 @@ module Internal = struct
         Core.Std.Thread.create (fun () ->
           Thread.initialize_ocaml_thread thread;
           let rec loop () =
-            match Squeue.pop thread.Thread.work_queue with
-            | Work_queue.Stop -> ()
-            | Work_queue.Work work ->
-              if debug then
-                Debug.log "thread got work" (work, thread, t)
-                  (<:sexp_of< Work.t * Thread.t * t >>);
-              Thread.set_name thread work.Work.name;
-              Thread.set_priority thread work.Work.priority;
+            match Squeue.pop thread.work_queue with
+            | Stop -> ()
+            | Work work ->
+              if debug
+              then Debug.log "thread got work" (work, thread, t)
+                     <:sexp_of< Work.t * Thread.t * t >>;
+              Thread.set_name thread work.name;
+              Thread.set_priority thread work.priority;
               (try
-                 work.Work.doit () (* the actual work *)
+                 work.doit () (* the actual work *)
                with _ -> ());
               t.num_work_completed <- t.num_work_completed + 1;
-              if debug then Debug.log "thread finished with work" (work, thread, t)
-                              (<:sexp_of< Work.t * Thread.t * t >>);
+              if debug
+              then Debug.log "thread finished with work" (work, thread, t)
+                     <:sexp_of< Work.t * Thread.t * t >>;
               Mutex.critical_section t.mutex ~f:(fun () ->
                 t.unfinished_work <- t.unfinished_work - 1;
-                thread.Thread.unfinished_work <- thread.Thread.unfinished_work - 1;
-                begin match thread.Thread.state with
+                thread.unfinished_work <- thread.unfinished_work - 1;
+                begin match thread.state with
                 | `Available -> assert false
                 | `Helper helper_thread -> maybe_finish_helper_thread t helper_thread
                 | `Working -> make_thread_available t thread;
@@ -392,14 +392,14 @@ module Internal = struct
           loop ()) ())
     in
     Or_error.map ocaml_thread ~f:(fun ocaml_thread ->
-      thread.Thread.thread_id <- Some (Core.Std.Thread.id ocaml_thread);
+      thread.thread_id <- Some (Core.Std.Thread.id ocaml_thread);
       t.num_threads <- t.num_threads + 1;
       t.threads <- thread :: t.threads;
       thread)
   ;;
 
   let get_available_thread t =
-    if debug then Debug.log "get_available_thread" t (<:sexp_of< t >>);
+    if debug then Debug.log "get_available_thread" t <:sexp_of< t >>;
     match t.available_threads with
     | thread :: rest -> t.available_threads <- rest; `Ok thread
     | [] ->
@@ -424,14 +424,14 @@ module Internal = struct
 
   let add_work ?priority ?name t doit =
     if debug then Debug.log "add_work" t <:sexp_of< t >>;
-    if not (is_in_use t) then
-      error "add_work called on finished thread pool" t <:sexp_of< t >>
+    if not (is_in_use t)
+    then error "add_work called on finished thread pool" t <:sexp_of< t >>
     else begin
       let work =
         { Work.
-          doit;
-          name = Option.value name ~default:default_thread_name;
-          priority = Option.value priority ~default:t.default_priority;
+          doit
+        ; name     = Option.value name ~default:default_thread_name
+        ; priority = Option.value priority ~default:t.default_priority
         }
       in
       inc_unfinished_work t;
@@ -444,40 +444,38 @@ module Internal = struct
   ;;
 
   let create_helper_thread ?priority ?name t =
-    if debug then
-      Debug.log "create_helper_thread" t <:sexp_of< t >>;
-    if not (is_in_use t) then
-      error "create_helper_thread called on finished thread pool" t <:sexp_of< t >>
+    if debug then Debug.log "create_helper_thread" t <:sexp_of< t >>;
+    if not (is_in_use t)
+    then error "create_helper_thread called on finished thread pool" t <:sexp_of< t >>
     else
       match get_available_thread t with
       | `None_available ->
-        error "create_helper_thread could not get a thread" t (<:sexp_of< t >>);
+        error "create_helper_thread could not get a thread" t <:sexp_of< t >>;
       | `Ok thread ->
         let helper_thread =
           { Helper_thread.
-            default_name = Option.value name ~default:"helper_thread";
-            default_priority = Option.value priority ~default:t.default_priority;
-            in_pool = t.id;
-            state = `In_use;
-            thread;
+            default_name     = Option.value name ~default:"helper_thread"
+          ; default_priority = Option.value priority ~default:t.default_priority
+          ; in_pool          = t.id
+          ; state            = `In_use
+          ; thread
           }
         in
-        thread.Thread.state <- `Helper helper_thread;
+        thread.state <- `Helper helper_thread;
         Ok helper_thread;
   ;;
 
   let add_work_for_helper_thread ?priority ?name t helper_thread doit =
-    if debug then
-      Debug.log "add_work_for_helper_thread" (helper_thread, t)
-        (<:sexp_of< Thread.t Helper_thread.t * t >>);
-    let module H = Helper_thread in
-    if not (Pool_id.equal t.id helper_thread.H.in_pool) then
-      error "add_work_for_helper_thread called on helper thread not in pool"
-        (helper_thread, t) (<:sexp_of< Thread.t Helper_thread.t * t >>)
-    else if not (is_in_use t) then
-      error "add_work_for_helper_thread called on finished thread pool" t <:sexp_of< t >>
+    if debug
+    then Debug.log "add_work_for_helper_thread" (helper_thread, t)
+           <:sexp_of< Thread.t Helper_thread.t * t >>;
+    if not (Pool_id.equal t.id helper_thread.in_pool)
+    then error "add_work_for_helper_thread called on helper thread not in pool"
+           (helper_thread, t) <:sexp_of< Thread.t Helper_thread.t * t >>
+    else if not (is_in_use t)
+    then error "add_work_for_helper_thread called on finished thread pool" t <:sexp_of< t >>
     else begin
-      match helper_thread.H.state with
+      match helper_thread.state with
       | `Finishing | `Finished ->
         error "add_work_for_helper_thread called on helper thread no longer in use"
           (helper_thread, t) <:sexp_of< Thread.t Helper_thread.t * t >>
@@ -486,29 +484,29 @@ module Internal = struct
         inc_unfinished_work t;
         Thread.enqueue_work thread
           { Work.
-            name = Option.value name ~default:(Helper_thread.default_name helper_thread);
-            doit;
-            priority =
+            name     =
+              Option.value name ~default:(Helper_thread.default_name helper_thread)
+          ; doit
+          ; priority =
               Option.value priority
-                ~default:(Helper_thread.default_priority helper_thread);
+                ~default:(Helper_thread.default_priority helper_thread)
           };
         Ok ();
     end
   ;;
 
   let finished_with_helper_thread t helper_thread =
-    if debug then
-      Debug.log "finished_with_helper_thread" (helper_thread, t)
-        (<:sexp_of< Thread.t Helper_thread.t * t >>);
-    let module H = Helper_thread in
-    if not (Pool_id.equal t.id helper_thread.H.in_pool) then
-      failwiths "finished_with_helper_thread called on helper thread not in pool"
-        (helper_thread, t) (<:sexp_of< Thread.t Helper_thread.t * t >>)
+    if debug
+    then Debug.log "finished_with_helper_thread" (helper_thread, t)
+           <:sexp_of< Thread.t Helper_thread.t * t >>;
+    if not (Pool_id.equal t.id helper_thread.in_pool)
+    then failwiths "finished_with_helper_thread called on helper thread not in pool"
+           (helper_thread, t) <:sexp_of< Thread.t Helper_thread.t * t >>
     else
-      match helper_thread.H.state with
+      match helper_thread.state with
       | `Finishing | `Finished -> ()
       | `In_use ->
-        helper_thread.H.state <- `Finishing;
+        helper_thread.state <- `Finishing;
         maybe_finish_helper_thread t helper_thread;
   ;;
 end
@@ -593,21 +591,21 @@ TEST_MODULE = struct
     module Condition = Core.Std.Condition
 
     type 'a t =
-      { mutable value : 'a option;
-        mutable num_waiting : int;
-        mutex : Mutex.t sexp_opaque;
+      { mutable value       : 'a option
+      ; mutable num_waiting : int
+      ; mutex               : Mutex.t sexp_opaque
         (* Threads that do [Ivar.read] when [is_none value] block using [Condition.wait
            full].  When [Ivar.fill] sets [value], it uses [Condition.broadcast] to wake
            up all the blocked threads. *)
-        full : Condition.t sexp_opaque;
+      ; full                : Condition.t sexp_opaque
       }
     with sexp_of
 
     let create () =
-      { value = None;
-        num_waiting = 0;
-        mutex = Mutex.create ();
-        full = Condition.create ();
+      { value       = None
+      ; num_waiting = 0
+      ; mutex       = Mutex.create ()
+      ; full        = Condition.create ()
       }
     ;;
 
@@ -676,9 +674,9 @@ TEST_MODULE = struct
   TEST_UNIT =
     List.iter [ 1; 2; 5; 10; 100; 1000 ] ~f:(fun num_jobs ->
       List.iter [ 1; 2; 5; 10; 100 ] ~f:(fun max_num_threads ->
-        if debug then
-          eprintf "num_jobs = %d  max_num_threads = %d\n%!"
-            num_jobs max_num_threads;
+        if debug
+        then eprintf "num_jobs = %d  max_num_threads = %d\n%!"
+               num_jobs max_num_threads;
         let expected_max_concurrent_jobs = min num_jobs max_num_threads in
         let max_observed_concurrent_jobs = ref 0 in
         let num_concurrent_jobs = ref 0 in
@@ -697,7 +695,7 @@ TEST_MODULE = struct
                     (t,
                      worker_threads_have_fully_started,
                      worker_threads_should_continue)
-                    (<:sexp_of< t * unit Ivar.t * unit Ivar.t >>);
+                    <:sexp_of< t * unit Ivar.t * unit Ivar.t >>;
                   exit 1;
                 end else begin
                   Time.pause (sec 0.1);
@@ -713,8 +711,8 @@ TEST_MODULE = struct
           let job =
             ok_exn (add_work t (fun () ->
               job_starts := i :: !job_starts;
-              if List.length !job_starts = expected_max_concurrent_jobs then
-                Ivar.fill worker_threads_have_fully_started ();
+              if List.length !job_starts = expected_max_concurrent_jobs
+              then Ivar.fill worker_threads_have_fully_started ();
               incr num_concurrent_jobs;
               max_observed_concurrent_jobs :=
                 max !max_observed_concurrent_jobs !num_concurrent_jobs;
@@ -727,13 +725,13 @@ TEST_MODULE = struct
         Ivar.read worker_threads_have_fully_started;
         assert (!num_concurrent_jobs = expected_max_concurrent_jobs);
         assert (List.length !job_starts = expected_max_concurrent_jobs);
-        if max_num_threads = 1 then
-          assert (!job_starts = List.init expected_max_concurrent_jobs ~f:Fn.id);
+        if max_num_threads = 1
+        then assert (!job_starts = List.init expected_max_concurrent_jobs ~f:Fn.id);
         Ivar.fill worker_threads_should_continue ();
         wait_until_no_unfinished_work t;
         assert (!max_observed_concurrent_jobs = expected_max_concurrent_jobs);
-        if max_num_threads = 1 then
-          assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id);
+        if max_num_threads = 1
+        then assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id);
         assert (t.num_threads <= max_num_threads);
         finished_with t;
       ))
@@ -749,8 +747,8 @@ TEST_MODULE = struct
     let work_finished = Ivar.create () in
     ok_exn (add_work_for_helper_thread t helper_thread
               (fun () ->
-                Ivar.read helper_continue;
-                Ivar.fill helper_finished ();
+                 Ivar.read helper_continue;
+                 Ivar.fill helper_finished ();
               ));
     ok_exn (add_work t (fun () -> Ivar.fill work_finished ()));
     Ivar.fill helper_continue ();
@@ -772,8 +770,8 @@ TEST_MODULE = struct
     let helper_finished = Ivar.create () in
     ok_exn (add_work_for_helper_thread t helper_thread
               (fun () ->
-                Ivar.read helper_continue;
-                Ivar.fill helper_finished ()));
+                 Ivar.read helper_continue;
+                 Ivar.fill helper_finished ()));
     finished_with_helper_thread t helper_thread;
     assert (Result.is_error (add_work_for_helper_thread t helper_thread Fn.ignore));
     assert (not !general_work_got_done);
@@ -791,17 +789,17 @@ TEST_MODULE = struct
     let helper_thread = ok_exn (create_helper_thread t) in
     assert (Result.is_error (add_work_for_helper_thread  t_bad helper_thread ignore));
     assert (Result.is_error (Result.try_with (fun () ->
-                               finished_with_helper_thread t_bad helper_thread)));
+      finished_with_helper_thread t_bad helper_thread)));
     finished_with_helper_thread t helper_thread;
     finished_with t;
   ;;
 
   (* Setting thread name and priority. *)
   TEST_UNIT =
-    Result.iter Core.Std.Unix.RLimit.nice ~f:(fun rlimit_nice ->
+    let module RLimit = Core.Std.Unix.RLimit in
+    Result.iter RLimit.nice ~f:(fun rlimit_nice ->
       let test_parameters =
-        let open Core.Std.Unix.RLimit in
-        let nice_limit = get rlimit_nice in
+        let nice_limit = RLimit.get rlimit_nice in
         match nice_limit.max with
         | Infinity ->
           let max = 40 in
@@ -822,8 +820,8 @@ TEST_MODULE = struct
           | Ok getpriority, Ok get_name ->
             let t = ok_exn (create ~max_num_threads:2) in
             let check4 ~name ~priority
-                (check : ?name:string -> ?priority:Priority.t -> unit -> unit Or_error.t)
-                =
+                  (check : ?name:string -> ?priority:Priority.t -> unit -> unit Or_error.t)
+              =
               ok_exn (check ());
               ok_exn (check ~name ());
               ok_exn (check ~priority ());
@@ -832,28 +830,28 @@ TEST_MODULE = struct
             in
             check4 ~name:"new name" ~priority:(Priority.decr initial_priority)
               (fun ?name ?priority () ->
-                add_work ?priority ?name t (fun () ->
-                  assert (get_name () = Option.value name ~default:default_thread_name);
-                  assert (getpriority ()
-                          = Option.value priority ~default:(default_priority t))));
+                 add_work ?priority ?name t (fun () ->
+                   assert (get_name () = Option.value name ~default:default_thread_name);
+                   assert (getpriority ()
+                           = Option.value priority ~default:(default_priority t))));
             check4 ~name:"new name" ~priority:(Priority.decr initial_priority)
               (fun ?name ?priority () ->
-                let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
-                let default_thread_name =
-                  Option.value name ~default:default_thread_name
-                in
-                let default_priority =
-                  Option.value priority ~default:(default_priority t)
-                in
-                check4 ~name:"new name 2" ~priority:(Priority.decr initial_priority)
-                  (fun ?name ?priority () ->
-                    add_work_for_helper_thread ?priority ?name t helper_thread (fun () ->
-                      assert (get_name ()
-                              = Option.value name ~default:default_thread_name);
-                      assert (getpriority ()
-                              = Option.value priority ~default:default_priority)));
-                finished_with_helper_thread t helper_thread;
-                Ok ());
+                 let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
+                 let default_thread_name =
+                   Option.value name ~default:default_thread_name
+                 in
+                 let default_priority =
+                   Option.value priority ~default:(default_priority t)
+                 in
+                 check4 ~name:"new name 2" ~priority:(Priority.decr initial_priority)
+                   (fun ?name ?priority () ->
+                      add_work_for_helper_thread ?priority ?name t helper_thread (fun () ->
+                        assert (get_name ()
+                                = Option.value name ~default:default_thread_name);
+                        assert (getpriority ()
+                                = Option.value priority ~default:default_priority)));
+                 finished_with_helper_thread t helper_thread;
+                 Ok ());
             finished_with t;
         done)
   ;;

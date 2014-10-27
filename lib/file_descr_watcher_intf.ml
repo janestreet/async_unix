@@ -10,15 +10,15 @@
     1. [pre_check], while holding the async lock
     2. [thread_safe_check], while not holding the async lock
     3. [post_check], while holding the async lock
- *)
+*)
 
 open Core.Std
 open Import
 
 module Post = struct
   type t =
-    { ready : File_descr.t list;
-      bad   : File_descr.t list;
+    { ready : File_descr.t list
+    ; bad   : File_descr.t list
     }
   with sexp_of
 
