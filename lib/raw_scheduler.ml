@@ -109,8 +109,6 @@ type t =
 
   ; mutable next_tsc_calibration           : Time_stamp_counter.t
 
-  ; mutable yield_ivar                     : unit Ivar.t option
-
   ; kernel_scheduler                       : Kernel_scheduler.t
 
   (* configuration*)
@@ -267,7 +265,6 @@ let invariant t : unit =
       ~busy_pollers:(check Busy_pollers.invariant)
       ~busy_poll_thread_is_running:ignore
       ~next_tsc_calibration:ignore
-      ~yield_ivar:ignore
       ~kernel_scheduler:(check Kernel_scheduler.invariant)
       ~max_inter_cycle_timeout:ignore
   with exn ->
@@ -282,8 +279,8 @@ let update_check_access t do_check =
        Some (fun () ->
          if not (am_holding_lock t) then begin
            Debug.log "attempt to access async from thread not holding the async lock"
-             (Backtrace.get_opt (), t, Time.now ())
-             <:sexp_of< Backtrace.t option * t * Time.t >>;
+             (Backtrace.get (), t, Time.now ())
+             <:sexp_of< Backtrace.t * t * Time.t >>;
            exit 1;
          end))
 ;;
@@ -377,7 +374,7 @@ let create
         let watcher = watcher
       end in
       ((module W : File_descr_watcher.S), None)
-    | Epoll ->
+    | Epoll | Epoll_if_timerfd ->
       let timerfd =
         match try_create_timerfd () with
         | None ->
@@ -412,7 +409,6 @@ Async will be unable to timeout with sub-millisecond precision."
     ; busy_pollers                   = Busy_pollers.create ()
     ; busy_poll_thread_is_running    = false
     ; next_tsc_calibration           = Time_stamp_counter.now ()
-    ; yield_ivar                     = None
     ; kernel_scheduler
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
     }
@@ -450,10 +446,6 @@ let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
 let have_lock_do_cycle t =
   if debug then Debug.log "have_lock_do_cycle" t <:sexp_of< t >>;
-  begin match t.yield_ivar with
-  | None -> ()
-  | Some ivar -> Ivar.fill ivar (); t.yield_ivar <- None;
-  end;
   Kernel_scheduler.run_cycle t.kernel_scheduler;
   (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
      events, or an unhandled exception. *)
@@ -585,13 +577,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   Raw_signal_manager.manage t.signal_manager Signal.pipe;
   let compute_timeout () =
     if debug then Debug.log_string "compute_timeout";
-    if Kernel_scheduler.num_pending_jobs t.kernel_scheduler > 0
-    || Option.is_some t.yield_ivar
-    then
-      (* We want to timeout immediately if there are still jobs remaining, or if someone
-         [yield]ed, so that we immediately come back and start running after checking for
-         I/O. *)
-      `Immediately
+    if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+    then `Immediately
     else begin
       let timeout_after span =
         match t.timerfd with
@@ -876,7 +863,6 @@ let fold_fields (type a) ~init folder : a =
     ~busy_poll_thread_is_running:f
     ~busy_pollers:f
     ~next_tsc_calibration:f
-    ~yield_ivar:f
     ~kernel_scheduler:f
     ~max_inter_cycle_timeout:f
 ;;
@@ -893,32 +879,14 @@ let handle_thread_pool_stuck f =
 
 let yield () =
   let t = t () in
-  let ivar =
-    match t.yield_ivar with
-    | Some ivar -> ivar
-    | None ->
-      let ivar = Ivar.create () in
-      t.yield_ivar <- Some ivar;
-      ivar
-  in
-  Ivar.read ivar
+  Kernel_scheduler.yield t.kernel_scheduler;
 ;;
 
 let yield_every ~n =
-  if n <= 0
-  then failwiths "Scheduler.yield_every got nonpositive count" n <:sexp_of< int >>
-  else if n = 1
-  then stage yield
-  else
-    let count_until_yield = ref n in
-    stage (fun () ->
-      decr count_until_yield;
-      if !count_until_yield > 0
-      then Deferred.unit
-      else begin
-        count_until_yield := n;
-        yield ();
-      end)
+  let yield_every = Staged.unstage (Kernel_scheduler.yield_every ~n) in
+  stage (fun () ->
+    let t = t () in
+    yield_every t.kernel_scheduler)
 ;;
 
 TEST_UNIT = invariant (t ())

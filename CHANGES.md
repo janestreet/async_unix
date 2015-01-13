@@ -1,3 +1,34 @@
+## 112.17.00
+
+- Moved `Scheduler.yield` to `Async_kernel`.
+- Added `Reader.load_annotated_sexp*` functions.
+
+  These are like the existing `Reader.load_sexp*` functions, except
+  they return annotated sexps rather than sexps.  Having annotated
+  sexps is useful so that one can report error positions to the user
+  when processing values built by the `t_of_sexp_` functions /after/
+  they return.  I.e. when there aren't syntax errors in the sexps, but
+  rather semantic errors detected later.
+- Removed noise and redundancy from `Reader.load_sexp` error messages.
+- Added `Writer.save_sexps`, analogous to `Reader.load_sexps`.
+- Made `Writer` errors raised by the background flush job include the
+  entire `Writer.t`, rather than just the `Fd.t`.
+- Added to `Writer.transfer` an optional argument to limit the number
+  of values read at once from the pipe.
+
+  The old behavior is to have no limit and remains the default.
+- Added to `Writer` some missing checks for functions that should
+  ensure the input writer isn't closed.
+- Changed `Scheduler.run_cycles_until_no_jobs_remain` to pause so that
+  alarms scheduled to fire in the past actually fire.
+
+  This is necessary because of the timing-wheel, which doesn't
+  guarantee to fire an event until alarm-precision after it was
+  scheduled.
+
+  Without this change, some tests unexpectedly fail, due to jobs not
+  running that should have.
+
 ## 112.06.00
 
 - Added `Writer.behave_nicely_in_pipeline`, which makes a program behave

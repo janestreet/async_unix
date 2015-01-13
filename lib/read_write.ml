@@ -13,7 +13,7 @@ module Immutable = struct
 end
 
 module Read_only = struct
-  type 'a t = ('a, read_only) any with sexp
+  type 'a t = ('a, read) any with sexp
 end
 
 module Mutable = struct

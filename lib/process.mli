@@ -60,7 +60,13 @@ module Output : sig
     ; stderr      : string
     ; exit_status : Unix.Exit_or_signal.t
     }
-  with sexp_of
+  with compare, sexp_of
+
+  module Stable : sig
+    module V1 : sig
+      type nonrec t = t with compare, sexp
+    end
+  end
 end
 val wait : t -> Output.t Deferred.t
 

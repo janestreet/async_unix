@@ -50,12 +50,18 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
 ;;
 
 module Output = struct
-  type t =
-    { stdout      : string
-    ; stderr      : string
-    ; exit_status : Unix.Exit_or_signal.t
-    }
-  with sexp_of
+  module Stable = struct
+    module V1 = struct
+      type t =
+        { stdout      : string
+        ; stderr      : string
+        ; exit_status : Unix.Exit_or_signal.t
+        }
+      with compare, sexp
+    end
+  end
+
+  include Stable.V1
 end
 
 let wait t =
@@ -118,6 +124,16 @@ let wait_stdout_lines ?accept_nonzero_exit t =
   wait_stdout ?accept_nonzero_exit t
   >>|? fun s ->
   String.split_lines s
+;;
+
+TEST_UNIT "first arg is not prog" =
+  let args = [ "219068700202774381" ] in
+  <:test_pred< string list Or_error.t >>
+    (Poly.equal (Ok args))
+    (Thread_safe.block_on_async_exn
+       (fun () ->
+          create ~prog:"echo" ~args ()
+          >>=? wait_stdout_lines))
 ;;
 
 let run ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =

@@ -1,3 +1,4 @@
+module Async_config     = Config
 module Fd               = Fd
 module In_thread        = In_thread
 module Io_stats         = Io_stats

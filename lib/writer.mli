@@ -192,9 +192,9 @@ val write_gen
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
     contents of the string are copied to an internal buffer before [write] returns, so
     clients can do whatever they want with [s] after that. *)
-val write           : ?pos:int -> ?len:int -> t -> string         -> unit
-val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t    -> unit
-val write_iobuf     : ?pos:int -> ?len:int -> t -> (_, _) Iobuf.t -> unit
+val write           : ?pos:int -> ?len:int -> t -> string                 -> unit
+val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t            -> unit
+val write_iobuf     : ?pos:int -> ?len:int -> t -> ([> read ], _) Iobuf.t -> unit
 
 val write_substring    : t -> Substring   .t -> unit
 val write_bigsubstring : t -> Bigsubstring.t -> unit
@@ -219,7 +219,7 @@ val write_line : t -> string -> unit
     The given integer is taken modulo 256. *)
 val write_byte : t -> int -> unit
 
-val write_sexp : ?hum:bool (** default is [false] *) -> t -> Sexp.t -> unit
+val write_sexp  : ?hum:bool (** default is [false] *) -> t -> Sexp.t -> unit
 
 (** [write_bin_prot] writes out a value using its bin_prot sizer/writer pair.  The format
     is the "size-prefixed binary protocol", in which the length of the data is written
@@ -399,9 +399,24 @@ val save_sexp
   -> Sexp.t
   -> unit Deferred.t
 
-(** [transfer' t pipe_r f] repeatedly pulls values from [pipe_r], and feeds them to [f],
+(** [save_sexps] works similarly to [save_sexp], but saves a sequence of sexps instead,
+    separated by newlines.  There is a corresponding [Reader.load_sexps] for reading back
+    in. *)
+val save_sexps
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
+  -> ?hum       : bool  (** default is [true] *)
+  -> string
+  -> Sexp.t list
+  -> unit Deferred.t
+
+(** [transfer' t pipe_r f] repeatedly reads values from [pipe_r] and feeds them to [f],
     which should in turn write them to [t].  It provides pushback to [pipe_r] by not
     reading when [t] cannot keep up with the data being pushed in.
+
+    By default, each read from [pipe_r] reads all the values in [pipe_r].  One can supply
+    [max_num_values_per_read] to limit the number of values per read.
 
     The [transfer'] stops and the result becomes determined when [stop] becomes
     determined, when [pipe_r] reaches its EOF, when [t] is closed, or when [t]'s consumer
@@ -417,14 +432,17 @@ val save_sexp
       transfer' t pipe_r (fun q -> Queue.iter q ~f; Deferred.unit)
     ]}
 *)
+
 val transfer'
-  :  ?stop : unit Deferred.t
+  :  ?stop                    : unit Deferred.t
+  -> ?max_num_values_per_read : int
   -> t
   -> 'a Pipe.Reader.t
   -> ('a Queue.t -> unit Deferred.t)
   -> unit Deferred.t
 val transfer
-  :  ?stop : unit Deferred.t
+  :  ?stop                    : unit Deferred.t
+  -> ?max_num_values_per_read : int
   -> t
   -> 'a Pipe.Reader.t
   -> ('a -> unit)

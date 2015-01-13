@@ -8,8 +8,8 @@ let debug = Debug.shutdown
 let todo = ref []
 
 let at_shutdown f =
-  let backtrace = Backtrace.get_opt () in
-  if debug then Debug.log "at_shutdown" backtrace <:sexp_of< Backtrace.t option >>;
+  let backtrace = Backtrace.get () in
+  if debug then Debug.log "at_shutdown" backtrace <:sexp_of< Backtrace.t >>;
   todo := (backtrace, f) :: !todo;
 ;;
 
@@ -38,7 +38,7 @@ let shutdown ?(force = !default_force_ref ()) status =
                >>| fun () ->
                if debug
                then Debug.log "one at_shutdown function finished" backtrace
-                      <:sexp_of< Backtrace.t option >>)))
+                      <:sexp_of< Backtrace.t >>)))
       (fun _ ->
          match shutting_down () with
          | `No -> assert false
@@ -46,6 +46,14 @@ let shutdown ?(force = !default_force_ref ()) status =
     upon force (fun () ->
       Debug.log_string "Shutdown forced.";
       exit 1);
+;;
+
+let shutdown_on_unhandled_exn () =
+  Monitor.detach_and_iter_errors Monitor.main ~f:(fun exn ->
+    try
+      Debug.log "shutting down due to unhandled exception" exn <:sexp_of< exn >>;
+      shutdown 1
+    with _ -> ())
 ;;
 
 let exit ?force status = shutdown ?force status; Deferred.never ()

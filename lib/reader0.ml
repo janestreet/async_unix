@@ -4,7 +4,7 @@ open Import
 module Read = Bin_prot.Read
 module Type_class = Bin_prot.Type_class
 module Unix = Unix_syscalls
-module Id = Unique_id.Int63 (struct end)
+module Id = Unique_id.Int63 ()
 
 module Read_result = struct
   module Z = struct
@@ -287,8 +287,10 @@ module Internal = struct
                   (Fd.syscall t.fd ~nonblocking:true
                      (fun file_descr ->
                         let res =
-                          Bigstring.read_assume_fd_is_nonblocking
-                            file_descr buf ~pos ~len
+                          Core.Syscall_result.Int.ok_or_unix_error_exn
+                            (Bigstring.read_assume_fd_is_nonblocking
+                               file_descr buf ~pos ~len)
+                            ~syscall_name:"read"
                         in
                         res, Scheduler.cycle_start ()))
                   (function
@@ -609,7 +611,16 @@ module Internal = struct
 
   let space = Bigstring.of_string " "
 
-  let gen_read_sexp ?parse_pos t parse k =
+  type 'sexp sexp_kind =
+    | Plain     : Sexp.t           sexp_kind
+    | Annotated : Sexp.Annotated.t sexp_kind
+
+  let gen_read_sexp
+        (type sexp)
+        ?parse_pos
+        t
+        ~(sexp_kind : sexp sexp_kind)
+        k =
     let rec loop parse_fun =
       with_nonempty_buffer' t (function
         | `Eof ->
@@ -620,9 +631,9 @@ module Internal = struct
           | Ok (Sexp.Done (sexp, parse_pos))       -> k (Ok (`Ok (sexp, parse_pos)))
           | Ok (Sexp.Cont (Parsing_whitespace, _)) -> k (Ok `Eof)
           | Ok (Sexp.Cont (( Parsing_atom
-                      | Parsing_list
-                      | Parsing_sexp_comment
-                      | Parsing_block_comment), _))
+                           | Parsing_list
+                           | Parsing_sexp_comment
+                           | Parsing_block_comment), _))
             -> failwiths "Reader.read_sexp got unexpected eof" t <:sexp_of< t >>
           end;
         | `Ok ->
@@ -637,28 +648,32 @@ module Internal = struct
             t.available <- 0;
             loop parse_fun)
     in
-    let parse ~pos ~len buf =
+    let parse ~pos ~len buf : (_, sexp) Sexp.parse_result =
       (* [parse_pos] will be threaded through the entire reading process by the sexplib
          code.  Every occurrence of [parse_pos] above will be identical to the [parse_pos]
          defined here. *)
       let parse_pos =
         match parse_pos with
-        | None -> Sexp.Parse_pos.create ~buf_pos:pos ()
+        | None           -> Sexp.Parse_pos.create ~buf_pos:pos ()
         | Some parse_pos -> Sexp.Parse_pos.with_buf_pos parse_pos pos
       in
-      parse ?parse_pos:(Some parse_pos) ?len:(Some len) buf
+      match sexp_kind with
+      | Plain ->
+        Sexp.parse_bigstring           ?parse_pos:(Some parse_pos) ?len:(Some len) buf
+      | Annotated ->
+        Sexp.Annotated.parse_bigstring ?parse_pos:(Some parse_pos) ?len:(Some len) buf
     in
     loop parse
   ;;
 
   type 'a read = ?parse_pos : Sexp.Parse_pos.t -> 'a
 
-  let gen_read_sexps ?parse_pos t parse =
+  let gen_read_sexps ?parse_pos t ~sexp_kind =
     let pipe_r, pipe_w = Pipe.create () in
     let finished =
       Deferred.create (fun result ->
         let rec loop parse_pos =
-          gen_read_sexp t parse ?parse_pos (function
+          gen_read_sexp t ~sexp_kind ?parse_pos (function
             | Error error -> Error.raise error
             | Ok `Eof -> Ivar.fill result ()
             | Ok `Ok (sexp, parse_pos) ->
@@ -679,10 +694,10 @@ module Internal = struct
     pipe_r;
   ;;
 
-  let read_sexps ?parse_pos t = gen_read_sexps t Sexp.parse_bigstring ?parse_pos
+  let read_sexps ?parse_pos t = gen_read_sexps t ~sexp_kind:Plain ?parse_pos
 
   let read_annotated_sexps ?parse_pos t =
-    gen_read_sexps t Sexp.Annotated.parse_bigstring ?parse_pos
+    gen_read_sexps t ~sexp_kind:Annotated ?parse_pos
   ;;
 
   let read_bin_prot
@@ -949,7 +964,7 @@ let read_until_max t p ~keep_delim ~max =
 ;;
 
 let read_sexp ?parse_pos t =
-  do_read_k t (gen_read_sexp t Sexp.parse_bigstring ?parse_pos)
+  do_read_k t (gen_read_sexp t ~sexp_kind:Plain ?parse_pos)
     (function
       | `Eof -> `Eof
       | `Ok (sexp, _) -> `Ok sexp)
@@ -994,48 +1009,84 @@ let lseek t offset ~mode =
     Unix_syscalls.lseek t.fd offset ~mode)
 ;;
 
-let get_error file f annot_sexp =
-  try
-    match Sexp.Annotated.conv f annot_sexp with
-    | `Result _ -> Ok ()
-    | `Error (exc, bad_annot_sexp) ->
-      Error (Error.of_exn (Sexp.Annotated.get_conv_exn ~file ~exc bad_annot_sexp))
-  with exn ->
-    error "Reader.load_sexp(s) error" (file, exn) <:sexp_of< string * exn >>
-;;
-
-let gen_load_exn ?exclusive file
-      (type a)
-      (convert : Sexp.t list -> a)
-      (get_error : Sexp.Annotated.t list -> Error.t) : a Deferred.t =
-  let fail exn =
-    failwiths "Reader.load_sexp(s) error" (file, exn) <:sexp_of< string * exn >>
-  in
-  let load parse f =
-    Monitor.try_with
-      (fun () ->
-         with_file ?exclusive file ~f:(fun t ->
-           use t;
-           Pipe.to_list (gen_read_sexps t parse)))
-    >>= function
-    | Ok sexps -> f sexps
-    | Error exn -> fail exn
-  in
-  load Sexp.parse_bigstring (fun sexps ->
+let get_error (type a) (type sexp)
+      ~file
+      ~(sexp_kind : sexp sexp_kind)
+      ~(a_of_sexp : sexp -> a)
+      (annotated_sexp : Sexp.Annotated.t) =
     try
-      return (convert sexps)
-    with
-    | Of_sexp_error _ ->
-      load Sexp.Annotated.parse_bigstring
-        (fun sexps -> fail (Error.to_exn (get_error sexps)))
-    | exn -> fail exn)
+      ignore (
+        a_of_sexp
+          (match sexp_kind with
+           | Plain     -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
+           | Annotated -> (annotated_sexp                         : sexp))
+        : a);
+      Ok ()
+    with exn ->
+      let unexpected_error () =
+        error "Reader.load_sexp error" (file, exn) <:sexp_of< string * exn >>
+      in
+      match exn with
+      | Of_sexp_error (exc, bad_sexp) ->
+        begin match Sexp.Annotated.find_sexp annotated_sexp bad_sexp with
+        | None -> unexpected_error ()
+        | Some bad_annotated_sexp ->
+          match Sexp.Annotated.get_conv_exn ~file ~exc bad_annotated_sexp with
+          | Of_sexp_error (Sexp.Annotated.Conv_exn (pos, exn), sexp) ->
+            (* The error produced by [get_conv_exn] already has the file position, so
+               we don't wrap with a redundant error message. *)
+            Or_error.error "invalid sexp" (pos, exn, "in", sexp)
+              <:sexp_of< string * exn * string * Sexp.t ] >>
+          | _ -> unexpected_error ()
+        end
+      | _ -> unexpected_error ()
 ;;
 
-type ('a, 'b) load =
-  ?exclusive:bool
+let gen_load_exn
+      (type sexp)
+      (type a)
+      ?exclusive
+      ~(sexp_kind : sexp sexp_kind)
+      ~file
+      (convert : sexp list -> a)
+      (get_error : Sexp.Annotated.t list -> Error.t) : a Deferred.t =
+  let load ~sexp_kind =
+    Monitor.try_with ~extract_exn:true (fun () ->
+      with_file ?exclusive file ~f:(fun t ->
+        use t;
+        Pipe.to_list (gen_read_sexps t ~sexp_kind)))
+    >>| function
+    | Ok sexps -> sexps
+    | Error exn ->
+      match exn with
+      | Sexp.Parse_error { err_msg; parse_state; _ } ->
+        (* This code reformats the [Parse_error] produced by sexplib to be more
+           readable. *)
+        let parse_pos =
+          match parse_state with
+          | `Sexp { parse_pos; _ } | `Annot { parse_pos; _ } -> parse_pos
+        in
+        Error.raise
+          (Error.create "syntax error when parsing sexp"
+             (sprintf "%s:%d:%d" file parse_pos.text_line parse_pos.text_char, err_msg)
+             <:sexp_of< string * string >>)
+      | _ -> raise exn
+  in
+  load ~sexp_kind
+  >>= fun sexps ->
+  try
+    return (convert sexps)
+  with
+  | Of_sexp_error _ ->
+    load ~sexp_kind:Annotated >>= fun sexps -> Error.raise (get_error sexps)
+  | exn -> failwiths "Reader.load_sexp(s) error" (file, exn) <:sexp_of< string * exn >>
+;;
+
+type ('sexp, 'a, 'b) load
+  =  ?exclusive:bool
   -> ?expand_macros:bool
   -> string
-  -> (Sexp.t -> 'a)
+  -> ('sexp -> 'a)
   -> 'b Deferred.t
 
 module Macro_loader = Sexplib.Macro.Loader (struct
@@ -1072,23 +1123,31 @@ let get_load_result_exn = function
   | `Error (exn, _sexp) -> raise exn
 ;;
 
-let load_sexp_exn ?exclusive ?(expand_macros = false) file f =
+let gen_load_sexp_exn (type a) (type sexp)
+      ?exclusive ?(expand_macros = false)
+      ~(sexp_kind : sexp sexp_kind)
+      ~file
+      ~(a_of_sexp : sexp -> a) =
   if expand_macros
-  then Macro_loader.load_sexp_conv file f >>| get_load_result_exn
+  then
+    match sexp_kind with
+    | Plain -> Macro_loader.load_sexp_conv file a_of_sexp >>| get_load_result_exn
+    | Annotated ->
+      failwith "Reader.load_annotated_sexp doesn't support ~expand_macros:true"
   else
     let multiple sexps =
       Error.create "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
         <:sexp_of< int * string >>
     in
-    gen_load_exn ?exclusive file
+    gen_load_exn ?exclusive ~file ~sexp_kind
       (fun sexps ->
          match sexps with
-         | [sexp] -> f sexp
+         | [sexp] -> a_of_sexp sexp
          | _ -> Error.raise (multiple sexps))
       (fun annot_sexps ->
          match annot_sexps with
          | [annot_sexp] ->
-           begin match get_error file f annot_sexp with
+           begin match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
            | Error e -> e
            | Ok () ->
              Error.create "conversion of annotated sexp unexpectedly succeeded"
@@ -1097,29 +1156,80 @@ let load_sexp_exn ?exclusive ?(expand_macros = false) file f =
          | _ -> multiple annot_sexps)
 ;;
 
-let load_sexp ?exclusive ?expand_macros file f =
-  Deferred.Or_error.try_with (fun () -> load_sexp_exn ?exclusive ?expand_macros file f)
+let load_sexp_exn ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexp_exn
+    ?exclusive
+    ?expand_macros
+    ~sexp_kind:Plain
+    ~file
+    ~a_of_sexp
 ;;
 
-let load_sexps_exn ?exclusive ?(expand_macros = false) file f =
+let load_annotated_sexp_exn ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexp_exn
+    ?exclusive
+    ?expand_macros
+    ~sexp_kind:Annotated
+    ~file
+    ~a_of_sexp
+;;
+
+let gen_load_sexp ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp =
+  Deferred.Or_error.try_with ~extract_exn:true (fun () ->
+    gen_load_sexp_exn ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp)
+;;
+
+let load_sexp ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexp ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+;;
+
+let load_annotated_sexp ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexp ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+;;
+
+let gen_load_sexps_exn (type a) (type sexp)
+      ?exclusive
+      ?(expand_macros = false)
+      ~(sexp_kind : sexp sexp_kind)
+      ~file
+      ~(a_of_sexp : sexp -> a) =
   if expand_macros
-  then Macro_loader.load_sexps_conv file f >>| List.map ~f:get_load_result_exn
+  then
+    match sexp_kind with
+    | Plain ->
+      Macro_loader.load_sexps_conv file a_of_sexp >>| List.map ~f:get_load_result_exn
+    | Annotated ->
+      failwith "Reader.load_annotated_sexps doesn't support ~expand_macros:true"
   else
-    gen_load_exn ?exclusive file
-      (fun sexps -> List.map sexps ~f)
+    gen_load_exn ?exclusive ~file ~sexp_kind
+      (fun sexps -> List.map sexps ~f:a_of_sexp)
       (fun annot_sexps ->
-         let errors =
-           List.filter_map annot_sexps ~f:(fun annot_sexp ->
-             match get_error file f annot_sexp with
-             | Ok _ -> None
-             | Error error -> Some error)
-         in
-         Error.create "Reader.load_sexps error" (file, errors)
-           <:sexp_of< string * Error.t list >>)
+         Error.of_list
+           (List.filter_map annot_sexps ~f:(fun annot_sexp ->
+              match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
+              | Ok _ -> None
+              | Error error -> Some error)))
 ;;
 
-let load_sexps ?exclusive ?expand_macros file f =
-  Deferred.Or_error.try_with (fun () -> load_sexps_exn ?exclusive ?expand_macros file f)
+let load_sexps_exn ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+;;
+
+let load_annotated_sexps_exn ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+;;
+
+let gen_load_sexps ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp =
+  Deferred.Or_error.try_with ~extract_exn:true (fun () ->
+    gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp)
+;;
+
+let load_sexps ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexps ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+;;
+
+let load_annotated_sexps ?exclusive ?expand_macros file a_of_sexp =
+  gen_load_sexps ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
 ;;
 
 let pipe t =

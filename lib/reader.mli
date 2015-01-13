@@ -328,14 +328,19 @@ val file_lines : string -> string list Deferred.t
     [load_sexps] is similar, but converts a sequence of sexps.
 
     Using [~expand_macros:true] expands macros as defined in {!Sexplib.Macro}. If
-    [~expand_macros:true] then the [exclusive] flag is ignored. *)
-type ('a, 'b) load
+    [~expand_macros:true] then the [exclusive] flag is ignored.  Also, [load_annotated*]
+    don't support [~expand_macros:true], and will raise. *)
+type ('sexp, 'a, 'b) load
   =  ?exclusive     : bool  (** default is [false] *)
   -> ?expand_macros : bool  (** default is [false] *)
   -> string
-  -> (Sexp.t -> 'a)
+  -> ('sexp -> 'a)
   -> 'b Deferred.t
-val load_sexp      : ('a, 'a      Or_error.t) load
-val load_sexp_exn  : ('a, 'a                ) load
-val load_sexps     : ('a, 'a list Or_error.t) load
-val load_sexps_exn : ('a, 'a list           ) load
+val load_sexp                : (Sexp.t          , 'a, 'a      Or_error.t) load
+val load_sexp_exn            : (Sexp.t          , 'a, 'a                ) load
+val load_sexps               : (Sexp.t          , 'a, 'a list Or_error.t) load
+val load_sexps_exn           : (Sexp.t          , 'a, 'a list           ) load
+val load_annotated_sexp      : (Sexp.Annotated.t, 'a, 'a      Or_error.t) load
+val load_annotated_sexp_exn  : (Sexp.Annotated.t, 'a, 'a                ) load
+val load_annotated_sexps     : (Sexp.Annotated.t, 'a, 'a list Or_error.t) load
+val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list           ) load

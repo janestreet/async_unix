@@ -9,6 +9,8 @@
 open Core.Std
 open Import
 
+module Syscall_result = Unix.Syscall_result
+
 module Exit                   : module type of Unix.Exit
 module Exit_or_signal         : module type of Unix.Exit_or_signal
 module Exit_or_signal_or_stop : module type of Unix.Exit_or_signal_or_stop
@@ -273,12 +275,16 @@ val unsetenv : string -> unit
 (** [fork_exec ~prog ~args ?path ?env] forks and execs [prog] with [args], and returns the
     child pid.  If [use_path = true] (the default) and [prog] doesn't contain a slash,
     then [fork_exec] searches the PATH environment variable for [prog].  If [env] is
-    supplied, it is used as the environment when [prog] is executed. *)
+    supplied, it specifies the environment when [prog] is executed.
+
+    If [env] contains multiple bindings for the same variable, the last takes precedence.
+    In the case of [`Extend], bindings in [env] take precedence over the existing
+    environment.  See {!Unix.exec}. *)
 val fork_exec
   :  prog      : string
   -> args      : string list
   -> ?use_path : bool  (** default is [true] *)
-  -> ?env      : string list
+  -> ?env      : [ Unix.env | `Replace_raw of string list ]
   -> unit
   -> Pid.t Deferred.t
 
@@ -376,6 +382,8 @@ module Socket : sig
         Unconnected ---connect--> Active
         |
         | ---bind--> Bound ---listen--> Passive ---accept---> Active
+                     |
+                     | ---connect--> Active
       v}
   *)
   type ('a, 'b) t
@@ -384,7 +392,7 @@ module Socket : sig
   with sexp_of
 
   module Type : sig
-    type 'a t constraint 'a = [< Address.t ]
+    type 'a t constraint 'a = [< Address.t ] with sexp_of
 
     val tcp        : Address.Inet.t t
     val udp        : Address.Inet.t t
@@ -395,12 +403,12 @@ module Socket : sig
   val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
 
   val connect
-    :  ([ `Unconnected ], 'addr) t
+    :  ([< `Unconnected | `Bound ], 'addr) t
     -> 'addr
     -> ([ `Active ], 'addr) t Deferred.t
 
   val connect_interruptible
-    :  ([ `Unconnected ], 'addr) t
+    :  ([< `Unconnected | `Bound ], 'addr) t
     -> 'addr
     -> interrupt : (unit Deferred.t)
     -> [ `Ok of ([ `Active ], 'addr) t
@@ -582,6 +590,9 @@ val getegid : unit -> int
 
 val setuid : int -> unit
 
+module Error = Unix.Error
+
+(** @deprecated in favor of {!Error.t} *)
 type error =
     Unix.error =
   | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
@@ -597,7 +608,7 @@ type error =
   | EOVERFLOW | EUNKNOWNERR of int
 with sexp
 
-exception Unix_error of error * string * string
+exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
   type t = Caml.Unix.terminal_io =

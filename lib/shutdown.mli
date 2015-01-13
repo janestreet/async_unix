@@ -14,6 +14,14 @@ open Import
     raise. *)
 val shutdown : ?force:unit Deferred.t -> int -> unit
 
+(** [shutdown_on_unhandled_exn ()] arranges things so that whenever there is an
+    asynchronous unhandled exception, an error message is printed to stderr and [shutdown
+    1] is called.  This is useful when one wants to ensure that [at_shutdown] handlers run
+    when there is an unhandled exception.  Calling [shutdown_on_unhandled_exn] ensures
+    that [Scheduler.go] will not raise due to an unhandled exception, and instead that the
+    program will exit once [at_shutdown] handlers finish. *)
+val shutdown_on_unhandled_exn : unit -> unit
+
 (** [exit ?force status] is [shutdown ?force status; Deferred.never ()].
 
     We do not have an exit function that returns a non-deferred:

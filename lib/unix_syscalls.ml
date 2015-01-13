@@ -6,6 +6,9 @@ module File_descr = Unix.File_descr
 module Exit = Unix.Exit
 module Exit_or_signal = Unix.Exit_or_signal
 module Exit_or_signal_or_stop = Unix.Exit_or_signal_or_stop
+module Syscall_result = Unix.Syscall_result
+
+module Error = Unix.Error
 
 type error = Unix.error =
   | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
@@ -475,6 +478,22 @@ let waitpid_exn pid =
          (`Child_pid pid, exit_or_signal)
          <:sexp_of< [ `Child_pid of Pid.t ] * Exit_or_signal.t >>
 ;;
+
+TEST_UNIT "fork_exec ~env last binding takes precedence" =
+  protectx ~finally:Unix.remove (Filename.temp_file "test" "fork_exec.env.last-wins")
+    ~f:(fun temp_file ->
+      Thread_safe.block_on_async_exn (fun () ->
+        let env = [ "VAR", "first"; "VAR", "last" ] in
+        Deferred.List.iter
+          [ `Replace_raw (List.map env ~f:(fun (v, s) -> v ^ "=" ^ s))
+          ; `Replace env
+          ; `Extend env
+          ]
+          ~f:(fun env ->
+            fork_exec () ~env ~prog:"sh" ~args:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]
+            >>= waitpid_exn
+            >>| fun () ->
+            <:test_result< string >> ~expect:"last\n" (In_channel.read_all temp_file))))
 
 module Inet_addr = struct
   include Unix.Inet_addr

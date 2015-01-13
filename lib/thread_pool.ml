@@ -33,7 +33,7 @@ module Internal = struct
 
   let error = Or_error.error
 
-  module Pool_id : Unique_id = Unique_id.Int63 (Unit)
+  module Pool_id : Unique_id = Unique_id.Int63 ()
 
   module Work = struct
     type t =
