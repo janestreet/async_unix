@@ -12,16 +12,7 @@ val stdin  : t -> Writer.t
 val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
-(** [env] specifies how to construct the environment that the child process will start
-    with.  With [`Extend [ x1,v1; x2,v2; ... ]], the child's environment will be the same
-    as the parent's, except for [xi] will have value [vi].  With [`Replace], the only
-    variables in the child's environment will be the [xi].  In either case, the child's
-    environment is established by first clearing [environ] and then repeatedly calling
-    [putenv] to establish the desired environment. *)
-type env = [ `Replace of (string * string) list
-           | `Extend  of (string * string) list
-           ]
-with sexp
+type env = Core.Std.Unix.env with sexp
 
 (** [with_create_args] specifies the arguments used to create a child process. *)
 type 'a with_create_args
@@ -48,12 +39,15 @@ type 'a with_create_args
     to [working_dir], unable to exec, etc.). *)
 val create : t Or_error.t Deferred.t with_create_args
 
-(** [wait t] closes [stdin t] and then begins collecting the output produced on [t]'s
-    [stdout] and [stderr], continuing to collect output until [t] terminates and the pipes
-    for [stdout] and [stderr] are closed.  Usually when [t] terminates, the pipes are
-    closed; however, [t] could fork other processes which survive after [t] terminates and
-    in turn keep the pipes open -- [wait] will not become determined until both pipes are
-    closed in all descendant processes. *)
+(** [wait t = Unix.waitpid (pid t)] *)
+val wait : t -> Unix.Exit_or_signal.t Deferred.t
+
+(** [collect_output_and_wait t] closes [stdin t] and then begins collecting the output
+    produced on [t]'s [stdout] and [stderr], continuing to collect output until [t]
+    terminates and the pipes for [stdout] and [stderr] are closed.  Usually when [t]
+    terminates, the pipes are closed; however, [t] could fork other processes which
+    survive after [t] terminates and in turn keep the pipes open -- [wait] will not become
+    determined until both pipes are closed in all descendant processes. *)
 module Output : sig
   type t =
     { stdout      : string
@@ -68,7 +62,7 @@ module Output : sig
     end
   end
 end
-val wait : t -> Output.t Deferred.t
+val collect_output_and_wait : t -> Output.t Deferred.t
 
 (** [run] [create]s a process and [wait]s for it to complete.  If the process exits with
     an acceptable status, then [run] returns its stdout.  Acceptable statuses are zero,
@@ -91,15 +85,15 @@ val run_lines
   :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> string list Or_error.t Deferred.t with_create_args
 
-(** [wait_stdout] and [wait_stdout_lines] are alike [run] and [run_lines] but work from an
-    existing process instead of creating a new one. *)
+(** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
+    [run_lines] but work from an existing process instead of creating a new one. *)
 
-val wait_stdout
+val collect_stdout_and_wait
   :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> t
   -> string Or_error.t Deferred.t
 
-val wait_stdout_lines
+val collect_stdout_lines_and_wait
   :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> t
   -> string list Or_error.t Deferred.t

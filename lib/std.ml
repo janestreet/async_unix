@@ -1,4 +1,5 @@
 module Async_config     = Config
+module Clock            = Clock
 module Fd               = Fd
 module In_thread        = In_thread
 module Io_stats         = Io_stats
@@ -18,6 +19,11 @@ module Unix = struct
   module Fd = Fd
   include Unix_syscalls
 end
+
+let after        = Clock.after
+let at           = Clock.at
+let every        = Clock.every
+let with_timeout = Clock.with_timeout
 
 let schedule  = Scheduler.schedule
 let schedule' = Scheduler.schedule'

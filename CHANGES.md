@@ -1,3 +1,28 @@
+## 112.24.00
+
+- Made `Process.env` type equal `Core.Std.Unix.env` type, effectively adding the
+  ``Replace_raw` variant.
+- Renamed `Process.wait` as `collect_output_and_wait`, and added a `wait`
+  function that is a thin wrapper around `waitpid`.
+
+  Also renamed:
+
+      wait_stdout       --> collect_stdout_and_wait
+      wait_stdout_lines --> collect_stdout_lines_and_wait
+
+- Added `Unix.getgrouplist`, a wrapper around the eponymous function in core
+- Change the Async scheduler to run external actions immediately upon
+  dequeueing them, rather than first enqueueing them in the normal job queue.
+
+  Also, made external actions be jobs rather than closures.
+
+- Changed `Unix.Inet_addr.of_string_or_gethostbyname` to not use a sequencer.
+
+  We had used a sequencer to workaround bugs in winbind, which we don't
+  use anymore.
+
+  Reported on github: https://github.com/janestreet/async_unix/issues/4
+
 ## 112.17.00
 
 - Moved `Scheduler.yield` to `Async_kernel`.

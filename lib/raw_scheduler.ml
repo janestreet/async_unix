@@ -46,8 +46,17 @@ include struct
 end
 
 let cycle_count () = Kernel_scheduler.(cycle_count (t ()))
-let cycle_start () = Kernel_scheduler.(cycle_start (t ()))
-let cycle_times () = Kernel_scheduler.(cycle_times (t ()))
+
+let cycle_start () = Time_ns.to_time Kernel_scheduler.(cycle_start (t ()))
+
+let cycle_times () =
+  Stream.map Kernel_scheduler.(cycle_times (t ())) ~f:Time_ns.Span.to_span
+;;
+
+let event_precision () =
+  Time_ns.Span.to_span Kernel_scheduler.(event_precision (t ()))
+;;
+
 let set_max_num_jobs_per_priority_per_cycle i =
   Kernel_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
 ;;
@@ -307,7 +316,8 @@ let try_create_timerfd () =
 ;;
 
 let default_handle_thread_pool_stuck ~stuck_for =
-  if Time.Span.(>=) stuck_for Config.report_thread_pool_stuck_for then begin
+  if Time.Span.(>=) stuck_for
+       (Time_ns.Span.to_span Config.report_thread_pool_stuck_for) then begin
     let now = Time.now () in
     let message =
       sprintf "\
@@ -317,7 +327,8 @@ let default_handle_thread_pool_stuck ~stuck_for =
         (Validated.raw Config.max_num_threads)
         (Time.Span.to_short_string stuck_for)
     in
-    if Time.Span.(>=) stuck_for Config.abort_after_thread_pool_stuck_for
+    if Time.Span.(>=) stuck_for
+         (Time_ns.Span.to_span Config.abort_after_thread_pool_stuck_for)
     then Monitor.send_exn Monitor.main (Failure message)
     else
       Core.Std.eprintf "\
@@ -326,13 +337,15 @@ let default_handle_thread_pool_stuck ~stuck_for =
 %!"
         message
         (Time.Span.to_short_string
-           (Time.Span.(-) Config.abort_after_thread_pool_stuck_for stuck_for))
+           (Time.Span.(-)
+              (Time_ns.Span.to_span Config.abort_after_thread_pool_stuck_for)
+              stuck_for))
   end;
 ;;
 
 let detect_stuck_thread_pool t =
   let most_recently_stuck = ref None in
-  every (sec 1.) (fun () ->
+  Clock.every (sec 1.) (fun () ->
     if not (Thread_pool.has_unstarted_work t.thread_pool)
     then most_recently_stuck := None
     else begin
@@ -438,8 +451,8 @@ let reset_in_forked_process () =
 
 let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
 
-let thread_safe_enqueue_external_action t f =
-  Kernel_scheduler.thread_safe_enqueue_external_action t.kernel_scheduler f
+let thread_safe_enqueue_external_job t f =
+  Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
 
 let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
@@ -563,13 +576,15 @@ let dump_core_on_job_delay () =
   match Config.dump_core_on_job_delay with
   | Do_not_watch -> ()
   | Watch { dump_if_delayed_by; how_to_dump } ->
-    Dump_core_on_job_delay.start_watching ~dump_if_delayed_by ~how_to_dump
+    Dump_core_on_job_delay.start_watching
+      ~dump_if_delayed_by:(Time_ns.Span.to_span dump_if_delayed_by)
+      ~how_to_dump
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
   dump_core_on_job_delay ();
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-  Kernel_scheduler.set_thread_safe_external_action_hook t.kernel_scheduler
+  Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler
     (fun () -> thread_safe_wakeup_scheduler t);
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
@@ -581,6 +596,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     then `Immediately
     else begin
       let timeout_after span =
+        let span = Time_ns.Span.to_span span in
         match t.timerfd with
         | None ->
           (* There is no timerfd, use the file descriptor watcher timeout. *)
@@ -597,9 +613,11 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       match Kernel_scheduler.next_upcoming_event t.kernel_scheduler with
       | None -> timeout_after max_inter_cycle_timeout
       | Some time ->
-        let now = Time.now () in
-        if Time.(>) time now
-        then timeout_after (Time.Span.min (Time.diff time now) max_inter_cycle_timeout)
+        let now = Time_ns.now () in
+        if Time_ns.(>) time now
+        then timeout_after (Time_ns.Span.min
+                              (Time_ns.diff time now)
+                              max_inter_cycle_timeout)
         else `Immediately
     end
   in
@@ -798,7 +816,7 @@ let set_record_backtraces bool =
 
 let set_max_inter_cycle_timeout span =
   (the_one_and_only ~should_lock:false).max_inter_cycle_timeout <-
-    Max_inter_cycle_timeout.create_exn span
+    Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span span)
 ;;
 
 let start_busy_poller_thread_if_not_running t =

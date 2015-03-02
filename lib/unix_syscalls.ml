@@ -380,6 +380,10 @@ let mkstemp filename =
   (name, Fd.create File file_descr (Info.of_string name))
 ;;
 
+let getgrouplist username gid =
+  In_thread.syscall_exn ~name:"getgrouplist" (fun () -> Unix.getgrouplist username gid)
+;;
+
 type process_times =
     Unix.process_times =
   { tms_utime  : float
@@ -498,11 +502,10 @@ TEST_UNIT "fork_exec ~env last binding takes precedence" =
 module Inet_addr = struct
   include Unix.Inet_addr
 
-  let of_string_or_getbyname =
-    let sequencer = Throttle.create ~continue_on_error:true ~max_concurrent_jobs:1 in
-    fun s ->
-      Throttle.enqueue sequencer
-        (fun () -> In_thread.run (fun () -> of_string_or_getbyname s))
+  let of_string_or_getbyname s =
+    match of_string s with
+    | t           -> Deferred.return t
+    | exception _ -> In_thread.run (fun () -> of_string_or_getbyname s)
   ;;
 end
 
@@ -826,7 +829,7 @@ module Socket = struct
         bind t address
         >>= fun t ->
         let t = listen t in
-        don't_wait_for (after (sec 0.1) >>= fun () -> Fd.close t.fd);
+        don't_wait_for (Clock.after (sec 0.1) >>= fun () -> Fd.close t.fd);
         Clock.with_timeout (sec 0.2) (accept t)
         >>| function
         | `Result (`Ok _) -> failwith "accepted an unexpected connection"

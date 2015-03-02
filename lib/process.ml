@@ -64,12 +64,14 @@ module Output = struct
   include Stable.V1
 end
 
-let wait t =
+let wait t = Unix.waitpid t.pid
+
+let collect_output_and_wait t =
   let stdout = Reader.contents t.stdout in
   let stderr = Reader.contents t.stderr in
   Writer.close t.stdin
   >>= fun () ->
-  Unix.waitpid t.pid
+  wait t
   >>= fun exit_status ->
   stdout
   >>= fun stdout ->
@@ -103,8 +105,8 @@ module Failure = struct
   with sexp_of
 end
 
-let wait_stdout ?(accept_nonzero_exit = []) t =
-  wait t
+let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
+  collect_output_and_wait t
   >>| fun { stdout; stderr; exit_status } ->
   match exit_status with
   | Ok () -> Ok stdout
@@ -120,8 +122,8 @@ let wait_stdout ?(accept_nonzero_exit = []) t =
       <:sexp_of< Failure.t >>
 ;;
 
-let wait_stdout_lines ?accept_nonzero_exit t =
-  wait_stdout ?accept_nonzero_exit t
+let collect_stdout_lines_and_wait ?accept_nonzero_exit t =
+  collect_stdout_and_wait ?accept_nonzero_exit t
   >>|? fun s ->
   String.split_lines s
 ;;
@@ -133,14 +135,14 @@ TEST_UNIT "first arg is not prog" =
     (Thread_safe.block_on_async_exn
        (fun () ->
           create ~prog:"echo" ~args ()
-          >>=? wait_stdout_lines))
+          >>=? collect_stdout_lines_and_wait))
 ;;
 
 let run ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
   create ?working_dir ?env ~prog ~args ()
   >>= function
   | Error _ as e -> return e
-  | Ok t -> wait_stdout ?accept_nonzero_exit t
+  | Ok t -> collect_stdout_and_wait ?accept_nonzero_exit t
 ;;
 
 let run_lines ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =

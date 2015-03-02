@@ -269,7 +269,7 @@ TEST_MODULE "Fd" = struct
       then return false
       else if String.equal !cell expected
       then return true
-      else after (sec 0.1) >>= fun () -> loop (tries - 1)
+      else Clock.after (sec 0.1) >>= fun () -> loop (tries - 1)
     in
     loop 100;
   ;;

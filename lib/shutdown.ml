@@ -15,7 +15,7 @@ let at_shutdown f =
 
 let shutting_down_ref = ref `No
 
-let default_force_ref = ref (fun () -> after (sec 10.))
+let default_force_ref = ref (fun () -> Clock.after (sec 10.))
 
 let set_default_force force = default_force_ref := force
 

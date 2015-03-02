@@ -17,7 +17,7 @@ let when_file_exists ?(poll_delay = sec 0.5) file =
     let rec loop () =
       file_exists file >>> function
       | `Yes -> Ivar.fill i ()
-      | `No -> upon (after poll_delay) loop
+      | `No -> upon (Clock.after poll_delay) loop
       | `Unknown ->
         failwiths "when_file_exists can not check file" file <:sexp_of< string >>
     in
@@ -40,7 +40,7 @@ let when_file_changes ?(poll_delay = sec 0.5) file =
           Pipe.write_without_pushback writer mtime;
         end
       end;
-      after poll_delay >>> loop
+      Clock.after poll_delay >>> loop
     end
   in
   loop ();

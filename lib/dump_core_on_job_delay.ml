@@ -1,5 +1,5 @@
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 (* This variant mirrors an enum in the C, so order in this declaration matters. *)
 type dump_type =

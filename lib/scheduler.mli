@@ -111,6 +111,9 @@ val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 (** [cycle_count ()] returns the total number of Async cycles that have happened. *)
 val cycle_count : unit -> int
 
+(** The [alarm_precision] of the timing-wheel used to implement Async's [Clock]. *)
+val event_precision : unit -> Time.Span.t
+
 (** [force_current_cycle_to_end ()] causes no more normal priority jobs to run in the
     current cycle, and for the end-of-cycle jobs (i.e. writes) to run, and then for the
     cycle to end. *)

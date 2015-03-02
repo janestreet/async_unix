@@ -38,7 +38,8 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
           protect ~finally:(fun () -> unlock t) ~f:(fun () ->
             Ivar.fill ivar result;
             have_lock_do_cycle t)
-        else thread_safe_enqueue_external_action t (fun () -> Ivar.fill ivar result);
+        else thread_safe_enqueue_external_job t
+               (current_execution_context t) (fun () -> Ivar.fill ivar result) ()
       in
       match thread with
       | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)

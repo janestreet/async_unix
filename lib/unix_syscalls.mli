@@ -234,6 +234,8 @@ val mkstemp : string -> (string * Fd.t) Deferred.t
 
 val mkdtemp : string -> string Deferred.t
 
+val getgrouplist : string -> int -> int array Deferred.t
+
 (** Time functions. *)
 type process_times
   = Unix.process_times
@@ -323,9 +325,7 @@ module Inet_addr : sig
   val inet4_addr_to_int32_exn : t -> Int32.t
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
-      resulting IP address.  The implemenation sequentializes all calls so that only a
-      single call is active at a time.  The is because we've observed thread safety issues
-      with certain versions of winbind using "wins" name resolution. *)
+      resulting IP address. *)
   val of_string_or_getbyname : string -> t Deferred.t
 end
 
