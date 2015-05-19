@@ -150,32 +150,31 @@ type 'a read_one_chunk_at_a_time_result =
   ]
 with sexp_of
 
+type 'a handle_chunk_result =
+  [ (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
+        [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
+    `Stop of 'a
+  (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
+      [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
+  | `Stop_consumed of 'a * int
+  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
+  | `Continue
+  (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
+      bytes are needed (including the data remaining in the buffer after the [c] were
+      already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
+      error if [n < 0 || c + n <= len]. *)
+  | `Consumed of int * [ `Need of int
+                       | `Need_unknown
+                       ]
+  ]
+with sexp_of
+
 val read_one_chunk_at_a_time
   :  t
   -> handle_chunk : (Bigstring.t
                      -> pos : int
                      -> len : int
-                     -> [
-                       (** [`Stop a] means that [handle_chunk] consumed all [len] bytes,
-                           and that [read_one_chunk_at_a_time] should stop reading and
-                           return [`Stopped a]. *)
-                       | `Stop of 'a
-                       (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n]
-                           bytes, and that [read_one_chunk_at_a_time] should stop reading
-                           and return [`Stopped a]. *)
-                       | `Stop_consumed of 'a * int
-                       (** [`Continue] means that [handle_chunk] has consumed all [len]
-                           bytes. *)
-                       | `Continue
-                       (** [`Consumed (c, need)] means that [c] bytes were consumed and
-                           [need] says how many bytes are needed (including the data
-                           remaining in the buffer after the [c] were already consumed).
-                           It is an error if [c < 0 || c > len].  For [`Need n], it is an
-                           error if [n < 0 || c + n <= len]. *)
-                       | `Consumed of int * [ `Need of int
-                                            | `Need_unknown
-                                            ]
-                     ] Deferred.t)
+                     -> 'a handle_chunk_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss],

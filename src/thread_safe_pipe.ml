@@ -17,11 +17,11 @@ let create () =
 
 let pushback t = in_async_wait (fun () -> Pipe.pushback t)
 
-let write' t q = in_async_wait (fun () -> Pipe.write' t q)
-let write  t a = in_async_wait (fun () -> Pipe.write  t a)
+let transfer_in t ~from = in_async_wait (fun () -> Pipe.transfer_in t ~from)
+let write  t a          = in_async_wait (fun () -> Pipe.write  t a)
 
-let write_without_pushback' ?wakeup_scheduler t q =
-  in_async ?wakeup_scheduler (fun () -> Pipe.write_without_pushback' t q)
+let transfer_in_without_pushback ?wakeup_scheduler t ~from =
+  in_async ?wakeup_scheduler (fun () -> Pipe.transfer_in_without_pushback t ~from)
 ;;
 
 let write_without_pushback ?wakeup_scheduler t a =

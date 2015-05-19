@@ -195,7 +195,8 @@ val add_busy_poller
     handler for the main monitor.
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
-val handle_thread_pool_stuck : (stuck_for:Time.Span.t -> unit) -> unit
+val handle_thread_pool_stuck         : (stuck_for:Time.Span.t -> unit) -> unit
+val default_handle_thread_pool_stuck :  stuck_for:Time.Span.t -> unit
 
 (** [yield ()] returns a deferred that becomes determined after the current cycle
     completes.  This can be useful to improve fairness by [yield]ing within a computation

@@ -15,15 +15,24 @@ module Event = struct
 
   let invariant = Event.invariant
 
-  let abort = Event.abort
+  let abort        = Event.abort
+  let fired        = Event.fired
+
+  let scheduled_at t = Time_ns.to_time (Event.scheduled_at t)
 
   let at    time = Event.at    (Time_ns.of_time time)
   let after span = Event.after (Time_ns.Span.of_span span)
 
+  let reschedule_at    t time = Event.reschedule_at    t (Time_ns.of_time      time)
+  let reschedule_after t span = Event.reschedule_after t (Time_ns.Span.of_span span)
+
+  let run_at    time f x = Event.run_at    (Time_ns.of_time time)      f x
+  let run_after span f x = Event.run_after (Time_ns.Span.of_span span) f x
+
   let status t =
     match Event.status t with
     | `Happened | `Aborted as x -> x
-    | `Will_happen_at time -> `Will_happen_at (Time_ns.to_time time)
+    | `Scheduled_at time -> `Scheduled_at (Time_ns.to_time time)
   ;;
 end
 

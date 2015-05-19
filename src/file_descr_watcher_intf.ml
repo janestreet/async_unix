@@ -26,7 +26,18 @@ module Post = struct
 end
 
 module Timeout = struct
-  type t = [ `Never | `Immediately | `After of Time.Span.t ] with sexp_of
+  type 'a t =                     (* performance hack: avoid allocation *)
+    | Never       : unit           t
+    | Immediately : unit           t
+    | After       : Time_ns.Span.t t
+
+  let variant_of
+    : type a . a t -> a -> [ `Never | `Immediately | `After of Time_ns.Span.t ]
+    = fun t span_or_unit ->
+      match t with
+      | Never       -> `Never
+      | Immediately -> `Immediately
+      | After       -> `After (span_or_unit : Time_ns.Span.t)
 end
 
 module type S = sig
@@ -56,15 +67,16 @@ module type S = sig
   module Pre : sig type t with sexp_of end
   val pre_check : t -> Pre.t
 
-  (** [thread_safe_check t pre ~timeout] checks the file descriptors for their status and
-      returns when at least one is available, or the [timeout] passes.
-      [thread_safe_check] does not side effect [t].  Unlike the rest of the functions in
-      this module, [thread_safe_check] is thread safe. *)
+  (** [thread_safe_check t pre timeout span_or_unit] checks the file descriptors for their
+      status and returns when at least one is available, or the [timeout, span_or_unit]
+      passes.  [thread_safe_check] does not side effect [t].  Unlike the rest of the
+      functions in this module, [thread_safe_check] is thread safe. *)
   module Check_result : sig type t with sexp_of end
   val thread_safe_check
     :  t
     -> Pre.t
-    -> timeout:Timeout.t
+    -> 'a Timeout.t
+    -> 'a
     -> Check_result.t
 
   (** [post_check t check_result] returns the file descriptors available for read and

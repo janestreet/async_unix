@@ -590,35 +590,50 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
   Raw_signal_manager.manage t.signal_manager Signal.pipe;
-  let compute_timeout () =
-    if debug then Debug.log_string "compute_timeout";
+  (* We avoid allocation in [check_file_descr_watcher], since it is called every time in
+     the scheduler loop. *)
+  let check_file_descr_watcher pre ~timeout span_or_unit =
+    unlock t;
+    if Debug.file_descr_watcher
+    then Debug.log "File_descr_watcher.thread_safe_check"
+           (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
+           <:sexp_of< [ `Never | `Immediately | `After of Time_ns.Span.t ] * t >>;
+    let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
+    lock t;
+    check_result
+  in
+  let check_file_descr_watcher_timeout_after pre span =
+    assert (Time_ns.Span.( > ) span Time_ns.Span.zero);
+    match t.timerfd with
+    | None ->
+      (* There is no timerfd, use the file descriptor watcher timeout. *)
+      check_file_descr_watcher pre ~timeout:After span
+    | Some timerfd ->
+      Linux_ext.Timerfd.set_after timerfd span;
+      (* Since the timerfd will handle the wakeup, the file-descr watcher doesn't have
+         to. *)
+      check_file_descr_watcher pre ~timeout:Never ()
+  in
+  (* We compute the timeout as the last thing before [check_file_descr_watcher], because
+     we want to make sure the timeout is zero if there are any scheduled jobs. *)
+  let compute_timeout_and_check_file_descr_watcher () =
+    if Debug.file_descr_watcher
+    then Debug.log "File_descr_watcher.pre_check" t <:sexp_of< t >>;
+    let pre = F.pre_check F.watcher in
     if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-    then `Immediately
+    then check_file_descr_watcher pre ~timeout:Immediately ()
     else begin
-      let timeout_after span =
-        let span = Time_ns.Span.to_span span in
-        match t.timerfd with
-        | None ->
-          (* There is no timerfd, use the file descriptor watcher timeout. *)
-          `After span
-        | Some timerfd ->
-          Linux_ext.Timerfd.set timerfd (`After span);
-          (* Since the timerfd will handle the wakeup, the file-descr watcher doesn't have
-             to. *)
-          `Never
-      in
       let max_inter_cycle_timeout =
         Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout
       in
       match Kernel_scheduler.next_upcoming_event t.kernel_scheduler with
-      | None -> timeout_after max_inter_cycle_timeout
+      | None -> check_file_descr_watcher_timeout_after pre max_inter_cycle_timeout
       | Some time ->
         let now = Time_ns.now () in
         if Time_ns.(>) time now
-        then timeout_after (Time_ns.Span.min
-                              (Time_ns.diff time now)
-                              max_inter_cycle_timeout)
-        else `Immediately
+        then check_file_descr_watcher_timeout_after pre
+               (Time_ns.Span.min (Time_ns.diff time now) max_inter_cycle_timeout)
+        else check_file_descr_watcher pre ~timeout:Immediately ()
     end
   in
   let handle_post post =
@@ -679,18 +694,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     | Some error -> unlock t; error
     | None ->
       sync_changed_fds_to_file_descr_watcher t;
-      if Debug.file_descr_watcher
-      then Debug.log "File_descr_watcher.pre_check" t <:sexp_of< t >>;
-      let pre = F.pre_check F.watcher in
-      (* [compute_timeout] must be the last thing before [thread_safe_check], because we
-         want to make sure the timeout is zero if there are any scheduled jobs. *)
-      let timeout = compute_timeout () in
-      unlock t;
-      if Debug.file_descr_watcher then
-        Debug.log "File_descr_watcher.thread_safe_check" (timeout, t)
-          <:sexp_of< File_descr_watcher_intf.Timeout.t * t >>;
-      let check_result = F.thread_safe_check F.watcher pre ~timeout in
-      lock t;
+      let check_result = compute_timeout_and_check_file_descr_watcher () in
       (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
          processing that needs to happen in response to [thread_safe_interrupt].  That
          way, even if [Interruptor.clear] clears out an interrupt that hasn't been

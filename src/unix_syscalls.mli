@@ -126,7 +126,10 @@ val test_lockf : ?len:Int64.t -> Fd.t -> bool
 val unlockf : ?len:Int64.t -> Fd.t -> unit
 
 module File_kind : sig
-  type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ] with sexp
+  type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
+  with sexp
+
+  include Comparable.S with type t := t
 end
 
 module Stats : sig
@@ -271,8 +274,6 @@ val getenv : string -> string option
 val getenv_exn : string -> string
 val putenv : key:string -> data:string -> unit
 val unsetenv : string -> unit
-
-(* val graceful_kill : pid:int -> unit Deferred.t *)
 
 (** [fork_exec ~prog ~args ?path ?env] forks and execs [prog] with [args], and returns the
     child pid.  If [use_path = true] (the default) and [prog] doesn't contain a slash,
@@ -687,7 +688,7 @@ end
 
 (** Structure of entries in the [groups] database. *)
 module Group : sig
-  type t =
+  type t = Core.Std.Unix.Group.t =
     { name   : string
     ; passwd : string
     ; gid    : int

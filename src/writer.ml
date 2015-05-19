@@ -53,6 +53,39 @@ TEST_MODULE = struct
     | output -> failwiths "Expected \"ABC\", got" output <:sexp_of< string >>)
   ;;
 
+  TEST_UNIT "transfer closes pipe when consumer leaves" = test_async (fun () ->
+    let pipe_r, _pipe_w = Pipe.create () in
+    Unix.pipe (Info.of_string "test pipe")
+    >>= fun (`Reader reader_fd, `Writer writer_fd) ->
+    let writer = create ~raise_when_consumer_leaves:false writer_fd in
+    let pending_transfer = transfer writer pipe_r ignore in
+    Fd.close reader_fd
+    >>= fun () ->
+    write writer "foo";
+    consumer_left writer
+    >>= fun () ->
+    pending_transfer
+    >>= fun () ->
+    <:test_result< bool >> ~expect:true (Pipe.is_closed pipe_r);
+    close writer)
+  ;;
+
+  TEST_UNIT "transfer closes pipe when writer is closed" = test_async (fun () ->
+    let pipe_r, _pipe_w = Pipe.create () in
+    Unix.pipe (Info.of_string "test pipe")
+    >>= fun (`Reader reader_fd, `Writer writer_fd) ->
+    let writer = create ~raise_when_consumer_leaves:false writer_fd in
+    let pending_transfer = transfer writer pipe_r ignore in
+    Fd.close reader_fd
+    >>= fun () ->
+    close writer
+    >>= fun () ->
+    pending_transfer
+    >>= fun () ->
+    <:test_result< bool >> ~expect:true (Pipe.is_closed pipe_r);
+    close writer)
+  ;;
+
   TEST_UNIT "reader_pipe_closed" = test_async (fun () ->
     let pipe_r, pipe_w = Pipe.create () in
     Reader.of_pipe (Info.of_string "read end of pipe") pipe_r

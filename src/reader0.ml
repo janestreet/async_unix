@@ -352,6 +352,16 @@ module Internal = struct
     t.available <- t.available - amount;
   ;;
 
+  type 'a handle_chunk_result =
+    [ `Stop of 'a
+    | `Stop_consumed of 'a * int
+    | `Continue
+    | `Consumed of int * [ `Need of int
+                         | `Need_unknown
+                         ]
+    ]
+  with sexp_of
+
   type 'a read_one_chunk_at_a_time_result =
     [ `Eof
     | `Stopped of 'a
@@ -871,8 +881,10 @@ open Internal
 
 type nonrec t = t with sexp_of
 
-type nonrec 'a read_one_chunk_at_a_time_result =
-  'a read_one_chunk_at_a_time_result
+type nonrec 'a handle_chunk_result = 'a handle_chunk_result
+with sexp_of
+
+type nonrec 'a read_one_chunk_at_a_time_result = 'a read_one_chunk_at_a_time_result
 with sexp_of
 
 type nonrec 'a read = 'a read

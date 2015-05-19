@@ -21,3 +21,10 @@ let max_num_open_file_descrs =
     then Max_num_open_file_descrs.create_exn 1024
     else max_num_open_file_descrs
 ;;
+
+let () =
+  task_id := fun () ->
+    let pid       = Unix.getpid () in
+    let thread_id = Thread.id (Thread.self ()) in
+    <:sexp_of< [ `pid of Pid.t ] * [ `thread_id of int ] >> (`pid pid, `thread_id thread_id)
+;;

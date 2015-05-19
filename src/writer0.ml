@@ -89,6 +89,9 @@ type t =
   (* [close_finished] is filled when the close() system call on [fd] finishes. *)
   ; close_finished                     : unit Ivar.t
 
+  (* [close_started] is filled when [close] is called. *)
+  ; close_started                      : unit Ivar.t
+
   (* [producers_to_flush_at_close] holds all upstream producers feeding data to this
      writer, and thus should be flushed when we close this writer, before flushing
      the writer itself. *)
@@ -162,6 +165,12 @@ let invariant t : unit =
         match t.close_state with
         | `Open | `Closed_and_flushing -> assert (Ivar.is_empty close_finished)
         | `Closed -> ()))
+      ~close_started:(check (fun close_started ->
+        <:test_result< bool >> (Ivar.is_empty close_started)
+          ~expect:
+            (match t.close_state with
+             | `Open -> true
+             | `Closed | `Closed_and_flushing -> false)))
       ~producers_to_flush_at_close:ignore
       ~flush_at_shutdown_elt:(check (fun o ->
         assert (is_none o = Ivar.is_full t.close_finished);
@@ -293,6 +302,8 @@ let consumer_left t = Ivar.read t.consumer_left
 
 let close_finished t = Ivar.read t.close_finished
 
+let close_started t = Ivar.read t.close_started
+
 let is_closed t =
   match t.close_state with
   | `Open -> false
@@ -342,6 +353,7 @@ let close ?force_close t =
   | `Closed_and_flushing | `Closed -> ()
   | `Open ->
     t.close_state <- `Closed_and_flushing;
+    Ivar.fill t.close_started ();
     final_flush t ?force:force_close
     >>> fun () ->
     t.close_state <- `Closed;
@@ -442,6 +454,7 @@ let create
     ; background_writer_state     = `Not_running
     ; close_state                 = `Open
     ; close_finished              = Ivar.create ()
+    ; close_started               = Ivar.create ()
     ; producers_to_flush_at_close = Bag.create ()
     ; flush_at_shutdown_elt       = None
     ; check_buffer_age            = Check_buffer_age.dummy
@@ -863,6 +876,22 @@ let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
     ignore (Bigstring.write_bin_prot buf ~pos:start_pos writer v : int);
     maybe_start_writer t;
   end
+;;
+
+let write_bin_prot_no_size_header t ~size write v =
+  if is_stopped_permanently t
+  then got_bytes t size
+  else begin
+    let buf, start_pos = give_buf t size in
+    let end_pos = write buf ~pos:start_pos v in
+    let written = end_pos - start_pos in
+    if written <> size
+    then failwiths "Writer.write_bin_prot_no_size_header bug!"
+           (`written written, `size size)
+           <:sexp_of< [ `written of int ] * [ `size of int ] >>;
+    maybe_start_writer t;
+  end
+;;
 
 let write_marshal t ~flags v =
   schedule_unscheduled t `Keep;
@@ -1044,52 +1073,45 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
   let consumer =
     Pipe.add_consumer pipe_r ~downstream_flushed:(fun () -> flushed t >>| fun () -> `Ok)
   in
-  let stop =
-    choice (Deferred.any [ stop; consumer_left t ]) (fun () -> `Stop)
-  in
-  let writer_closed =
-    choice (close_finished t) (fun () -> `Writer_closed)
-  in
-  let finished why =
-    begin match why with
-    | `Stop | `Eof -> ()
-    | `Consumer_left | `Writer_closed -> Pipe.close_read pipe_r
-    end;
-    `Finished ()
+  let end_of_pipe_r = Ivar.create () in
+  (* The only reason we can't use [Pipe.iter] is because it doesn't accept
+     [?max_num_values_per_read]. *)
+  let rec iter () =
+    if Ivar.is_full t.consumer_left
+       || Ivar.is_full t.close_finished
+       || Deferred.is_determined stop
+    then
+      (* The [choose] in [doit] will become determined and [doit] will do the right
+         thing. *)
+      ()
+    else begin
+      let read_result =
+        match max_num_values_per_read with
+        | None            -> Pipe.read_now'        pipe_r ~consumer
+        | Some num_values -> Pipe.read_now_at_most pipe_r ~consumer ~num_values
+      in
+      match read_result with
+      | `Eof               -> Ivar.fill end_of_pipe_r ()
+      | `Nothing_available -> Pipe.values_available pipe_r >>> fun _ -> iter ()
+      | `Ok q              ->
+        write_f q ~cont:(fun () ->
+          Pipe.Consumer.values_sent_downstream consumer;
+          flushed t >>> iter)
+    end
   in
   let doit () =
-    Deferred.repeat_until_finished () (fun () ->
-      let module Choice = struct
-        type t = [ `Stop | `Eof | `Ok | `Writer_closed ] Deferred.choice
-      end in
-      choose [ (stop                                        :> Choice.t)
-             ; (writer_closed                               :> Choice.t)
-             ; (choice (Pipe.values_available pipe_r) Fn.id :> Choice.t)
-             ]
-      >>= function
-      | `Stop | `Writer_closed | `Eof as x -> return (finished x)
-      | `Ok ->
-        if Ivar.is_full t.consumer_left
-        then return (finished `Consumer_left)
-        else
-          let read_result =
-            match max_num_values_per_read with
-            | None            -> Pipe.read_now'        pipe_r ~consumer
-            | Some num_values -> Pipe.read_now_at_most pipe_r ~consumer ~num_values
-          in
-          match read_result with
-          | `Eof as x -> return (finished x)
-          | `Nothing_available -> return (`Repeat ())
-          | `Ok q ->
-            write_f q ~cont:(fun () ->
-              Pipe.Consumer.values_sent_downstream consumer;
-              choose [ stop
-                     ; writer_closed
-                     ; choice (flushed t) (fun () -> `Flushed)
-                     ]
-              >>| function
-              | `Stop | `Writer_closed as x -> finished x
-              | `Flushed -> `Repeat ()))
+    (* Concurrecy between [iter] and [choose] is essential.  Even if [iter] gets blocked,
+       for example on [flushed], the result of [doit] can still be determined by [choice]s
+       other than [end_of_pipe_r]. *)
+    iter ();
+    choose [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
+           ; choice stop                      (fun () -> `Stop         )
+           ; choice (close_finished t)        (fun () -> `Writer_closed)
+           ; choice (consumer_left  t)        (fun () -> `Consumer_left)
+           ]
+    >>| function
+    | `End_of_pipe_r | `Stop -> ()
+    | `Writer_closed | `Consumer_left -> Pipe.close_read pipe_r
   in
   with_flushed_at_close t ~f:doit
     ~flushed:(fun () -> Deferred.ignore (Pipe.upstream_flushed pipe_r))
@@ -1102,7 +1124,7 @@ let transfer ?stop ?max_num_values_per_read t pipe_r write_f =
 
 let transfer' ?stop ?max_num_values_per_read t pipe_r write_f =
   make_transfer ?stop ?max_num_values_per_read
-    t pipe_r (fun q ~cont -> write_f q >>= cont)
+    t pipe_r (fun q ~cont -> write_f q >>> cont)
 ;;
 
 let pipe t =

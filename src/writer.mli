@@ -226,6 +226,17 @@ val write_sexp  : ?hum:bool (** default is [false] *) -> t -> Sexp.t -> unit
     before the data itself.  This is the format that Reader.read_bin_prot reads. *)
 val write_bin_prot : t -> 'a Bin_prot.Type_class.writer -> 'a -> unit
 
+(** Writes out a value using its bin_prot writer.  Unlike [write_bin_prot], this doesn't
+    prefix the output with the size of the bin_prot blob.  [size] is the expected size.
+    This function will raise if the bin_prot writer writes an amount other than [size]
+    bytes. *)
+val write_bin_prot_no_size_header
+  :  t
+  -> size : int
+  -> 'a Bin_prot.Write.writer
+  -> 'a
+  -> unit
+
 (** Serialize data using marshal and write it to the writer *)
 val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
 
@@ -294,6 +305,8 @@ val monitor : t -> Monitor.t
     that calls of [close] subsequent to the original call to [close] will return the same
     deferred as the original call.
 
+    [close_started  t] becomes determined as soon as [close] is called.
+
     [close_finished t] becomes determined after [t]'s underlying file descriptor has been
     closed, i.e. it is the same as the result of [close].  [close_finished] differs from
     [close] in that it does not have the side effect of initiating a close.
@@ -304,6 +317,7 @@ val monitor : t -> Monitor.t
 
     [with_close t ~f] runs [f ()], and closes [t] after [f] finishes or raises. *)
 val close : ?force_close:unit Deferred.t -> t -> unit Deferred.t
+val close_started  : t -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
 val is_closed : t -> bool
 val is_open   : t -> bool
@@ -432,7 +446,6 @@ val save_sexps
       transfer' t pipe_r (fun q -> Queue.iter q ~f; Deferred.unit)
     ]}
 *)
-
 val transfer'
   :  ?stop                    : unit Deferred.t
   -> ?max_num_values_per_read : int

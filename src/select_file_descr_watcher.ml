@@ -56,14 +56,14 @@ module Check_result = struct
   with sexp_of
 end
 
-let thread_safe_check _t pre ~timeout =
+let thread_safe_check (type a) (_ : t) (pre : Pre.t) (timeout : a Timeout.t) (span : a) =
   let timeout =
     match timeout with
-    | `Never | `Immediately as x -> x
-    | `After span ->
-      (* Wait no longer than one second, which avoids any weirdness due to feeding large
-         timeouts to select. *)
-      `After (Float.min 1. (Time.Span.to_sec span))
+    | Timeout.Never       -> `Never
+    | Timeout.Immediately -> `Immediately
+    (* Wait no longer than one second, which avoids any weirdness due to feeding large
+       timeouts to select. *)
+    | Timeout.After       -> `After (Time_ns.Span.min span Time_ns.Span.second)
   in
   { Check_result.
     pre

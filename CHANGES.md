@@ -1,3 +1,38 @@
+## 112.35.00
+
+- Made `Unix.File_kind.t` be `Comparable`, so it can be used in
+  `<:test_result< >>`.
+- Reduced allocation in Async's scheduler in the common path.
+
+    The allocation was in
+    `Raw_scheduler.be_the_scheduler.compute_timeout`, which was
+    (statistically, based on perf) the largest single allocator in one
+    of our applications.  Now, it way down the list.
+
+    Note that the application is not a typical Async app in that it does
+    not sit in epoll very much, due to the way we do low-latency I/O.
+    This change will benefit everyone, but only a tiny bit.
+
+- Added `Writer.write_bin_prot_no_size_header`.
+
+    This is needed for Async RPC as it writes a different size on
+    its own.
+
+- Fixed a bug in `Writer.transfer`, which didn't close the pipe when the
+  consumer leaves.
+
+    Simplified the implementation of `Writer.transfer`:
+
+    - replaced the big loop by a simple iteration function on the pipe
+      that just stop without filling its ivar when it sees the iteration
+      should stop for other reason that `` `Eof `` on the pipe: writer
+      closed, consumer left or stop requested by the user.
+
+    - replaced the various `choose` by a single one and deal with the
+      closing reason only at this point.
+
+- Added `Writer.close_started`, symmetric to Writer.close_finished.
+
 ## 112.24.00
 
 - Made `Process.env` type equal `Core.Std.Unix.env` type, effectively adding the

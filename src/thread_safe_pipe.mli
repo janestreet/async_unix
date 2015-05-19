@@ -22,12 +22,12 @@ val create : unit -> 'a Pipe.Reader.t * 'a t
 (** [pushback writer] blocks the current thread until the pipe is empty or closed. *)
 val pushback : _ t -> unit
 
-(** [write_without_pushback'] and [write_without_pushback] transfer the element(s) into
-    the pipe and return immediately. *)
-val write_without_pushback'
+(** [transfer_in_without_pushback'] and [write_without_pushback] transfer the element(s)
+    into the pipe and return immediately. *)
+val transfer_in_without_pushback
   :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> 'a t
-  -> 'a Queue.t
+  -> from : 'a Queue.t
   -> unit
 val write_without_pushback
   :  ?wakeup_scheduler : bool  (** default is [true] *)
@@ -35,10 +35,10 @@ val write_without_pushback
   -> 'a
   -> unit
 
-(** [write'] and [write] transfer the element(s) into the pipe and block the current
+(** [transfer_in] and [write] transfer the element(s) into the pipe and block the current
     thread until the pipe is empty or closed (like {!pushback}). *)
-val write' : 'a t -> 'a Queue.t -> unit
-val write  : 'a t -> 'a         -> unit
+val transfer_in : 'a t -> from:'a Queue.t -> unit
+val write       : 'a t -> 'a              -> unit
 
 val close : _ t -> unit
 val is_closed : _ t -> bool

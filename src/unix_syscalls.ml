@@ -184,9 +184,12 @@ let with_file ?exclusive ?perm file ~mode ~f =
 (* file status *)
 
 module File_kind = struct
-  type t =
-    [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
-  with sexp
+  module T = struct
+    type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
+    with compare, sexp
+  end
+  include T
+  include Comparable.Make (T)
 
   let of_unix : Unix.file_kind -> _ = function
     | S_REG  -> `File
