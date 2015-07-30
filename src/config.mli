@@ -1,1 +1,1 @@
-include module type of Async_kernel.Config
+include module type of struct include Async_kernel.Config end

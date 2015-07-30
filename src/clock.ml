@@ -11,12 +11,16 @@ let after span = after (Time_ns.Span.of_span span)
 let with_timeout span d = with_timeout (Time_ns.Span.of_span span) d
 
 module Event = struct
-  type t = Event.t with sexp_of
+  type ('a, 'h) t = ('a, 'h) Event.t with sexp_of
+
+  type t_unit = Event.t_unit with sexp_of
 
   let invariant = Event.invariant
 
-  let abort        = Event.abort
-  let fired        = Event.fired
+  let abort             = Event.abort
+  let abort_exn         = Event.abort_exn
+  let abort_if_possible = Event.abort_if_possible
+  let fired             = Event.fired
 
   let scheduled_at t = Time_ns.to_time (Event.scheduled_at t)
 
@@ -31,7 +35,7 @@ module Event = struct
 
   let status t =
     match Event.status t with
-    | `Happened | `Aborted as x -> x
+    | `Happened _ | `Aborted _ as x -> x
     | `Scheduled_at time -> `Scheduled_at (Time_ns.to_time time)
   ;;
 end

@@ -5,32 +5,55 @@ open Read_write.Export
 
 module Table = Bounded_int_table
 
-type t = (File_descr.t, unit) Table.t Read_write.t
+type t =
+  { descr_tables          : (File_descr.t, unit) Table.t Read_write.t
+  ; handle_fd_read_ready  : File_descr.t -> unit
+  ; handle_fd_read_bad    : File_descr.t -> unit
+  ; handle_fd_write_ready : File_descr.t -> unit
+  ; handle_fd_write_bad   : File_descr.t -> unit
+  }
 with sexp_of
 
 let backend = Config.File_descr_watcher.Select
 
 let invariant t : unit =
   try
-    Read_write.iter t ~f:(Table.invariant ignore ignore);
+    Read_write.iter t.descr_tables ~f:(Table.invariant ignore ignore);
   with exn ->
     failwiths "Select_file_descr_watcher.invariant failed" (exn, t)
       <:sexp_of< exn * t >>
 ;;
 
-let create ~num_file_descrs =
-  Read_write.create_fn (fun () ->
-    Table.create
-      ~num_keys:num_file_descrs
-      ~key_to_int:File_descr.to_int
-      ~sexp_of_key:File_descr.sexp_of_t
-      ())
+type 'a additional_create_args
+  =  handle_fd_read_bad  : (File_descr.t -> unit)
+  -> handle_fd_write_bad : (File_descr.t -> unit)
+  -> 'a
+
+let create
+      ~handle_fd_read_bad
+      ~handle_fd_write_bad
+      ~num_file_descrs
+      ~handle_fd_read_ready
+      ~handle_fd_write_ready
+  =
+  { descr_tables =
+      Read_write.create_fn (fun () ->
+        Table.create
+          ~num_keys:num_file_descrs
+          ~key_to_int:File_descr.to_int
+          ~sexp_of_key:File_descr.sexp_of_t
+          ())
+  ; handle_fd_read_ready
+  ; handle_fd_read_bad
+  ; handle_fd_write_ready
+  ; handle_fd_write_bad
+  }
 ;;
 
 let reset_in_forked_process _ = ()
 
 let iter t ~f =
-  Read_write.iteri t ~f:(fun read_or_write table ->
+  Read_write.iteri t.descr_tables ~f:(fun read_or_write table ->
     Table.iter table ~f:(fun ~key ~data:_ -> f key read_or_write))
 ;;
 
@@ -40,13 +63,13 @@ module Pre = struct
 end
 
 let set t file_descr desired =
-  Read_write.iteri t ~f:(fun read_or_write table ->
+  Read_write.iteri t.descr_tables ~f:(fun read_or_write table ->
     if Read_write.get desired read_or_write
     then Table.set table ~key:file_descr ~data:()
     else Table.remove table file_descr)
 ;;
 
-let pre_check t = Read_write.map t ~f:Table.keys
+let pre_check t = Read_write.map t.descr_tables ~f:Table.keys
 
 module Check_result = struct
   type t =
@@ -77,32 +100,28 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
   try
     match select_result with
     (* We think 514 should be treated like EINTR. *)
-    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) ->
-      `Syscall_interrupted
+    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> ()
     | Ok { read; write; except } ->
       assert (List.is_empty except);
-      if List.is_empty read && List.is_empty write
-      then `Timeout
-      else
-        `Ok (Read_write.createi (fun read_or_write ->
-          let ready =
-            match read_or_write with
-            | `Read -> read
-            | `Write -> write
-          in
-          { Post. ready; bad = [] }))
+      List.iter write ~f:t.handle_fd_write_ready;
+      List.iter read  ~f:t.handle_fd_read_ready;
     | Error (Unix.Unix_error (EBADF, _, _)) ->
-      `Ok (Read_write.map pre ~f:(fun fds ->
-        let bad =
-          List.fold fds ~init:[] ~f:(fun ac file_descr ->
-            match Syscall.syscall (fun () -> ignore (Unix.fstat file_descr)) with
-            | Ok () -> ac
-            | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
-            | Error exn ->
-              failwiths "fstat raised unexpected exn" (file_descr, exn)
-                <:sexp_of< File_descr.t * exn >>)
+      let bad read_or_write =
+        let fds =
+          match read_or_write with
+          | `Read  -> pre.read
+          | `Write -> pre.write
         in
-        { Post. ready = []; bad }))
+        List.fold fds ~init:[] ~f:(fun ac file_descr ->
+          match Syscall.syscall (fun () -> ignore (Unix.fstat file_descr)) with
+          | Ok () -> ac
+          | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
+          | Error exn ->
+            failwiths "fstat raised unexpected exn" (file_descr, exn)
+              <:sexp_of< File_descr.t * exn >>)
+      in
+      List.iter (bad `Write) ~f:t.handle_fd_write_bad;
+      List.iter (bad `Read ) ~f:t.handle_fd_read_bad;
     | Error exn -> failwiths "select raised unexpected exn" exn <:sexp_of< exn >>
   with exn ->
     failwiths "File_descr_watcher.post_check bug" (exn, check_result, t)

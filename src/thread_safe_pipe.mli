@@ -22,23 +22,57 @@ val create : unit -> 'a Pipe.Reader.t * 'a t
 (** [pushback writer] blocks the current thread until the pipe is empty or closed. *)
 val pushback : _ t -> unit
 
+module Written_or_closed : sig
+  type t = Written | Closed
+end
+
+(** Functions that write elements to the pipe take an [If_closed.t] argument to specify
+    how to deal with the possibility that the pipe is closed: [Raise] on closed pipe, or
+    [Return] a variant indicating whether the pipe is closed.  This allows lightweight
+    syntax for calls that want to raise if the pipe is closed:
+
+    {[
+      write t a ~if_closed:Raise
+    ]}
+
+    It also allows lightweight syntax for calls that want to match on whether the pipe was
+    closed:
+
+    {[
+      match write t a ~if_closed:Return with
+      | Closed  -> ...
+      | Written -> ...
+    ]}
+
+    Returning a variant is essential when one wants to distinguish a closed pipe from
+    other errors.  Also, since pipe-writing functions acquire the Async lock, it would be
+    incorrect (due to races) to check [is_closed] prior to the lock acquisition. *)
+module If_closed : sig
+  type 'a t =
+  | Raise  : unit t
+  | Return : Written_or_closed.t t
+end
+
 (** [transfer_in_without_pushback'] and [write_without_pushback] transfer the element(s)
     into the pipe and return immediately. *)
 val transfer_in_without_pushback
   :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> 'a t
-  -> from : 'a Queue.t
-  -> unit
+  -> from              : 'a Queue.t
+  -> if_closed         : 'b If_closed.t
+  -> 'b
+
 val write_without_pushback
   :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> 'a t
   -> 'a
-  -> unit
+  -> if_closed         : 'b If_closed.t
+  -> 'b
 
 (** [transfer_in] and [write] transfer the element(s) into the pipe and block the current
     thread until the pipe is empty or closed (like {!pushback}). *)
-val transfer_in : 'a t -> from:'a Queue.t -> unit
-val write       : 'a t -> 'a              -> unit
+val transfer_in : 'a t -> from:'a Queue.t -> if_closed:'b If_closed.t -> 'b
+val write       : 'a t -> 'a              -> if_closed:'b If_closed.t -> 'b
 
 val close : _ t -> unit
 val is_closed : _ t -> bool

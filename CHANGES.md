@@ -1,3 +1,128 @@
+## 113.00.00
+
+- Made Async dump core when it reports a "bug in async scheduler".
+
+    There is no change for toplevel unhandled user exceptions, for which Async
+    does not dump core.
+
+- Added `Dump_core_on_job_delay.dump_core` function, which exposes the
+  core-dumping functionality in the C stubs for `Dump_core_on_job_delay`.
+
+- Made `Dump_core_on_job_delay.How_to_dump` an ordinary variant and moved it
+  into `Async_kernel.Config`.
+
+- Changed `Thread_safe_pipe` functions that write to the pipe to take an
+  additional argument, an `If_closed.t`, that says how to behave if the pipe is
+  closed.
+
+    The previous behavior is achieved with `~if_closed:Raise`.  One can also
+    now use `~if_closed:Return` to they return a variant reporting whether the
+    pipe was closed, rather than raising.
+
+    Returning a variant allows callers to distinguish the pipe-closed case from
+    other errors.  This change also allows us to do a a single acquisition of
+    the Async lock, with the pipe-closed check synchronously immediately
+    preceding the operation, avoiding a race.
+
+- Added `Fd.with_file_descr_deferred_exn`.
+
+- Improved the performance of `Clock.every`, and in particular reduced its
+  allocation.
+
+    It now allocates much less, especially with `~continue_on_error:false`.
+
+    Handled `Clock.every`'s `~stop` argument directly using timing-wheel
+    alarms, rather than using `Deferred.choose`.
+
+    Slightly changed the behavior of
+
+      Clock.every' f ~continue_on_error:false
+
+    in the corner case where `f` raises but its result also becomes
+    determined.  Prior to this feature, iteration would stop.  After this
+    feature, iteration will continue, because `~continue_on_error:false`
+    just looks at the deferred resulting from `f`.  This doesn't affect:
+
+      Clock.every f ~continue_on_error:false
+
+    because if `f` raises, then there is no resulting deferred.
+
+    Benchmark:
+
+    +----------------------------------------------------+----------+------------+----------+----------+------------+
+    | Name                                               | Time/Run |    mWd/Run | mjWd/Run | Prom/Run | Percentage |
+    +----------------------------------------------------+----------+------------+----------+----------+------------+
+    | [clock_ns.ml:Clock.every] ~continue-on-error:false |  54.21us |     91.03w |    0.36w |    0.36w |     22.06% |
+    | [clock_ns.ml:Clock.every] ~continue_on_error:true  | 245.80us | 93_208.27w |    7.31w |    7.31w |    100.00% |
+    +----------------------------------------------------+----------+------------+----------+----------+------------+
+
+- Added to `Clock.Event.t` type parameters so that one can record a value in
+  the event when it happens or is aborted, and read that value via
+  `Event.status`.
+
+    type ('a, 'h) t
+    val status
+      : ('a, 'h) t -> [ `Aborted      of 'a
+                      | `Happened     of 'h
+                      | `Scheduled_at of Time.t
+                      ]
+    val run_at : Time.t -> ('z -> 'h) -> 'z -> (_, 'h) t
+    val abort : ('a, 'h) t -> 'a -> [ `Ok
+                                    | `Previously_aborted  of 'a
+                                    | `Previously_happened of 'h
+                                    ]
+
+- Fixed a (never observed) race in the Async scheduler's closing of file
+  descriptors.
+
+    Previously, when the number of active system calls on an `Fd.t`
+    reached zero, the scheduler would call a closure that would
+    immediately schedule the `close()` system call in a thread.  It was
+    possible (albeit very unlikely) that that `close()` would run before
+    the scheduler got a chance to update the epoll set, violating the
+    invariant that `close` is only ever called on fds not in the epoll
+    set.
+
+    Now, the scheduler enqueues an ordinary Async job to do the `close`,
+    and thus the `close` cannot happen until the next cycle, after the
+    scheduler has updated the epoll set.
+
+- Changed `Reader` to treat `read` returning `EPIPE` as end-of-file rather than
+  fail, to deal with OpenOnload.
+
+    This fixes an issue where reading from a TCP connection can return an
+    `EPIPE` if the tcp connection is immediately closed.  This happens
+    when the application is running with onload and when the tcp
+    connection is closed immediately after creation.
+
+- Reduced allocation of the Async scheduler's `File_descr_watcher`, by using
+  callbacks to handle ready file descriptors.
+
+- Fixed `In_thread.Helper_thread.create`'s error message if there are no
+  available threads in the thread pool.
+
+    The error message is now constructed eagerly.  It had been constructed
+    lazily, so by the time it was rendered, the state might have changed,
+    possibly making threads available.  This leads to a
+    nonsensical-looking error message that claims that there are no
+    available threads, immediately followed by a list of available
+    threads.
+
+- Moved `Log` from `Async_extra` to `Async_unix`, so that the scheduler can
+  refer to it.
+
+- When `Writer.with_file_atomic` is unable to clean up its temp file, raise
+  synchronously rather than asynchronously.
+
+    This eliminates complaints about an exception being thrown after a deferred
+    has been computed.
+
+- Added `Log.rotate` to force log rotation.
+
+    val rotate : t -> unit Deferred.t.
+
+- Fixed `Log` rotation to correctly reset the size and number of lines.
+
 ## 112.35.00
 
 - Made `Unix.File_kind.t` be `Comparable`, so it can be used in

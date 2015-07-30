@@ -1,6 +1,11 @@
-include File_descr_watcher_intf.S
+open Core.Std
+open Import
 
-(** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
-    file descriptors in {[ [0, num_file_descrs) ]}. *)
-val create : num_file_descrs:int -> t
+type 'a additional_create_args
+  =  handle_fd_read_bad  : (File_descr.t -> unit)
+  -> handle_fd_write_bad : (File_descr.t -> unit)
+  -> 'a
+
+include File_descr_watcher_intf.S
+  with type 'a additional_create_args := 'a additional_create_args
 

@@ -219,13 +219,13 @@ let maybe_start_closing_fd t (fd : Fd.t) =
   if fd.num_active_syscalls = 0 then begin
     match fd.state with
     | Closed | Open _ -> ()
-    | Close_requested close ->
+    | Close_requested (execution_context, do_close_syscall) ->
       (* We must remove the fd now and not after the close has finished.  If we waited
          until after the close had finished, then the fd might have already been
          reused by the OS and replaced. *)
       remove_fd t fd;
       Fd.set_state fd Closed;
-      upon (close ()) (fun () -> Ivar.fill fd.close_finished ());
+      Kernel_scheduler.enqueue t.kernel_scheduler execution_context do_close_syscall ();
   end;
 ;;
 
@@ -361,6 +361,95 @@ let detect_stuck_thread_pool t =
     end);
 ;;
 
+let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
+
+let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
+
+let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
+  Read_write.set fd.watching read_or_write desired;
+  if not fd.watching_has_changed then begin
+    fd.watching_has_changed <- true;
+    t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed;
+  end
+;;
+
+let request_start_watching t fd read_or_write watching =
+  if Debug.file_descr_watcher
+  then Debug.log "request_start_watching" (read_or_write, fd, t)
+         <:sexp_of< Read_write.Key.t * Fd.t * t >>;
+  if not fd.supports_nonblock
+  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
+     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
+     file-descr-watcher to monitor such descriptors. *)
+  then `Unsupported
+  else begin
+    let result =
+      match Read_write.get fd.watching read_or_write with
+      | Watch_once _ | Watch_repeatedly _ -> `Already_watching
+      | Stop_requested ->
+        (* We don't [inc_num_active_syscalls] in this case, because we already did when we
+           transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
+           was closed since we transitioned to [Stop_requested], in which case we don't want
+           to [start_watching]; we want to report that it was closed and leave it
+           [Stop_requested] so the the file-descr-watcher will stop watching it and we can
+           actually close it. *)
+        if Fd.is_closed fd
+        then `Already_closed
+        else `Watching
+      | Not_watching ->
+        match Fd.inc_num_active_syscalls fd with
+        | `Already_closed -> `Already_closed
+        | `Ok -> `Watching
+    in
+    begin match result with
+    | `Already_closed | `Already_watching -> ()
+    | `Watching ->
+      set_fd_desired_watching t fd read_or_write watching;
+      if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
+    end;
+    result
+  end
+;;
+
+let request_stop_watching t fd read_or_write value =
+  if Debug.file_descr_watcher
+  then Debug.log "request_stop_watching" (read_or_write, value, fd, t)
+         <:sexp_of< Read_write.Key.t * Fd.ready_to_result * Fd.t * t >>;
+  match Read_write.get fd.watching read_or_write with
+  | Stop_requested | Not_watching -> ()
+  | Watch_once ready_to ->
+    Ivar.fill ready_to value;
+    set_fd_desired_watching t fd read_or_write Stop_requested;
+    if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
+  | Watch_repeatedly (job, finished) ->
+    match value with
+    | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
+    | `Closed | `Bad_fd | `Interrupted as value ->
+      Ivar.fill finished value;
+      set_fd_desired_watching t fd read_or_write Stop_requested;
+      if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
+;;
+
+let post_check_handle_fd t file_descr read_or_write value =
+  match Fd_by_descr.find t.fd_by_descr file_descr with
+  | Some fd -> request_stop_watching t fd read_or_write value
+  | None ->
+    match t.timerfd with
+    | Some tfd when file_descr = (tfd :> Unix.File_descr.t) ->
+      begin match read_or_write with
+      | `Read ->
+        (* We don't need to actually call [read] since we are using the
+           edge-triggered behavior. *)
+        ()
+      | `Write ->
+        failwiths "File_descr_watcher returned the timerfd as ready to be written to"
+          file_descr <:sexp_of< File_descr.t >>
+      end
+    | _ ->
+      failwiths "File_descr_watcher returned unknown file descr" file_descr
+        <:sexp_of< File_descr.t >>
+;;
+
 let create
       ?(file_descr_watcher       = Config.file_descr_watcher)
       ?(max_num_open_file_descrs = Config.max_num_open_file_descrs)
@@ -378,10 +467,27 @@ let create
     fd
   in
   let interruptor = Interruptor.create ~create_fd in
+  let t_ref = ref None in (* set below, after [t] is defined *)
+  let handle_fd read_or_write ready_or_bad_fd =
+    fun file_descr ->
+      match !t_ref with
+      | None -> assert false
+      | Some t -> post_check_handle_fd t file_descr read_or_write ready_or_bad_fd
+  in
+  let handle_fd_read_ready  = handle_fd `Read  `Ready  in
+  let handle_fd_read_bad    = handle_fd `Read  `Bad_fd in
+  let handle_fd_write_ready = handle_fd `Write `Ready  in
+  let handle_fd_write_bad   = handle_fd `Write `Bad_fd in
   let file_descr_watcher, timerfd =
     match file_descr_watcher with
     | Select ->
-      let watcher = Select_file_descr_watcher.create ~num_file_descrs in
+      let watcher =
+        Select_file_descr_watcher.create ~num_file_descrs
+          ~handle_fd_read_ready
+          ~handle_fd_read_bad
+          ~handle_fd_write_ready
+          ~handle_fd_write_bad
+      in
       let module W = struct
         include Select_file_descr_watcher
         let watcher = watcher
@@ -396,7 +502,11 @@ Async refuses to run using epoll on a system that doesn't support timer FDs, sin
 Async will be unable to timeout with sub-millisecond precision."
         | Some timerfd -> timerfd
       in
-      let watcher = Epoll_file_descr_watcher.create ~num_file_descrs timerfd in
+      let watcher =
+        Epoll_file_descr_watcher.create ~num_file_descrs ~timerfd
+          ~handle_fd_read_ready
+          ~handle_fd_write_ready
+      in
       let module W = struct
         include Epoll_file_descr_watcher
         let watcher = watcher
@@ -426,6 +536,7 @@ Async will be unable to timeout with sub-millisecond precision."
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
     }
   in
+  t_ref := Some t;
   detect_stuck_thread_pool t;
   update_check_access t Config.detect_invalid_access_from_thread;
   t
@@ -449,13 +560,9 @@ let reset_in_forked_process () =
   init ();
 ;;
 
-let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
-
 let thread_safe_enqueue_external_job t f =
   Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
-
-let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
 let have_lock_do_cycle t =
   if debug then Debug.log "have_lock_do_cycle" t <:sexp_of< t >>;
@@ -463,67 +570,6 @@ let have_lock_do_cycle t =
   (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
      events, or an unhandled exception. *)
   if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
-;;
-
-let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
-  Read_write.set fd.watching read_or_write desired;
-  if not fd.watching_has_changed then begin
-    fd.watching_has_changed <- true;
-    t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed;
-  end
-;;
-
-let request_start_watching t fd read_or_write watching =
-  if Debug.file_descr_watcher
-  then Debug.log "request_start_watching" (read_or_write, fd, t)
-         <:sexp_of< Read_write.Key.t * Fd.t * t >>;
-  if not fd.supports_nonblock
-  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
-     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
-     file-descr-watcher to monitor such descriptors. *)
-  then `Unsupported
-  else begin
-    let start_watching () =
-      set_fd_desired_watching t fd read_or_write watching;
-      if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
-      `Watching
-    in
-    match Read_write.get fd.watching read_or_write with
-    | Watch_once _ | Watch_repeatedly _ -> `Already_watching
-    | Stop_requested ->
-      (* We don't [inc_num_active_syscalls] in this case, because we already did when we
-         transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
-         was closed since we transitioned to [Stop_requested], in which case we don't want
-         to [start_watching]; we want to report that it was closed and leave it
-         [Stop_requested] so the the file-descr-watcher will stop watching it and we can
-         actually close it. *)
-      if Fd.is_closed fd
-      then `Already_closed
-      else start_watching ()
-    | Not_watching ->
-      match Fd.inc_num_active_syscalls fd with
-      | `Already_closed -> `Already_closed
-      | `Ok -> start_watching ()
-  end
-;;
-
-let request_stop_watching t fd read_or_write value =
-  if Debug.file_descr_watcher
-  then Debug.log "request_stop_watching" (read_or_write, value, fd, t)
-         <:sexp_of< Read_write.Key.t * Fd.ready_to_result * Fd.t * t >>;
-  match Read_write.get fd.watching read_or_write with
-  | Stop_requested | Not_watching -> ()
-  | Watch_once ready_to ->
-    Ivar.fill ready_to value;
-    set_fd_desired_watching t fd read_or_write Stop_requested;
-    if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
-  | Watch_repeatedly (job, finished) ->
-    match value with
-    | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
-    | `Closed | `Bad_fd | `Interrupted as value ->
-      Ivar.fill finished value;
-      set_fd_desired_watching t fd read_or_write Stop_requested;
-      if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
@@ -636,38 +682,6 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
         else check_file_descr_watcher pre ~timeout:Immediately ()
     end
   in
-  let handle_post post =
-    (* We handle writes before reads so that we get all the writes started going to the
-       external world before we process all the reads.  This will nicely batch together
-       all the output based on the reads for the next writes. *)
-    List.iter [ `Write; `Read ] ~f:(fun read_or_write ->
-      let { File_descr_watcher_intf.Post. ready; bad } =
-        Read_write.get post read_or_write
-      in
-      let fill zs value =
-        List.iter zs ~f:(fun file_descr ->
-          match Fd_by_descr.find t.fd_by_descr file_descr with
-          | Some fd -> request_stop_watching t fd read_or_write value
-          | None ->
-            match t.timerfd with
-            | Some tfd when file_descr = (tfd :> Unix.File_descr.t) -> begin
-                match read_or_write with
-                | `Read ->
-                  (* We don't need to actually call [read] since we are using the
-                     edge-triggered behavior. *)
-                  ()
-                | `Write ->
-                  failwiths
-                    "File_descr_watcher returned the timerfd as ready to be written to"
-                    file_descr <:sexp_of< File_descr.t >>
-              end
-            | _ ->
-              failwiths "File_descr_watcher returned unknown file descr" file_descr
-                <:sexp_of< File_descr.t >>)
-      in
-      fill bad `Bad_fd;
-      fill ready `Ready)
-  in
   begin
     let interruptor_finished = Ivar.create () in
     let interruptor_read_fd = Interruptor.read_fd t.interruptor in
@@ -704,14 +718,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       if Debug.file_descr_watcher
       then Debug.log "File_descr_watcher.post_check" (check_result, t)
              <:sexp_of< F.Check_result.t * t >>;
-      begin match F.post_check F.watcher check_result with
-      | `Timeout | `Syscall_interrupted -> ()
-      | `Ok post ->
-        if Debug.file_descr_watcher
-        then Debug.log "File_descr_watcher.post_check returned" (post, t)
-               <:sexp_of< File_descr_watcher_intf.Post.t Read_write.t * t >>;
-        handle_post post;
-      end;
+      F.post_check F.watcher check_result;
       if debug then Debug.log_string "handling delivered signals";
       Raw_signal_manager.handle_delivered t.signal_manager;
       have_lock_do_cycle t;
@@ -721,16 +728,21 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     try `User_uncaught (loop ())
     with exn -> `Async_uncaught exn
   in
-  let error =
+  let should_dump_core, error =
     match exn with
-    | `User_uncaught error -> error
+    | `User_uncaught error -> false, error
     | `Async_uncaught exn ->
-      Error.create "bug in async scheduler" (exn, t) <:sexp_of< exn * t >>
+      true, Error.create "bug in async scheduler" (exn, t) <:sexp_of< exn * t >>
   in
   if raise_unhandled_exn
   then Error.raise error
   else begin
     Debug.log "unhandled exception in Async scheduler" error <:sexp_of< Error.t >>;
+    if should_dump_core
+    then begin
+      Debug.log_string "dumping core";
+      Dump_core_on_job_delay.dump_core ();
+    end;
     exit 1;
   end
 ;;
@@ -744,51 +756,54 @@ let add_finalizer_exn t x f =
     (fun heap_block -> f (Heap_block.value heap_block))
 ;;
 
-let go ?raise_unhandled_exn () =
-  if debug then Debug.log_string "Scheduler.go";
-  let t = the_one_and_only ~should_lock:false in
-  (* [go] is called from the main thread and so must acquire the lock if the thread has
-     not already done so implicitly via use of an async operation that uses
-     [the_one_and_only]. *)
-  if not (am_holding_lock t) then lock t;
-  if t.have_called_go then failwith "cannot Scheduler.go more than once";
-  t.have_called_go <- true;
-  if not t.is_running then begin
-    t.is_running <- true;
-    be_the_scheduler t ?raise_unhandled_exn;
-  end else begin
-    unlock t;
-    (* We wakeup the scheduler so it can respond to whatever async changes this thread
-       made. *)
-    thread_safe_wakeup_scheduler t;
-    (* Since the scheduler is already running, so we just pause forever. *)
-    Time.pause_forever ();
-  end
+let go ~log_ignored_exn =
+  stage (fun ?raise_unhandled_exn () ->
+    Monitor.try_with_ignored_exn_handling := `Run log_ignored_exn;
+    if debug then Debug.log_string "Scheduler.go";
+    let t = the_one_and_only ~should_lock:false in
+    (* [go] is called from the main thread and so must acquire the lock if the thread has
+       not already done so implicitly via use of an async operation that uses
+       [the_one_and_only]. *)
+    if not (am_holding_lock t) then lock t;
+    if t.have_called_go then failwith "cannot Scheduler.go more than once";
+    t.have_called_go <- true;
+    if not t.is_running then begin
+      t.is_running <- true;
+      be_the_scheduler t ?raise_unhandled_exn;
+    end else begin
+      unlock t;
+      (* We wakeup the scheduler so it can respond to whatever async changes this thread
+         made. *)
+      thread_safe_wakeup_scheduler t;
+      (* Since the scheduler is already running, so we just pause forever. *)
+      Time.pause_forever ();
+    end)
 ;;
 
-let go_main
-      ?raise_unhandled_exn
-      ?file_descr_watcher
-      ?max_num_open_file_descrs
-      ?max_num_threads
-      ~main () =
-  if not (is_ready_to_initialize ())
-  then failwith "Async was initialized prior to [Scheduler.go_main]";
-  let max_num_open_file_descrs =
-    Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
-  in
-  let max_num_threads =
-    Option.map max_num_threads ~f:Max_num_threads.create_exn
-  in
-  the_one_and_only_ref :=
-    Ready_to_initialize (fun () ->
-      create
-        ?file_descr_watcher
-        ?max_num_open_file_descrs
-        ?max_num_threads
-        ());
-  Deferred.upon Deferred.unit main;
-  go ?raise_unhandled_exn ();
+let go_main ~log_ignored_exn =
+  stage (fun
+          ?raise_unhandled_exn
+          ?file_descr_watcher
+          ?max_num_open_file_descrs
+          ?max_num_threads
+          ~main () ->
+          if not (is_ready_to_initialize ())
+          then failwith "Async was initialized prior to [Scheduler.go_main]";
+          let max_num_open_file_descrs =
+            Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
+          in
+          let max_num_threads =
+            Option.map max_num_threads ~f:Max_num_threads.create_exn
+          in
+          the_one_and_only_ref :=
+            Ready_to_initialize (fun () ->
+              create
+                ?file_descr_watcher
+                ?max_num_open_file_descrs
+                ?max_num_threads
+                ());
+          Deferred.upon Deferred.unit main;
+          unstage (go ~log_ignored_exn) ?raise_unhandled_exn ())
 ;;
 
 let is_running () =

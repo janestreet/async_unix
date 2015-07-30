@@ -1,4 +1,3 @@
-
 open Core.Std
 open Import
 open File_descr_watcher_intf
@@ -22,8 +21,10 @@ module Flags = struct
 end
 
 type t =
-  { timerfd : Timerfd.t
-  ; epoll   : Epoll.t
+  { timerfd                       : Timerfd.t
+  ; epoll                         : Epoll.t
+  ; mutable handle_fd_read_ready  : File_descr.t -> Flags.t -> unit
+  ; mutable handle_fd_write_ready : File_descr.t -> Flags.t -> unit
   }
 with sexp_of, fields
 
@@ -43,17 +44,42 @@ let invariant t : unit =
         Epoll.iter epoll ~f:(fun _ flags ->
           assert (List.exists Flags.([ in_; out; in_out; for_timerfd ])
                     ~f:(fun flags' -> Flags.equal flags flags')))))
+      ~handle_fd_read_ready:ignore
+      ~handle_fd_write_ready:ignore
   with exn ->
     failwiths "Epoll_file_descr_watcher.invariant failed" (exn, t) <:sexp_of< exn * t >>
 ;;
 
-let create ~num_file_descrs timerfd =
+type 'a additional_create_args = timerfd:Linux_ext.Timerfd.t -> 'a
+
+let create
+      ~timerfd
+      ~num_file_descrs
+      ~handle_fd_read_ready
+      ~handle_fd_write_ready
+      =
   let epoll =
     Or_error.ok_exn Epoll.create ~num_file_descrs
       ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events)
   in
+  let handle_fd read_or_write handle_fd =
+    let bit = Flags.of_rw read_or_write in
+    fun file_descr flags ->
+      (* A difference between select and epoll crops up here.  epoll has an implicit event
+         flag for hangup (HUP), whereas select will just return that fd as "ready" in its
+         appropriate fd_set.  Since we don't know if it's ready for IN or OUT, we have to
+         go lookup the entry if the HUP flag is set *)
+      let hup = Flags.do_intersect flags Flags.hup in
+      if Flags.do_intersect flags bit
+         || (hup && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
+      then handle_fd file_descr
+  in
   Epoll.set epoll (Timerfd.to_file_descr timerfd) Flags.for_timerfd;
-  { timerfd; epoll }
+  { timerfd
+  ; epoll
+  ; handle_fd_read_ready  = handle_fd `Read  handle_fd_read_ready
+  ; handle_fd_write_ready = handle_fd `Write handle_fd_write_ready
+  }
 ;;
 
 let reset_in_forked_process t = Epoll.close t.epoll
@@ -114,26 +140,12 @@ let post_check t check_result =
   try
     match check_result with
     (* We think 514 should be treated like EINTR. *)
-    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> `Syscall_interrupted
+    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> ()
     | Error exn -> failwiths "epoll raised unexpected exn" exn <:sexp_of< exn >>
-    | Ok e ->
-      match e with
-      | `Timeout -> `Timeout
-      | `Ok ->
-        let ready = Read_write.create_both [] in
-        Epoll.iter_ready t.epoll ~f:(fun file_descr flags ->
-          (* A difference between select and epoll crops up here.  epoll has an implicit
-             event flag for hangup (HUP), whereas select will just return that fd as
-             "ready" in its appropriate fd_set.  Since we don't know if it's ready for IN
-             or OUT, we have to go lookup the entry if the HUP flag is set *)
-          let hup = Flags.do_intersect flags Flags.hup in
-          Read_write.replace_all ready ~f:(fun read_or_write ready ->
-            let bit = Flags.of_rw read_or_write in
-            if Flags.do_intersect flags bit
-            || (hup && Flags.do_intersect (Epoll.find_exn t.epoll file_descr) bit)
-            then file_descr :: ready
-            else ready));
-        `Ok (Read_write.map ready ~f:(fun ready -> { Post. ready; bad = [] }))
+    | Ok `Timeout -> ()
+    | Ok `Ok ->
+      Epoll.iter_ready t.epoll ~f:t.handle_fd_write_ready;
+      Epoll.iter_ready t.epoll ~f:t.handle_fd_read_ready;
   with exn ->
     failwiths "Epoll.post_check bug" (exn, check_result, t)
       <:sexp_of< exn * Check_result.t * t >>

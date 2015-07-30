@@ -20,11 +20,11 @@ module State = struct
 
      Open --> Close_requested --> Closed *)
   type t =
-    (* [Close_requested] indicates that [Fd.close t] has been called, but that we haven't
-       yet started the close() syscall, because there are still active syscalls using the
-       file descriptor.  The argument is a function that will do the close syscall, and
-       return when it is complete. *)
-    | Close_requested of (unit -> unit Deferred.t)
+    (* [Close_requested (execution_context, do_close_syscall)] indicates that [Fd.close t]
+       has been called, but that we haven't yet started the close() syscall, because there
+       are still active syscalls using the file descriptor.  Once there are no active
+       syscalls, we enqueue a job to [do_close_syscall] in [execution_context]. *)
+    | Close_requested of Execution_context.t * (unit -> unit)
     (* [Closed] indicates that there are no more active syscalls and we have started the
        close() syscall. *)
     | Closed

@@ -29,7 +29,7 @@ val t : unit -> t
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
 val go
-  :  ?raise_unhandled_exn : bool  (** default is [false] *)
+  : ?raise_unhandled_exn : bool  (** default is [false] *)
   -> unit
   -> never_returns
 

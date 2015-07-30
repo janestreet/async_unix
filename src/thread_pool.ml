@@ -450,7 +450,10 @@ module Internal = struct
     else
       match get_available_thread t with
       | `None_available ->
-        error "create_helper_thread could not get a thread" t <:sexp_of< t >>;
+        (* We apply the sexp converter now to make sure that the error message
+           actually contains the threads we had when we failed. *)
+        error "create_helper_thread could not get a thread" (t |> <:sexp_of< t >>)
+          <:sexp_of< Sexp.t >>;
       | `Ok thread ->
         let helper_thread =
           { Helper_thread.
@@ -684,7 +687,7 @@ TEST_MODULE = struct
         let t = ok_exn (create ~max_num_threads) in
         let worker_threads_have_fully_started = Ivar.create () in
         let worker_threads_should_continue = Ivar.create () in
-        let _ : Core.Std.Thread.t =
+        let (_ : Core.Std.Thread.t) =
           Core.Std.Thread.create (fun () ->
             let start = Time.now () in
             let rec loop () =

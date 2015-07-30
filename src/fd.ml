@@ -76,28 +76,43 @@ let clear_nonblock t =
 
 let close ?(should_close_file_descriptor = true) t =
   if debug then Debug.log "Fd.close" t <:sexp_of< t >>;
-  match t.state with
-  | Close_requested _ | Closed -> Ivar.read t.close_finished
+  begin match t.state with
+  | Close_requested _ | Closed -> ()
   | Open close_started ->
     Ivar.fill close_started ();
-    set_state t (Close_requested (fun () ->
-      if not should_close_file_descriptor
-      then Deferred.unit
-      else
-        Monitor.protect
-          ~finally:(fun () ->
-            In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
-          (fun () ->
-             match t.kind with
-             | Socket `Active ->
-               In_thread.syscall_exn ~name:"shutdown" (fun () ->
-                 Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
-             | _ -> return ())));
+    let do_close_syscall () =
+      don't_wait_for begin
+        let close_finished =
+          if not should_close_file_descriptor
+          then Deferred.unit
+          else
+            Monitor.protect
+              ~finally:(fun () ->
+                In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
+              (fun () ->
+                 match t.kind with
+                 | Socket `Active ->
+                   In_thread.syscall_exn ~name:"shutdown" (fun () ->
+                     Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
+                 | _ -> return ())
+        in
+        close_finished
+        >>| fun () ->
+        Ivar.fill t.close_finished ();
+      end
+    in
     let scheduler = the_one_and_only () in
-    Scheduler.request_stop_watching scheduler t `Read `Closed;
+    let kernel_scheduler = scheduler.kernel_scheduler in
+    set_state t
+      (Close_requested (Kernel_scheduler.current_execution_context kernel_scheduler,
+                        do_close_syscall));
+    (* Notify other users of this fd that it is going to be closed. *)
+    Scheduler.request_stop_watching scheduler t `Read  `Closed;
     Scheduler.request_stop_watching scheduler t `Write `Closed;
+    (* If there are no syscalls in progress, then start closing the fd. *)
     Scheduler.maybe_start_closing_fd scheduler t;
-    Ivar.read t.close_finished;
+  end;
+  Ivar.read t.close_finished;
 ;;
 
 let close_finished t = Ivar.read t.close_finished
@@ -120,6 +135,15 @@ let with_file_descr_deferred t f =
     match result with
     | Ok x -> `Ok x
     | Error e -> `Error e
+;;
+
+let with_file_descr_deferred_exn t f =
+  with_file_descr_deferred t f
+  >>| function
+  | `Ok x           -> x
+  | `Error exn      -> raise exn
+  | `Already_closed ->
+    failwiths "Fd.with_file_descr_deferred_exn got closed fd" t <:sexp_of< t >>
 ;;
 
 let start_watching t read_or_write watching =

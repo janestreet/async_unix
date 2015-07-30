@@ -3,6 +3,7 @@ open Import
 
 module Read = Bin_prot.Read
 module Type_class = Bin_prot.Type_class
+module Scheduler = Raw_scheduler
 module Unix = Unix_syscalls
 module Id = Unique_id.Int63 ()
 
@@ -221,6 +222,9 @@ module Internal = struct
                  | ENETDOWN
                  | ENETRESET
                  | ENETUNREACH
+                 (* When using OpenOnload, read() can return EPIPE if a TCP connection
+                    is established and then immediately closed. *)
+                 | EPIPE
                  | ETIMEDOUT
                  ), _, _)
               -> eof ()
@@ -1048,7 +1052,7 @@ let get_error (type a) (type sexp)
             (* The error produced by [get_conv_exn] already has the file position, so
                we don't wrap with a redundant error message. *)
             Or_error.error "invalid sexp" (pos, exn, "in", sexp)
-              <:sexp_of< string * exn * string * Sexp.t ] >>
+              <:sexp_of< string * exn * string * Sexp.t >>
           | _ -> unexpected_error ()
         end
       | _ -> unexpected_error ()

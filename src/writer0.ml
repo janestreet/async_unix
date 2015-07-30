@@ -2,7 +2,8 @@ open Core.Std
 open Import
 
 module Core_unix = Core.Std.Unix
-module Unix = Unix_syscalls
+module Scheduler = Raw_scheduler
+module Unix      = Unix_syscalls
 
 module IOVec = Core.Std.Unix.IOVec
 
@@ -1027,12 +1028,19 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
     result)
   >>= fun result ->
   Monitor.try_with (fun () -> Unix.rename ~src:temp_file ~dst:file)
-  >>| function
-  | Ok () -> result
+  >>= function
+  | Ok () -> return result
   | Error exn ->
-    don't_wait_for (Unix.unlink temp_file);
-    failwiths "Writer.with_file_atomic could not create file"
-      (file, exn) <:sexp_of< string * exn >>
+    let fail v sexp_of_v =
+      failwiths "Writer.with_file_atomic could not create file"
+        (file, v) <:sexp_of< string * v >>
+    in
+    Monitor.try_with (fun () -> Unix.unlink temp_file)
+    >>| function
+    | Ok () -> fail exn <:sexp_of< exn >>
+    | Error exn2 ->
+      fail (exn, `Cleanup_failed exn2)
+        <:sexp_of< exn * [ `Cleanup_failed of exn ] >>
 ;;
 
 let save ?temp_file ?perm ?fsync file ~contents =

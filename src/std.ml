@@ -3,6 +3,7 @@ module Clock            = Clock
 module Fd               = Fd
 module In_thread        = In_thread
 module Io_stats         = Io_stats
+module Log              = Log
 module Print            = Async_print
 module Process          = Process
 module Reader           = Reader
@@ -31,8 +32,26 @@ let shutdown  = Shutdown.shutdown
 let within    = Scheduler.within
 let within'   = Scheduler.within'
 
-(* We rebind all pervasive funtions that deal with I/O so that one doesn't
-   actually do blocking stuff in an Async program. *)
+
+(* We rebind all pervasive and some Core.Std funtions that deal with I/O so that one
+   doesn't unintentionally do blocking stuff in an Async program. *)
+
+(* Shadow blocking functions in [Core.Std.Printf] to prevent their unintentional use. *)
+module Printf = struct
+  let _shadow = `Probably_should_not_use_blocking_Core_Printf_functions_with_Async
+  let bprintf      = Core.Std.Printf.bprintf
+  let eprintf      = _shadow
+  let exitf        = _shadow
+  let failwithf    = Core.Std.Printf.failwithf
+  let fprintf _    = _shadow
+  let ifprintf _   = _shadow
+  let invalid_argf = Core.Std.Printf.invalid_argf
+  let kbprintf     = Core.Std.Printf.kbprintf
+  let kfprintf _ _ = _shadow
+  let ksprintf     = Core.Std.Printf.ksprintf
+  let printf       = _shadow
+  let sprintf      = Core.Std.Printf.sprintf
+end
 
 include struct
   open Core.Std

@@ -101,9 +101,13 @@ val clear_nonblock : t -> unit
     [~should_close_file_descriptor:false], which will skip the underlying [close()] system
     call.
 
-    [close_finished t] becomes determined after the [close()] system call on [t]'s
-    underlying file descriptor returns.  [close_finished] differs from [close] in that it
-    does not have the side effect of initiating a close.
+    If [should_close_file_descriptor] is [true], [close_finished t] becomes determined
+    after the [close()] system call on [t]'s underlying file descriptor returns.  If
+    [should_close_file_descriptor] is [false], then [close_finished] becomes determined
+    immediately.
+
+    [close_finished] differs from [close] in that it does not have the side effect of
+    initiating a close.
 
     [is_closed t] returns [true] iff [close t] has been called.
 
@@ -161,6 +165,13 @@ val with_file_descr_deferred
      | `Error of exn
      ] Deferred.t
 
+(** [with_file_descr_deferred_exn] is like [with_file_descr_deferred], except that it
+    raises rather than return [`Already_closed] or [`Error]. *)
+val with_file_descr_deferred_exn
+  :  t
+  -> (Unix.File_descr.t -> 'a Deferred.t)
+  -> 'a Deferred.t
+
 (** [interruptible_ready_to t read_write ~interrupt] returns a deferred that will become
     determined when the file descriptor underlying [t] can be read from or written to
     without blocking, or when [interrupt] becomes determined. *)
@@ -182,8 +193,7 @@ val ready_to
   -> [ `Bad_fd
      | `Closed
      | `Ready
-     ]
-       Deferred.t
+     ] Deferred.t
 
 (** [interruptible_every_ready_to t read_write ~interrupt f a] enqueus a job to run [f a]
     every time the file descriptor underlying [t] can be read from or written to without

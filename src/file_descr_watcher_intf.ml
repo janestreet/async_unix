@@ -15,16 +15,6 @@
 open Core.Std
 open Import
 
-module Post = struct
-  type t =
-    { ready : File_descr.t list
-    ; bad   : File_descr.t list
-    }
-  with sexp_of
-
-  let empty = { ready = []; bad = [] }
-end
-
 module Timeout = struct
   type 'a t =                     (* performance hack: avoid allocation *)
     | Never       : unit           t
@@ -49,6 +39,18 @@ module type S = sig
   type t with sexp_of
 
   include Invariant.S with type t := t
+
+  (** [additional_create_args] abstracts over the additional arguments to different
+      file-descr-watcher's [create] function. *)
+  type 'a additional_create_args
+
+  (** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
+      file descriptors in {[ [0, num_file_descrs) ]}. *)
+  val create
+    : (num_file_descrs          : int
+       -> handle_fd_read_ready  : (File_descr.t -> unit)
+       -> handle_fd_write_ready : (File_descr.t -> unit)
+       -> t) additional_create_args
 
   val backend : Config.File_descr_watcher.t
 
@@ -79,16 +81,19 @@ module type S = sig
     -> 'a
     -> Check_result.t
 
-  (** [post_check t check_result] returns the file descriptors available for read and
-      write.  Any file descriptor appearing in [post] for read must have been watched
-      for read, as per [set].  Similarly for write. *)
-  val post_check
-    :  t
-    -> Check_result.t
-    -> [ `Ok of Post.t Read_write.t
-       | `Timeout
-       | `Syscall_interrupted
-       ]
+  (** [post_check t check_result] calls the [handle_fd*] functions supplied to [create]:
+
+      1. for each file descriptor that is ready to be written to, then
+      2. for each file descriptor that is ready to be read from.
+
+      We handle writes before reads so that we get all the writes started going to the
+      external world before we process all the reads.  This will nicely batch together
+      all the output based on the reads for the next writes.
+
+      It is guaranteed that it calls [handle_fd_read*] only on an [fd] that is watched for
+      read as per [set], and [handle_fd_write*] only on an [fd] that is watched for write
+      as per [set]. *)
+  val post_check : t -> Check_result.t -> unit
 
   val reset_in_forked_process : t -> unit
 end
