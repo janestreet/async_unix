@@ -6,7 +6,7 @@
 open Core.Std
 open Import
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
@@ -15,7 +15,10 @@ val create : num_file_descrs:int -> t
 (** [add_exn t fd] fails if the file descriptor for [fd] is already in [t].  *)
 val add_exn : t -> Raw_fd.t -> unit
 
-val find : t -> File_descr.t -> Raw_fd.t option
+val mem : t -> File_descr.t -> bool
+
+val find     : t -> File_descr.t -> Raw_fd.t option
+val find_exn : t -> File_descr.t -> Raw_fd.t
 
 val remove : t -> Raw_fd.t -> unit
 

@@ -9,7 +9,7 @@ let run_holding_async_lock
       (type a) (type b)
       ?(wakeup_scheduler = true)
       t (f : unit -> a) ~(finish : (a, exn) Result.t -> b) : b =
-  if debug then Debug.log "run_holding_async_lock" t <:sexp_of< t >>;
+  if debug then Debug.log "run_holding_async_lock" t [%sexp_of: t];
   if not (am_holding_lock t) then lock t;
   protect ~finally:(fun () ->
     if wakeup_scheduler then thread_safe_wakeup_scheduler t;
@@ -28,7 +28,7 @@ let ensure_in_a_thread t name =
 ;;
 
 let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
-  if debug then Debug.log "run_in_async_with_optional_cycle" t <:sexp_of< t >>;
+  if debug then Debug.log "run_in_async_with_optional_cycle" t [%sexp_of: t];
   ensure_in_a_thread t "run_in_async_with_optional_cycle";
   run_holding_async_lock ?wakeup_scheduler t f
     ~finish:(function
@@ -42,7 +42,7 @@ let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
 ;;
 
 let block_on_async t f =
-  if debug then Debug.log "block_on_async" t <:sexp_of< t >>;
+  if debug then Debug.log "block_on_async" t [%sexp_of: t];
   (* We disallow calling [block_on_async] if the caller is running inside async.  This can
      happen if one is the scheduler, or if one is in some other thread that has used, e.g.
      [run_in_async] to call into async and run a cycle.  We do however, want to allow the
@@ -60,6 +60,11 @@ let block_on_async t f =
                    never_returns (be_the_scheduler t)))
               ());
   end;
+  (* While [block_on_async] is blocked, Async can run and set the execution context.  So
+     we save and restore the execution context, if we're in the main thread.  The
+     restoration is necessary because subsequent code in the main thread can do operations
+     that rely on the execution context. *)
+  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
   let maybe_blocked =
     run_holding_async_lock t
       (fun () -> Monitor.try_with f ~name:"block_on_async")
@@ -91,15 +96,23 @@ let block_on_async t f =
   in
   (* If we're the main thread, we should lock the scheduler for the rest of main, to
      prevent the scheduler, which is now running in another thread, from interfering with
-     the main thread. *)
-  if is_main_thread () then lock t;
+     the main thread.  We also restore the execution context, so that the code in the main
+     thread will be in the same execution context as before it called [block_on_async].
+     The restored execution context will usually be [Execution_context.main], but need not
+     be, if the user has done operations that adjust the current execution context,
+     e.g. [Monitor.within].  If we're not in the main thread, the we don't need to
+     and cannot restore the execution context, because we do not hold the Async lock. *)
+  if is_main_thread () then begin
+    lock t;
+    Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context;
+  end;
   res
 ;;
 
 let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
 
 let run_in_async ?wakeup_scheduler t f =
-  if debug then Debug.log "run_in_async" t <:sexp_of< t >>;
+  if debug then Debug.log "run_in_async" t [%sexp_of: t];
   ensure_in_a_thread t "run_in_async";
   run_holding_async_lock ?wakeup_scheduler t f ~finish:Fn.id;
 ;;
@@ -109,7 +122,7 @@ let run_in_async_exn ?wakeup_scheduler t f =
 ;;
 
 let run_in_async_wait t f =
-  if debug then Debug.log "run_in_async_wait" t <:sexp_of< t >>;
+  if debug then Debug.log "run_in_async_wait" t [%sexp_of: t];
   ensure_in_a_thread t "run_in_async_wait";
   block_on_async t f;
 ;;

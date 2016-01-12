@@ -1,9 +1,9 @@
 (* Unit tests are in ../../lib_test/thread_safe_test.ml. *)
 
-open Core.Std  let _ = _squelch_unused_module_warning_
+open! Core.Std
 open Import
 
-type 'a t = 'a Pipe.Writer.t with sexp_of
+type 'a t = 'a Pipe.Writer.t [@@deriving sexp_of]
 
 let in_async ?wakeup_scheduler f = Thread_safe.run_in_async_exn ?wakeup_scheduler f
 

@@ -21,12 +21,12 @@ module Flags = struct
 end
 
 type t =
-  { timerfd                       : Timerfd.t
-  ; epoll                         : Epoll.t
-  ; mutable handle_fd_read_ready  : File_descr.t -> Flags.t -> unit
-  ; mutable handle_fd_write_ready : File_descr.t -> Flags.t -> unit
+  { timerfd               : Timerfd.t
+  ; epoll                 : Epoll.t
+  ; handle_fd_read_ready  : File_descr.t -> Flags.t -> unit
+  ; handle_fd_write_ready : File_descr.t -> Flags.t -> unit
   }
-with sexp_of, fields
+[@@deriving sexp_of, fields]
 
 let backend = Config.File_descr_watcher.Epoll
 
@@ -37,7 +37,7 @@ let invariant t : unit =
     let check f = fun field -> f (Field.get field t) in
     Fields.iter
       ~timerfd:(check (fun timerfd ->
-        <:test_result< Flags.t option >>
+        [%test_result: Flags.t option]
           (Epoll.find t.epoll (Timerfd.to_file_descr timerfd))
           ~expect:(Some Flags.for_timerfd)))
       ~epoll:(check (fun epoll ->
@@ -47,7 +47,7 @@ let invariant t : unit =
       ~handle_fd_read_ready:ignore
       ~handle_fd_write_ready:ignore
   with exn ->
-    failwiths "Epoll_file_descr_watcher.invariant failed" (exn, t) <:sexp_of< exn * t >>
+    failwiths "Epoll_file_descr_watcher.invariant failed" (exn, t) [%sexp_of: exn * t]
 ;;
 
 type 'a additional_create_args = timerfd:Linux_ext.Timerfd.t -> 'a
@@ -62,16 +62,17 @@ let create
     Or_error.ok_exn Epoll.create ~num_file_descrs
       ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events)
   in
+  let err_or_hup = Flags.(hup + err) in
   let handle_fd read_or_write handle_fd =
     let bit = Flags.of_rw read_or_write in
     fun file_descr flags ->
-      (* A difference between select and epoll crops up here.  epoll has an implicit event
-         flag for hangup (HUP), whereas select will just return that fd as "ready" in its
-         appropriate fd_set.  Since we don't know if it's ready for IN or OUT, we have to
-         go lookup the entry if the HUP flag is set *)
-      let hup = Flags.do_intersect flags Flags.hup in
+      (* A difference between select and epoll crops up here: epoll has implicit event
+         flags for hangup (HUP) and error (ERR), whereas select will just return that fd
+         as "ready" in its appropriate fd_set.  Since we don't know if it's ready for IN
+         or OUT, we have to go lookup the entry if the HUP or ERR flag is set. *)
       if Flags.do_intersect flags bit
-         || (hup && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
+      || (Flags.do_intersect flags err_or_hup
+          && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
       then handle_fd file_descr
   in
   Epoll.set epoll (Timerfd.to_file_descr timerfd) Flags.for_timerfd;
@@ -109,14 +110,14 @@ let set t file_descr desired =
 ;;
 
 module Pre = struct
-  type t = unit with sexp_of
+  type t = unit [@@deriving sexp_of]
 end
 
 let pre_check _t = ()
 
 module Check_result = struct
   type t = ([ `Ok | `Timeout ], exn) Result.t
-  with sexp_of
+  [@@deriving sexp_of]
 
   let ok      = Ok `Ok
   let timeout = Ok `Timeout
@@ -141,12 +142,12 @@ let post_check t check_result =
     match check_result with
     (* We think 514 should be treated like EINTR. *)
     | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> ()
-    | Error exn -> failwiths "epoll raised unexpected exn" exn <:sexp_of< exn >>
+    | Error exn -> failwiths "epoll raised unexpected exn" exn [%sexp_of: exn]
     | Ok `Timeout -> ()
     | Ok `Ok ->
       Epoll.iter_ready t.epoll ~f:t.handle_fd_write_ready;
       Epoll.iter_ready t.epoll ~f:t.handle_fd_read_ready;
   with exn ->
     failwiths "Epoll.post_check bug" (exn, check_result, t)
-      <:sexp_of< exn * Check_result.t * t >>
+      [%sexp_of: exn * Check_result.t * t]
 ;;

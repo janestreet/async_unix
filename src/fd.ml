@@ -14,6 +14,7 @@ let is_closed                   = is_closed
 let is_open                     = is_open
 let syscall                     = syscall
 let syscall_exn                 = syscall_exn
+let syscall_result_exn          = syscall_result_exn
 let with_file_descr             = with_file_descr
 let with_file_descr_exn         = with_file_descr_exn
 
@@ -75,7 +76,7 @@ let clear_nonblock t =
 ;;
 
 let close ?(should_close_file_descriptor = true) t =
-  if debug then Debug.log "Fd.close" t <:sexp_of< t >>;
+  if debug then Debug.log "Fd.close" t [%sexp_of: t];
   begin match t.state with
   | Close_requested _ | Closed -> ()
   | Open close_started ->
@@ -143,19 +144,19 @@ let with_file_descr_deferred_exn t f =
   | `Ok x           -> x
   | `Error exn      -> raise exn
   | `Already_closed ->
-    failwiths "Fd.with_file_descr_deferred_exn got closed fd" t <:sexp_of< t >>
+    failwiths "Fd.with_file_descr_deferred_exn got closed fd" t [%sexp_of: t]
 ;;
 
 let start_watching t read_or_write watching =
   if debug
   then Debug.log "Fd.start_watching" (t, read_or_write)
-         <:sexp_of< t * Read_write.Key.t >>;
+         [%sexp_of: t * Read_write.Key.t];
   let r = the_one_and_only () in
   match Scheduler.request_start_watching r t read_or_write watching with
   | `Unsupported | `Already_closed | `Watching as x -> x
   | `Already_watching ->
     failwiths "cannot watch an fd already being watched" (t, r)
-      <:sexp_of< t * Scheduler.t >>
+      [%sexp_of: t * Scheduler.t]
 ;;
 
 let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
@@ -175,7 +176,7 @@ let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
 let interruptible_ready_to t read_or_write ~interrupt =
   if debug
   then Debug.log "Fd.interruptible_ready_to" (t, read_or_write)
-         <:sexp_of< t * Read_write.Key.t >>;
+         [%sexp_of: t * Read_write.Key.t];
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -187,7 +188,7 @@ let interruptible_ready_to t read_or_write ~interrupt =
 
 let ready_to t read_or_write =
   if debug
-  then Debug.log "Fd.ready_to" (t, read_or_write) <:sexp_of< t * Read_write.Key.t >>;
+  then Debug.log "Fd.ready_to" (t, read_or_write) [%sexp_of: t * Read_write.Key.t];
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -202,7 +203,7 @@ let ready_to t read_or_write =
 let interruptible_every_ready_to t read_or_write ~interrupt f x =
   if debug
   then Debug.log "Fd.interruptible_every_ready_to" (t, read_or_write)
-         <:sexp_of< t * Read_write.Key.t >>;
+         [%sexp_of: t * Read_write.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
@@ -216,7 +217,7 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
 let every_ready_to t read_or_write f x =
   if debug
   then Debug.log "Fd.every_ready_to" (t, read_or_write)
-         <:sexp_of< t * Read_write.Key.t >>;
+         [%sexp_of: t * Read_write.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
@@ -234,7 +235,7 @@ let syscall_in_thread t ~name f =
     In_thread.syscall ~name (fun () -> f file_descr))
   >>| function
   | `Error e ->
-    failwiths "Fd.syscall_in_thread problem -- please report this" e <:sexp_of< exn >>
+    failwiths "Fd.syscall_in_thread problem -- please report this" e [%sexp_of: exn]
   | `Already_closed -> `Already_closed
   | `Ok x ->
     match x with
@@ -248,7 +249,7 @@ let syscall_in_thread_exn t ~name f =
   | `Ok x -> x
   | `Error exn -> raise exn
   | `Already_closed ->
-    failwiths "Fd.syscall_in_thread_exn of a closed fd" t <:sexp_of< t >>
+    failwiths "Fd.syscall_in_thread_exn of a closed fd" t [%sexp_of: t]
 ;;
 
 let of_in_channel ic kind =
@@ -269,7 +270,7 @@ let of_out_channel_auto oc =
 
 let file_descr_exn t =
   if is_closed t
-  then failwiths "Fd.file_descr_exn on already closed fd" t <:sexp_of< t >>
+  then failwiths "Fd.file_descr_exn on already closed fd" t [%sexp_of: t]
   else t.file_descr
 ;;
 
@@ -278,109 +279,172 @@ let to_int_exn t = File_descr.to_int (file_descr_exn t)
 let replace t kind info =
   if is_closed t
   then failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
-         <:sexp_of< t * Kind.t * Scheduler.t >>
+         [%sexp_of: t * Kind.t * Scheduler.t]
   else begin
     t.kind <- kind;
     t.info <- Info.create "replaced" (info, `previously_was t.info)
-                <:sexp_of< Info.t * [ `previously_was of Info.t ] >>;
+                [%sexp_of: Info.t * [ `previously_was of Info.t ]];
   end
 ;;
 
-TEST_MODULE "Fd" = struct
-  let wait_until_cell_is_equal_to cell expected =
-    let rec loop tries =
-      if tries = 0
-      then return false
-      else if String.equal !cell expected
-      then return true
-      else Clock.after (sec 0.1) >>= fun () -> loop (tries - 1)
-    in
-    loop 100;
-  ;;
-
-  let read_into_cell (fd, cell) =
-    Unix.set_nonblock fd;
-    try
-      while true do
-        let buf = String.create 1024 in
-        let n = Unix.read fd ~buf ~pos:0 ~len:(String.length buf) in
-        assert (n > 0);
-        cell := !cell ^ String.sub buf ~pos:0 ~len:n
-      done
-    with Unix.Unix_error ((EAGAIN | EWOULDBLOCK | EINTR), _, _) -> ()
-  ;;
-
-  let block_with_timeout f =
-    Thread_safe.block_on_async_exn (fun () -> Clock.with_timeout (sec 5.) (f ()))
-  ;;
-
-  TEST_UNIT =
-    let read = ref "" in
-    block_with_timeout (fun () ->
-      let fdr, fdw = Unix.pipe () in
-      let fdr_async = create Fifo fdr (Info.of_string "<pipe>") in
-      let d = every_ready_to fdr_async `Read read_into_cell (fdr, read) in
-      assert (String.equal !read "");
-      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foo" >>= fun b ->
-      assert b;
-      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
-      assert b;
-      close fdr_async >>= fun () -> d)
-    |> function
-    | `Result `Closed -> assert (String.equal !read "foobar")
-    | `Result _ -> assert false
-    | `Timeout -> assert false
-  ;;
-
-  TEST_UNIT =
-    let read = ref "" in
-    block_with_timeout (fun () ->
-      let fdr, fdw = Unix.pipe () in
-      let fdr_async = create Kind.Fifo fdr (Info.of_string "<pipe>") in
-      let stop = Ivar.create () in
-      let d =
-        interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
-          ~interrupt:(Ivar.read stop)
+let%test_module "Fd" =
+  (module struct
+    let wait_until_cell_is_equal_to cell expected =
+      let rec loop tries =
+        if tries = 0
+        then return false
+        else if String.equal !cell expected
+        then return true
+        else Clock.after (sec 0.1) >>= fun () -> loop (tries - 1)
       in
-      assert (String.equal !read "");
-      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foo" >>= fun b ->
-      assert b;
-      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
-      assert b;
-      Ivar.fill stop ();
-      assert (Unix.write fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
-      d)
-    |> function
-    | `Result `Interrupted -> assert (String.equal !read "foobar")
-    | `Result _ -> assert false
-    | `Timeout -> assert false
-  ;;
+      loop 100;
+    ;;
 
-  TEST_UNIT =
-    let read = ref "" in
-    block_with_timeout (fun () ->
-      let fdr, fdw = Unix.pipe () in
-      let fdr_async = create Fifo fdr (Info.of_string "<pipe>") in
-      let stop = Ivar.create () in
-      let d =
-        interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
-          ~interrupt:(Ivar.read stop)
-      in
-      assert (String.equal !read "");
-      assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foo" >>= fun b ->
-      assert b;
-      assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-      wait_until_cell_is_equal_to read "foobar" >>= fun b ->
-      assert b;
-      close fdr_async >>= fun () -> d)
-    |> function
-    | `Result `Closed -> assert (String.equal !read "foobar")
-    | `Result _ -> assert false
-    | `Timeout -> assert false
-  ;;
-end
+    let read_into_cell (fd, cell) =
+      Unix.set_nonblock fd;
+      try
+        while true do
+          let buf = String.create 1024 in
+          let n = Unix.read fd ~buf ~pos:0 ~len:(String.length buf) in
+          assert (n > 0);
+          cell := !cell ^ String.sub buf ~pos:0 ~len:n
+        done
+      with Unix.Unix_error ((EAGAIN | EWOULDBLOCK | EINTR), _, _) -> ()
+    ;;
+
+    let block_with_timeout f =
+      Thread_safe.block_on_async_exn (fun () -> Clock.with_timeout (sec 5.) (f ()))
+    ;;
+
+    let%test_unit _ =
+      let read = ref "" in
+      block_with_timeout (fun () ->
+        let fdr, fdw = Unix.pipe () in
+        let fdr_async = create Fifo fdr (Info.of_string "<pipe>") in
+        let d = every_ready_to fdr_async `Read read_into_cell (fdr, read) in
+        assert (String.equal !read "");
+        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        assert b;
+        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        assert b;
+        close fdr_async >>= fun () -> d)
+      |> function
+      | `Result `Closed -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+    ;;
+
+    let%test_unit _ =
+      let read = ref "" in
+      block_with_timeout (fun () ->
+        let fdr, fdw = Unix.pipe () in
+        let fdr_async = create Kind.Fifo fdr (Info.of_string "<pipe>") in
+        let stop = Ivar.create () in
+        let d =
+          interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
+            ~interrupt:(Ivar.read stop)
+        in
+        assert (String.equal !read "");
+        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        assert b;
+        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        assert b;
+        Ivar.fill stop ();
+        assert (Unix.write fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
+        d)
+      |> function
+      | `Result `Interrupted -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+    ;;
+
+    let%test_unit _ =
+      let read = ref "" in
+      block_with_timeout (fun () ->
+        let fdr, fdw = Unix.pipe () in
+        let fdr_async = create Fifo fdr (Info.of_string "<pipe>") in
+        let stop = Ivar.create () in
+        let d =
+          interruptible_every_ready_to fdr_async `Read read_into_cell (fdr, read)
+            ~interrupt:(Ivar.read stop)
+        in
+        assert (String.equal !read "");
+        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        assert b;
+        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        assert b;
+        close fdr_async >>= fun () -> d)
+      |> function
+      | `Result `Closed -> assert (String.equal !read "foobar")
+      | `Result _ -> assert false
+      | `Timeout -> assert false
+    ;;
+
+    let%test_unit
+      "ready_to reports Ready for writer when reader closes after partial read"
+      =
+      block_with_timeout (fun () ->
+        let r, w =
+          let r, w = Core.Std.Unix.pipe () in
+          create Fifo r (Info.of_string "<reader>"),
+          create Fifo w (Info.of_string "<writer>")
+        in
+        let read =
+          ready_to r `Read
+          >>= function
+          | `Bad_fd -> assert false
+          | `Closed -> assert false
+          | `Ready  ->
+            assert (supports_nonblock r);
+            let len = 1 lsl 17 in
+            let buf = Bigstring.create len in
+            match
+              syscall r ~nonblocking:true (fun fd ->
+                let res =
+                  Unix.Syscall_result.Int.ok_or_unix_error_exn ~syscall_name:"read"
+                    (Bigstring.read_assume_fd_is_nonblocking fd buf ~pos:0 ~len)
+                in
+                assert (res >= 0 && res <= len))
+            with
+            | `Already_closed -> assert false
+            | `Error exn      -> failwiths "read error" exn [%sexp_of: exn]
+            | `Ok ()          -> close r
+        in
+        let len = 1_000_000 in
+        let iovec = Unix.IOVec.of_bigstring (Bigstring.create len) in
+        let write =
+          syscall_in_thread w ~name:"writev" (fun fd ->
+            Bigstring.writev fd [| iovec |])
+          >>= function
+          | `Already_closed -> assert false
+          | `Error exn      -> failwiths "write error" exn [%sexp_of: exn]
+          | `Ok n           ->
+            assert (n >= 0 && n <= len);
+            ready_to w `Write
+            >>| function
+            | `Bad_fd -> assert false
+            | `Closed -> assert false
+            | `Ready  -> ()
+        in
+        read
+        >>= fun () ->
+        write
+        >>= fun () ->
+        syscall_in_thread w ~name:"writev" (fun fd ->
+          Bigstring.writev fd [| iovec |])
+        >>| function
+        | `Error (Unix.Unix_error (EPIPE, "writev", "")) -> ()
+        | `Error exn      -> failwiths "bad write error" exn [%sexp_of: exn]
+        | `Ok n           -> failwiths "no write error" n [%sexp_of: int]
+        | `Already_closed -> assert false)
+      |> function
+      | `Result () -> ()
+      | `Timeout   -> assert false
+    ;;
+  end)

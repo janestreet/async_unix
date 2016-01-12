@@ -26,5 +26,5 @@ let () =
   task_id := fun () ->
     let pid       = Unix.getpid () in
     let thread_id = Thread.id (Thread.self ()) in
-    <:sexp_of< [ `pid of Pid.t ] * [ `thread_id of int ] >> (`pid pid, `thread_id thread_id)
+    [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]] (`pid pid, `thread_id thread_id)
 ;;

@@ -23,8 +23,13 @@ module Helper_thread : sig
       [create] uses a thread from Async's thread pool, reserving that thread for exclusive
       use by the helper thread until the helper thread is no longer used (specifically,
       finalized and is finished with all its work), at which point the thread is made
-      available for general use by the pool. *)
-  val create : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
+      available for general use by the pool.
+
+      [create] returns a deferred that becomes determined when a helper thread is
+      available.  On the other hand, [create_now] checks if a helper thread is available
+      now, and if so returns it, or else returns [Error]. *)
+  val create     : ?priority:Priority.t -> ?name:string -> unit -> t Deferred.t
+  val create_now : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
 end
 
 (** [pipe_of_squeue squeue] returns a pipe [p] and consumes the contents [squeue], placing

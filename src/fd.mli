@@ -16,6 +16,7 @@
       with_file_descr_deferred
       syscall
       syscall_exn
+      syscall_result_exn
       syscall_in_thread
       syscall_in_thread_exn
     v}
@@ -49,7 +50,7 @@ module Kind : sig
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 val info : t -> Info.t
 
@@ -242,6 +243,16 @@ val syscall_exn
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
+
+(** [syscall_result_exn t f a] is like [syscall_exn], except it does not allocate except
+    in exceptional cases.  [a] is passed unchanged to [f], and should be used to eliminate
+    allocations due to closure capture. *)
+val syscall_result_exn
+  :  ?nonblocking : bool  (** default is [false] *)
+  -> t
+  -> 'a
+  -> (Unix.File_descr.t -> 'a -> 'b Core.Syscall_result.t)
+  -> 'b Core.Syscall_result.t
 
 (** [syscall_in_thread t f] runs [In_thread.syscall] with [f] on the file descriptor
     underlying [t], if [is_open t], and returns a deferred that becomes determined with

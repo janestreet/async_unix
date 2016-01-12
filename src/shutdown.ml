@@ -9,7 +9,7 @@ let todo = ref []
 
 let at_shutdown f =
   let backtrace = Backtrace.get () in
-  if debug then Debug.log "at_shutdown" backtrace <:sexp_of< Backtrace.t >>;
+  if debug then Debug.log "at_shutdown" backtrace [%sexp_of: Backtrace.t];
   todo := (backtrace, f) :: !todo;
 ;;
 
@@ -22,12 +22,12 @@ let set_default_force force = default_force_ref := force
 let shutting_down () = !shutting_down_ref
 
 let shutdown ?(force = !default_force_ref ()) status =
-  if debug then Debug.log "shutdown" status <:sexp_of< int >>;
+  if debug then Debug.log "shutdown" status [%sexp_of: int];
   match !shutting_down_ref with
   | `Yes status' ->
     if status <> 0 && status' <> 0 && status <> status'
     then failwiths "shutdown with inconsistent status" (status, status')
-           <:sexp_of< int * int >>
+           [%sexp_of: int * int]
     else if status' = 0 && status <> 0
     then shutting_down_ref := `Yes status
   | `No ->
@@ -38,7 +38,7 @@ let shutdown ?(force = !default_force_ref ()) status =
                >>| fun () ->
                if debug
                then Debug.log "one at_shutdown function finished" backtrace
-                      <:sexp_of< Backtrace.t >>)))
+                      [%sexp_of: Backtrace.t])))
       (fun _ ->
          match shutting_down () with
          | `No -> assert false
@@ -51,7 +51,7 @@ let shutdown ?(force = !default_force_ref ()) status =
 let shutdown_on_unhandled_exn () =
   Monitor.detach_and_iter_errors Monitor.main ~f:(fun exn ->
     try
-      Debug.log "shutting down due to unhandled exception" exn <:sexp_of< exn >>;
+      Debug.log "shutting down due to unhandled exception" exn [%sexp_of: exn];
       shutdown 1
     with _ -> ())
 ;;

@@ -4,7 +4,7 @@
 open Core.Std
 open Import
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 (** accessors *)
 val pid    : t -> Pid.t
@@ -12,7 +12,7 @@ val stdin  : t -> Writer.t
 val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
-type env = Core.Std.Unix.env with sexp
+type env = Core.Std.Unix.env [@@deriving sexp]
 
 (** [with_create_args] specifies the arguments used to create a child process. *)
 type 'a with_create_args
@@ -54,11 +54,11 @@ module Output : sig
     ; stderr      : string
     ; exit_status : Unix.Exit_or_signal.t
     }
-  with compare, sexp_of
+  [@@deriving compare, sexp_of]
 
   module Stable : sig
     module V1 : sig
-      type nonrec t = t with compare, sexp
+      type nonrec t = t [@@deriving compare, sexp]
     end
   end
 end
@@ -84,6 +84,12 @@ val run
 val run_lines
   :  ?accept_nonzero_exit : int list  (** default is [] *)
   -> string list Or_error.t Deferred.t with_create_args
+
+(** [run_expect_no_output] is like [run] but expects the command to produce no output, and
+    returns an error if the command does produce output. *)
+val run_expect_no_output
+  :  ?accept_nonzero_exit : int list  (** default is [] *)
+  -> unit Or_error.t Deferred.t with_create_args
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
     [run_lines] but work from an existing process instead of creating a new one. *)

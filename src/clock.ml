@@ -11,9 +11,9 @@ let after span = after (Time_ns.Span.of_span span)
 let with_timeout span d = with_timeout (Time_ns.Span.of_span span) d
 
 module Event = struct
-  type ('a, 'h) t = ('a, 'h) Event.t with sexp_of
+  type ('a, 'h) t = ('a, 'h) Event.t [@@deriving sexp_of]
 
-  type t_unit = Event.t_unit with sexp_of
+  type t_unit = Event.t_unit [@@deriving sexp_of]
 
   let invariant = Event.invariant
 

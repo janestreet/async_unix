@@ -22,7 +22,7 @@ type error = Unix.error =
   | ECONNABORTED | ECONNRESET | ENOBUFS | EISCONN | ENOTCONN | ESHUTDOWN
   | ETOOMANYREFS | ETIMEDOUT | ECONNREFUSED | EHOSTDOWN | EHOSTUNREACH | ELOOP
   | EOVERFLOW | EUNKNOWNERR of int
-with sexp
+[@@deriving sexp]
 
 exception Unix_error = Unix.Unix_error
 
@@ -36,7 +36,7 @@ let system_exn s =
   system s
   >>| fun status ->
   if not (Result.is_ok status)
-  then failwiths "system failed" (s, status) <:sexp_of< string * Exit_or_signal.t >>
+  then failwiths "system failed" (s, status) [%sexp_of: string * Exit_or_signal.t]
 ;;
 
 let getpid      () = Unix.getpid      ()
@@ -88,7 +88,7 @@ type open_flag =
   | `Rsync
   ]
 
-type file_perm = int with sexp
+type file_perm = int [@@deriving sexp, bin_io]
 
 let openfile ?perm ?(close_on_exec = false) file ~mode =
   let mode = List.map mode ~f:convert_open_flag in
@@ -186,7 +186,7 @@ let with_file ?exclusive ?perm file ~mode ~f =
 module File_kind = struct
   module T = struct
     type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
-    with compare, sexp
+    [@@deriving compare, sexp, bin_io]
   end
   include T
   include Comparable.Make (T)
@@ -217,7 +217,7 @@ module Stats = struct
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  with fields, sexp
+  [@@deriving fields, sexp, bin_io]
 
   let of_unix (u : Unix.stats) =
     { dev   = u.st_dev
@@ -433,7 +433,7 @@ let fork_exec ~prog ~args ?use_path ?env () =
   In_thread.run (fun () -> Unix.fork_exec ~prog ~args ?use_path ?env ())
 ;;
 
-type wait_on = Unix.wait_on with sexp
+type wait_on = Unix.wait_on [@@deriving sexp_poly]
 
 let make_wait wait_nohang =
   let waits = ref [] in
@@ -483,10 +483,10 @@ let waitpid_exn pid =
   if Result.is_error exit_or_signal
   then failwiths "child process didn't exit with status zero"
          (`Child_pid pid, exit_or_signal)
-         <:sexp_of< [ `Child_pid of Pid.t ] * Exit_or_signal.t >>
+         [%sexp_of: [ `Child_pid of Pid.t ] * Exit_or_signal.t]
 ;;
 
-TEST_UNIT "fork_exec ~env last binding takes precedence" =
+let%test_unit "fork_exec ~env last binding takes precedence" =
   protectx ~finally:Unix.remove (Filename.temp_file "test" "fork_exec.env.last-wins")
     ~f:(fun temp_file ->
       Thread_safe.block_on_async_exn (fun () ->
@@ -500,7 +500,7 @@ TEST_UNIT "fork_exec ~env last binding takes precedence" =
             fork_exec () ~env ~prog:"sh" ~args:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]
             >>= waitpid_exn
             >>| fun () ->
-            <:test_result< string >> ~expect:"last\n" (In_channel.read_all temp_file))))
+            [%test_result: string] ~expect:"last\n" (In_channel.read_all temp_file))))
 
 module Inet_addr = struct
   include Unix.Inet_addr
@@ -524,7 +524,16 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp, compare
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
+
+      module Blocking_sexp = struct
+        type t =
+          [ `Inet of Inet_addr.Blocking_sexp.t * int ]
+        [@@deriving bin_io, compare, sexp]
+      end
+
+      let t_of_sexp = Blocking_sexp.t_of_sexp
+      let __t_of_sexp__ = Blocking_sexp.__t_of_sexp__
 
       let addr (`Inet (a, _)) = a
 
@@ -542,12 +551,12 @@ module Socket = struct
 
       let of_sockaddr_exn : Unix.sockaddr -> _ = function
         | ADDR_INET (a, i) -> `Inet (a, i)
-        | u -> failwiths "Socket.Address.inet" u <:sexp_of< Unix.sockaddr >>
+        | u -> failwiths "Socket.Address.inet" u [%sexp_of: Unix.sockaddr]
       ;;
     end
 
     module Unix = struct
-      type t = [ `Unix of string ] with bin_io, sexp, compare
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
 
       let create s = `Unix s
 
@@ -555,11 +564,17 @@ module Socket = struct
 
       let of_sockaddr_exn : Unix.sockaddr -> t = function
         | ADDR_UNIX s -> `Unix s
-        | u -> failwiths "Socket.Address.unix" u <:sexp_of< Unix.sockaddr >>
+        | u -> failwiths "Socket.Address.unix" u [%sexp_of: Unix.sockaddr]
       ;;
     end
 
-    type t = [ Inet.t | Unix.t ] with bin_io, sexp
+    type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
+
+    module Blocking_sexp = struct
+      type t = [ Inet.Blocking_sexp.t | Unix.t ] [@@deriving bin_io, sexp]
+    end
+
+    let t_of_sexp = Blocking_sexp.t_of_sexp
 
     let to_sockaddr : _ -> Core.Std.Unix.sockaddr = function
       | `Unix s      -> ADDR_UNIX s
@@ -579,7 +594,7 @@ module Socket = struct
       ; sexp_of_address         : 'address -> Sexp.t
       }
       constraint 'address = [< Address.t ]
-    with fields, sexp_of
+    [@@deriving fields, sexp_of]
 
     let to_string t =
       match t.family with
@@ -608,7 +623,7 @@ module Socket = struct
       { family      : 'a Family.t
       ; socket_type : Unix.socket_type
       }
-    with sexp_of
+    [@@deriving sexp_of]
 
     let sexp_of_address t = t.family.sexp_of_address
 
@@ -641,11 +656,11 @@ module Socket = struct
     { type_ : 'b Type.t
     ; fd    : Fd.t
     }
-  with sexp_of
+  [@@deriving sexp_of]
 
   type ('a, 'b) t = 'b t_
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
-  with sexp_of
+  [@@deriving sexp_of]
 
   let fd t = t.fd
 
@@ -658,7 +673,7 @@ module Socket = struct
       Fd.create (Socket `Unconnected)
         (Unix.socket ~domain:type_.family.family
            ~kind:type_.socket_type ~protocol:0)
-        (Info.create "socket" type_ <:sexp_of< _ Type.t >>)
+        (Info.create "socket" type_ [%sexp_of: _ Type.t])
     in
     { type_; fd }
   ;;
@@ -748,16 +763,15 @@ module Socket = struct
     let info =
       Info.create "socket" (`bound_on address)
         (let sexp_of_address = sexp_of_address t in
-         <:sexp_of< [ `bound_on of address ] >>)
+         [%sexp_of: [ `bound_on of address ]])
     in
     Fd.replace t.fd (Socket `Bound) info;
     t
   ;;
 
-  let listen ?(max_pending_connections = 10) t =
+  let listen ?(backlog = 10) t =
     let fd = t.fd in
-    Fd.syscall_exn fd (fun file_descr ->
-      Unix.listen file_descr ~max:max_pending_connections);
+    Fd.syscall_exn fd (fun file_descr -> Unix.listen file_descr ~backlog);
     Fd.replace fd (Socket `Passive) (Info.of_string "listening");
     t
   ;;
@@ -786,9 +800,9 @@ module Socket = struct
             (Info.create "socket"
                (`listening_on t, `client address)
                (let sexp_of_address = sexp_of_address t in
-                <:sexp_of<
+                [%sexp_of:
                   ([ `listening_on of (_, _) t ]
-                   * [ `client of address ]) >>))
+                   * [ `client of address ])]))
         in
         let s = { fd; type_ = t.type_ } in
         set_close_on_exec s.fd;
@@ -814,7 +828,7 @@ module Socket = struct
           | `Ready -> `Repeat ()
           | `Interrupted as x -> `Finished x
           | `Closed -> `Finished `Socket_closed
-          | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd <:sexp_of< Fd.t >>)
+          | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t])
       | `Error exn -> raise exn)
   ;;
 
@@ -825,7 +839,7 @@ module Socket = struct
     | `Socket_closed | `Ok _ as x -> x
   ;;
 
-  TEST_UNIT "accept interrupted by Fd.close" =
+  let%test_unit "accept interrupted by Fd.close" =
     Thread_safe.block_on_async_exn (fun () ->
       let test socket_type address =
         let t = create socket_type in
@@ -839,7 +853,7 @@ module Socket = struct
         | `Result `Socket_closed -> ()
         | `Timeout -> failwith "timed out despite closure of listening socket"
       in
-      test Type.tcp (Address.Inet.create_bind_any ~port:0));
+      test Type.tcp (Address.Inet.create_bind_any ~port:0))
   ;;
 
   let connect_interruptible t address ~interrupt =
@@ -847,11 +861,11 @@ module Socket = struct
     turn_off_nagle sockaddr t;
     let success () =
       let sexp_of_address = sexp_of_address t in
-      let info = Info.create "connected to" address <:sexp_of< address >> in
+      let info = Info.create "connected to" address [%sexp_of: address] in
       Fd.replace t.fd (Fd.Kind.Socket `Active) info;
       `Ok t;
     in
-    let fail_closed () = failwiths "connect on closed fd" t.fd <:sexp_of< Fd.t >> in
+    let fail_closed () = failwiths "connect on closed fd" t.fd [%sexp_of: Fd.t] in
     match
       (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
          (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
@@ -866,7 +880,7 @@ module Socket = struct
         Fd.interruptible_ready_to t.fd `Write ~interrupt
         >>| function
         | `Closed -> fail_closed ()
-        | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd <:sexp_of< Fd.t >>
+        | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd [%sexp_of: Fd.t]
         | `Interrupted as x -> x
         | `Ready ->
           (* We call [getsockopt] to find out whether the connect has succeed or failed. *)
@@ -955,19 +969,26 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-with bin_io, sexp
+[@@deriving bin_io, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-with bin_io, sexp
+[@@deriving bin_io, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-with bin_io, sexp
+[@@deriving bin_io, sexp_of]
+
+type sockaddr_blocking_sexp = Unix.sockaddr =
+  | ADDR_UNIX of string
+  | ADDR_INET of Inet_addr.Blocking_sexp.t * int
+[@@deriving bin_io, sexp]
+
+let sockaddr_of_sexp = sockaddr_blocking_sexp_of_sexp
 
 module Addr_info = struct
   type t = Unix.addr_info =
@@ -977,7 +998,20 @@ module Addr_info = struct
     ; ai_addr      : sockaddr
     ; ai_canonname : string
     }
-  with bin_io, sexp
+  [@@deriving bin_io, sexp_of]
+
+  module Blocking_sexp = struct
+    type t = Unix.addr_info =
+      { ai_family    : socket_domain
+      ; ai_socktype  : socket_type
+      ; ai_protocol  : int
+      ; ai_addr      : sockaddr_blocking_sexp
+      ; ai_canonname : string
+      }
+    [@@deriving bin_io, sexp]
+  end
+
+  let t_of_sexp = Blocking_sexp.t_of_sexp
 
   type getaddrinfo_option = Unix.getaddrinfo_option =
     | AI_FAMILY of socket_domain
@@ -986,7 +1020,7 @@ module Addr_info = struct
     | AI_NUMERICHOST
     | AI_CANONNAME
     | AI_PASSIVE
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   let get ?(service="") ~host options =
     In_thread.syscall_exn ~name:"getaddrinfo"
@@ -999,7 +1033,7 @@ module Name_info = struct
     { ni_hostname : string
     ; ni_service  : string
     }
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   type getnameinfo_option = Unix.getnameinfo_option =
     | NI_NOFQDN
@@ -1007,7 +1041,7 @@ module Name_info = struct
     | NI_NAMEREQD
     | NI_NUMERICSERV
     | NI_DGRAM
-  with sexp,bin_io
+  [@@deriving sexp, bin_io]
 
   let get addr options =
     In_thread.syscall_exn ~name:"getnameinfo" (fun () -> Unix.getnameinfo addr options)
@@ -1046,7 +1080,7 @@ module Passwd = struct
     ; dir    : string
     ; shell  : string
     }
-  with fields, sexp
+  [@@deriving fields, sexp]
 
   let getbyname n =
     In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Passwd.getbyname n)
@@ -1073,7 +1107,7 @@ module Group = struct
     ; gid    : int
     ; mem    : string array
     }
-  with fields, sexp
+  [@@deriving fields, sexp]
 
   let getbyname n =
     In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Group.getbyname n)
@@ -1093,6 +1127,10 @@ module Group = struct
 end
 
 let getlogin () = In_thread.syscall_exn ~name:"getlogin" (fun () -> Unix.getlogin ())
+
+module Ifaddr = Unix.Ifaddr
+
+let getifaddrs () = In_thread.run Unix.getifaddrs
 
 let wordexp =
   Or_error.map Unix.wordexp ~f:(fun wordexp ?flags glob ->

@@ -4,15 +4,15 @@ open Import
 module Fd = Raw_fd
 module Table = Bounded_int_table
 
-type t = (File_descr.t, Fd.t) Table.t with sexp_of
+type t = (File_descr.t, Fd.t) Table.t [@@deriving sexp_of]
 
 let invariant t =
   try
     Table.invariant ignore Fd.invariant t;
-    Table.iter t ~f:(fun ~key:file_descr ~data:fd ->
+    Table.iteri t ~f:(fun ~key:file_descr ~data:fd ->
       assert (file_descr = Fd.file_descr fd));
   with exn ->
-    failwiths "Fd_by_descr.invariant failure" (exn, t) <:sexp_of< exn * t >>
+    failwiths "Fd_by_descr.invariant failure" (exn, t) [%sexp_of: exn * t]
 ;;
 
 let create ~num_file_descrs =
@@ -23,7 +23,10 @@ let create ~num_file_descrs =
     ()
 ;;
 
-let find t file_descr = Table.find t file_descr
+let mem t file_descr = Table.mem t file_descr
+
+let find     t file_descr = Table.find     t file_descr
+let find_exn t file_descr = Table.find_exn t file_descr
 
 let remove t (fd : Fd.t) = Table.remove t fd.file_descr
 
@@ -38,9 +41,9 @@ that async believes it is already managing.  This likely indicates either:
   * a bug in async
   * code outside of async manipulating a file descriptor that async is managing
 "
-      (fd, t) <:sexp_of< Fd.t * t >>
+      (fd, t) [%sexp_of: Fd.t * t]
 ;;
 
 let fold t ~init ~f = Table.fold t ~init ~f:(fun ~key:_ ~data:fd a -> f a fd)
 
-let iter t ~f = Table.iter t ~f:(fun ~key:_ ~data:fd -> f fd)
+let iter t ~f = Table.iteri t ~f:(fun ~key:_ ~data:fd -> f fd)

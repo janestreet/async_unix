@@ -1,15 +1,14 @@
 open Core.Std
 open Import
 
-module Read = Bin_prot.Read
-module Type_class = Bin_prot.Type_class
 module Scheduler = Raw_scheduler
-module Unix = Unix_syscalls
+module Unix      = Unix_syscalls
+
 module Id = Unique_id.Int63 ()
 
 module Read_result = struct
   module Z = struct
-    type 'a t = [ `Ok of 'a | `Eof ] with bin_io, sexp
+    type 'a t = [ `Ok of 'a | `Eof ] [@@deriving bin_io, sexp]
 
     let bind a f =
       match a with
@@ -38,12 +37,12 @@ module Internal = struct
 
   module State = struct
     type t = [ `Not_in_use | `In_use | `Closed ]
-    with sexp
+    [@@deriving sexp]
   end
 
   module Open_flags = Unix.Open_flags
 
-  type open_flags = (Open_flags.t, exn) Result.t with sexp_of
+  type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
 
   type t =
     { fd                            : Fd.t
@@ -76,10 +75,15 @@ module Internal = struct
     ; mutable state                 : State.t
     ; close_finished                : unit Ivar.t
     ; mutable last_read_time        : Time.t
-      (* [open_flags] is the open-file-descriptor bits of the reader's fd. *)
+    (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
+       created, and starts a deferred computation that calls [Unix.fcntl_getfl].
+       [open_flags] is used to report an error when [fd] is not readable.  [Fd] treats the
+       call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
+       completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
+       leak even though client code doesn't explicitly wait on [open_flags]. *)
     ; open_flags                    : open_flags Deferred.t
     }
-  with fields, sexp_of
+  [@@deriving fields, sexp_of]
 
   let io_stats = Io_stats.create ()
 
@@ -103,7 +107,7 @@ module Internal = struct
         if buf_len > 0
         then buf_len
         else failwiths "Reader.create got non positive buf_len" (buf_len, fd)
-               <:sexp_of< int * Fd.t >>
+               [%sexp_of: int * Fd.t]
     in
     let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
     { fd
@@ -203,13 +207,13 @@ module Internal = struct
         in
         if not can_read_fd
         then failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
-               <:sexp_of< open_flags * t >>;
+               [%sexp_of: open_flags * t];
         let ebadf () =
           (* If the file descriptior has been closed, we will get EBADF from a syscall.
              If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
              underlying file descriptor got closed in some other way, then something is
              likely wrong, so we raise. *)
-          failwiths "reader file descriptor was unexpectedly closed" t <:sexp_of< t >>
+          failwiths "reader file descriptor was unexpectedly closed" t [%sexp_of: t]
         in
         let finish res handle =
           match res with
@@ -364,16 +368,16 @@ module Internal = struct
                          | `Need_unknown
                          ]
     ]
-  with sexp_of
+  [@@deriving sexp_of]
 
   type 'a read_one_chunk_at_a_time_result =
     [ `Eof
     | `Stopped of 'a
     | `Eof_with_unconsumed_data of string
     ]
-  with sexp_of
+  [@@deriving sexp_of]
 
-  type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] with sexp_of
+  type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] [@@deriving sexp_of]
 
   let read_one_chunk_at_a_time t ~handle_chunk =
     t.close_may_destroy_buf <- `Not_ever;
@@ -407,7 +411,7 @@ module Internal = struct
                        | `Need need -> need < 0 || consumed + need <= len)
                   then
                     failwiths "handle_chunk returned invalid `Consumed" (c, `len len, t)
-                      <:sexp_of< consumed * [ `len of int ] * t >>;
+                      [%sexp_of: consumed * [ `len of int ] * t];
                   consume t consumed;
                   let buf_len = Bigstring.length t.buf in
                   let new_len =
@@ -425,7 +429,7 @@ module Internal = struct
                   in
                   if new_len < 0
                   then failwiths "read_one_chunk_at_a_time got overflow in buffer len" t
-                         <:sexp_of< t >>;
+                         [%sexp_of: t];
                   (* Grow the internal buffer if needed. *)
                   if new_len > buf_len then begin
                     let new_buf = Bigstring.create new_len in
@@ -443,6 +447,32 @@ module Internal = struct
             | Some result -> continue result)
       in
       loop ~force_refill:false)
+  ;;
+
+  type 'a handle_iobuf_result =
+    [ `Stop of 'a
+    | `Continue
+    ]
+  [@@deriving sexp_of]
+
+  let read_one_iobuf_at_a_time t ~handle_chunk =
+    let iobuf = ref (Iobuf.of_bigstring t.buf) in
+    read_one_chunk_at_a_time t ~handle_chunk:(fun bstr ~pos ~len ->
+      if not (phys_equal bstr (Iobuf.Expert.buf !iobuf))
+      then iobuf := Iobuf.of_bigstring bstr;
+      let iobuf = !iobuf in
+      Iobuf.reset iobuf;
+      Iobuf.advance iobuf pos;
+      Iobuf.resize iobuf ~len;
+      handle_chunk iobuf
+      >>| fun handle_result ->
+      if Iobuf.is_empty iobuf (* [is_empty] implies all data was consumed *)
+      then (handle_result :> _ handle_chunk_result)
+      else
+        let consumed = len - Iobuf.length iobuf in
+        match handle_result with
+        | `Continue -> `Consumed      (consumed, `Need_unknown)
+        | `Stop a   -> `Stop_consumed (a       , consumed))
   ;;
 
   module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
@@ -648,7 +678,7 @@ module Internal = struct
                            | Parsing_list
                            | Parsing_sexp_comment
                            | Parsing_block_comment), _))
-            -> failwiths "Reader.read_sexp got unexpected eof" t <:sexp_of< t >>
+            -> failwiths "Reader.read_sexp got unexpected eof" t [%sexp_of: t]
           end;
         | `Ok ->
           match
@@ -721,7 +751,7 @@ module Internal = struct
         k =
     let error f =
       ksprintf (fun msg () ->
-        k (Or_error.error "Reader.read_bin_prot" (msg, t) <:sexp_of< string * t >>))
+        k (Or_error.error "Reader.read_bin_prot" (msg, t) [%sexp_of: string * t]))
         f
     in
     let handle_eof n =
@@ -780,7 +810,7 @@ module Internal = struct
     let eofn n =
       if n = 0
       then `Eof
-      else failwiths "Reader.read_marshal got EOF with bytes remaining" n <:sexp_of< int >>
+      else failwiths "Reader.read_marshal got EOF with bytes remaining" n [%sexp_of: int]
     in
     let header = String.create Marshal.header_size in
     really_read t header >>= function
@@ -847,7 +877,7 @@ module Internal = struct
         match try Ok (int_of_string length_str) with _ -> Error () with
           | Error () ->
             failwiths "Reader.recv got strange length" (length_str, t)
-              <:sexp_of< string * t >>
+              [%sexp_of: string * t]
           | Ok length ->
             let buf = String.create length in
             really_read t buf
@@ -883,13 +913,16 @@ open Internal
    deferred manner, we enclude code to dynamically ensure that there aren't simultaneous
    reads. *)
 
-type nonrec t = t with sexp_of
+type nonrec t = t [@@deriving sexp_of]
 
 type nonrec 'a handle_chunk_result = 'a handle_chunk_result
-with sexp_of
+[@@deriving sexp_of]
+
+type nonrec 'a handle_iobuf_result = 'a handle_iobuf_result
+[@@deriving sexp_of]
 
 type nonrec 'a read_one_chunk_at_a_time_result = 'a read_one_chunk_at_a_time_result
-with sexp_of
+[@@deriving sexp_of]
 
 type nonrec 'a read = 'a read
 
@@ -909,7 +942,7 @@ let with_close     = with_close
 let with_file      = with_file
 
 let use t =
-  let error s = failwiths "can not read from reader" (s, t) <:sexp_of< string * t >> in
+  let error s = failwiths "can not read from reader" (s, t) [%sexp_of: string * t] in
   match t.state with
   | `Closed -> error "closed"
   | `In_use -> error "in use"
@@ -938,6 +971,10 @@ let read_bigsubstring t s = do_read t (fun () -> read_bigsubstring t s)
 
 let read_one_chunk_at_a_time t ~handle_chunk =
   do_read t (fun () -> read_one_chunk_at_a_time t ~handle_chunk)
+;;
+
+let read_one_iobuf_at_a_time t ~handle_chunk =
+  do_read t (fun () -> read_one_iobuf_at_a_time t ~handle_chunk)
 ;;
 
 let really_read t ?pos ?len s =
@@ -1040,7 +1077,7 @@ let get_error (type a) (type sexp)
       Ok ()
     with exn ->
       let unexpected_error () =
-        error "Reader.load_sexp error" (file, exn) <:sexp_of< string * exn >>
+        error "Reader.load_sexp error" (file, exn) [%sexp_of: string * exn]
       in
       match exn with
       | Of_sexp_error (exc, bad_sexp) ->
@@ -1052,7 +1089,7 @@ let get_error (type a) (type sexp)
             (* The error produced by [get_conv_exn] already has the file position, so
                we don't wrap with a redundant error message. *)
             Or_error.error "invalid sexp" (pos, exn, "in", sexp)
-              <:sexp_of< string * exn * string * Sexp.t >>
+              [%sexp_of: string * exn * string * Sexp.t]
           | _ -> unexpected_error ()
         end
       | _ -> unexpected_error ()
@@ -1066,9 +1103,16 @@ let gen_load_exn
       ~file
       (convert : sexp list -> a)
       (get_error : Sexp.Annotated.t list -> Error.t) : a Deferred.t =
+  let may_load_file_multiple_times = ref false in
   let load ~sexp_kind =
     Monitor.try_with ~extract_exn:true (fun () ->
       with_file ?exclusive file ~f:(fun t ->
+        may_load_file_multiple_times :=
+          (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+             kinds.  We can only load it multiple times if it has kind [File]. *)
+          (match Fd.kind (fd t) with
+           | File -> true
+           | Char | Fifo | Socket _ -> false);
         use t;
         Pipe.to_list (gen_read_sexps t ~sexp_kind)))
     >>| function
@@ -1085,7 +1129,7 @@ let gen_load_exn
         Error.raise
           (Error.create "syntax error when parsing sexp"
              (sprintf "%s:%d:%d" file parse_pos.text_line parse_pos.text_char, err_msg)
-             <:sexp_of< string * string >>)
+             [%sexp_of: string * string])
       | _ -> raise exn
   in
   load ~sexp_kind
@@ -1093,9 +1137,14 @@ let gen_load_exn
   try
     return (convert sexps)
   with
-  | Of_sexp_error _ ->
-    load ~sexp_kind:Annotated >>= fun sexps -> Error.raise (get_error sexps)
-  | exn -> failwiths "Reader.load_sexp(s) error" (file, exn) <:sexp_of< string * exn >>
+  | Of_sexp_error (exn, _bad_subsexp) ->
+    if !may_load_file_multiple_times
+    then
+      load ~sexp_kind:Annotated >>= fun sexps -> Error.raise (get_error sexps)
+    else
+      failwiths "invalid sexp (failed to determine location information)"
+        (file, exn) [%sexp_of: string * exn]
+  | exn -> failwiths "Reader.load_sexp(s) error" (file, exn) [%sexp_of: string * exn]
 ;;
 
 type ('sexp, 'a, 'b) load
@@ -1153,7 +1202,7 @@ let gen_load_sexp_exn (type a) (type sexp)
   else
     let multiple sexps =
       Error.create "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
-        <:sexp_of< int * string >>
+        [%sexp_of: int * string]
     in
     gen_load_exn ?exclusive ~file ~sexp_kind
       (fun sexps ->
@@ -1167,7 +1216,7 @@ let gen_load_sexp_exn (type a) (type sexp)
            | Error e -> e
            | Ok () ->
              Error.create "conversion of annotated sexp unexpectedly succeeded"
-               (Sexp.Annotated.get_sexp annot_sexp) <:sexp_of< Sexp.t >>
+               (Sexp.Annotated.get_sexp annot_sexp) [%sexp_of: Sexp.t]
            end
          | _ -> multiple annot_sexps)
 ;;

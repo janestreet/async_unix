@@ -1,26 +1,26 @@
 open Core.Std
 
 module Key = struct
-  type t = [ `Read | `Write ] with sexp
+  type t = [ `Read | `Write ] [@@deriving sexp]
   let flip = function `Read -> `Write | `Write -> `Read
 end
 
 type ('a, +'z) any = { mutable read : 'a; mutable write : 'a }
-with sexp
+[@@deriving sexp]
 
 module Immutable = struct
-  type 'a t = ('a, immutable) any with sexp
+  type 'a t = ('a, immutable) any [@@deriving sexp]
 end
 
 module Read_only = struct
-  type 'a t = ('a, read) any with sexp
+  type 'a t = ('a, read) any [@@deriving sexp]
 end
 
 module Mutable = struct
-  type 'a t = ('a, read_write) any with sexp
+  type 'a t = ('a, read_write) any [@@deriving sexp]
 end
 
-type 'a t = 'a Immutable.t with sexp
+type 'a t = 'a Immutable.t [@@deriving sexp]
 
 let create ~read ~write = { read; write }
 

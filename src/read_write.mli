@@ -3,7 +3,7 @@
 open Core.Std
 
 module Key : sig
-  type t = [ `Read | `Write ] with sexp
+  type t = [ `Read | `Write ] [@@deriving sexp]
   val flip : t -> t
 end
 
@@ -12,21 +12,21 @@ type ('a, -'z) any =
   { mutable read  : 'a
   ; mutable write : 'a
   }
-with sexp
+[@@deriving sexp]
 
 module Immutable : sig
-  type 'a t = ('a, immutable) any with sexp
+  type 'a t = ('a, immutable) any [@@deriving sexp]
 end
 
 module Read_only : sig
-  type 'a t = ('a, read) any with sexp
+  type 'a t = ('a, read) any [@@deriving sexp]
 end
 
 module Mutable : sig
-  type 'a t = ('a, read_write) any with sexp
+  type 'a t = ('a, read_write) any [@@deriving sexp]
 end
 
-type 'a t = 'a Immutable.t with sexp
+type 'a t = 'a Immutable.t [@@deriving sexp]
 
 (* creation *)
 val create      : read:'a -> write:'a -> ('a, [< _ perms]) any

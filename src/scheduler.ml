@@ -12,8 +12,8 @@ include Raw_scheduler
    isn't cheap and there are issues with thread fairness when outputting to stderr (which
    is the default in many cases for [Global.error]), so, to prevent the [Log] [Writer.t]
    buffer from growing without bound, we limit the number of currently unflushed error
-   messages created by [log_ignored_exn]. *)
-let log_ignored_exn =
+   messages created by [try_with_log_exn]. *)
+let try_with_log_exn =
   let max_unflushed_errors     = 10 in
   let current_unflushed_errors = ref 0 in
   fun exn ->
@@ -33,5 +33,27 @@ Stopped logging exceptions raised to Monitor.try_with that already returned
     end
 ;;
 
-let go      = unstage (go      ~log_ignored_exn)
-let go_main = unstage (go_main ~log_ignored_exn)
+let go      = unstage (go      ~try_with_log_exn)
+let go_main = unstage (go_main ~try_with_log_exn)
+
+let time_spent_waiting_for_io () =
+  let t = t () in
+  t.time_spent_waiting_for_io
+  |> Tsc.Span.to_ns
+  |> Time_ns.Span.of_int63_ns
+;;
+
+let set_min_inter_cycle_timeout min_inter_cycle_timeout =
+  let t = t () in
+  if Time_ns.Span.( > )
+       min_inter_cycle_timeout
+       (t.max_inter_cycle_timeout :> Time_ns.Span.t)
+  then Error.raise
+         ([%message "min_inter_cycle_timeout too large"
+                   (min_inter_cycle_timeout : Time_ns.Span.t)
+                   (t.max_inter_cycle_timeout : Max_inter_cycle_timeout.t)]
+          |> [%of_sexp: Error.t]);
+  t.min_inter_cycle_timeout <- Min_inter_cycle_timeout.create_exn min_inter_cycle_timeout;
+;;
+
+let max_num_threads () = max_num_threads (t ())

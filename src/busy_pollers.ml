@@ -10,10 +10,10 @@ module Poller = struct
       ; poll              : unit -> [ `Stop_polling of 'a | `Continue_polling ]
       ; mutable is_alive  : bool
       }
-    with fields, sexp_of
+    [@@deriving fields, sexp_of]
 
     let invariant a_invariant t : unit =
-      Invariant.invariant _here_ t <:sexp_of< _ t >> (fun () ->
+      Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
         let check f = Invariant.check_field t f in
         Fields.iter
           ~execution_context:(check Execution_context.invariant)
@@ -25,7 +25,7 @@ module Poller = struct
 
   type t = T : _ U.t -> t
 
-  let sexp_of_t (T u) = <:sexp_of< _ U.t >> u
+  let sexp_of_t (T u) = [%sexp_of: _ U.t] u
 
   let invariant (T u) = U.invariant ignore u
 
@@ -39,7 +39,7 @@ type t =
     kernel_scheduler : Kernel_scheduler.t sexp_opaque
   ; mutable pollers : Poller.t array
   }
-with fields, sexp_of
+[@@deriving fields, sexp_of]
 
 let is_empty t = Array.is_empty t.pollers
 
@@ -50,7 +50,7 @@ let create () =
 ;;
 
 let invariant t =
-  Invariant.invariant _here_ t <:sexp_of< t >> (fun () ->
+  Invariant.invariant [%here] t [%sexp_of: t] (fun () ->
     let check f = Invariant.check_field t f in
     Fields.iter
       ~kernel_scheduler:(check Kernel_scheduler.invariant)

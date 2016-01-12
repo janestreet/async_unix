@@ -2,7 +2,7 @@
     Async.
 
     All the [Thread_safe.block*] and [Thread_safe.run*] functions wake up the Async
-    scheduler to ensure that it continues in a timely manned with whatever jobs got
+    scheduler to ensure that it continues in a timely manner with whatever jobs got
     started.  Some functions take an optional [?wakeup_scheduler:bool] argument, which
     defaults to [true].  One can cause the scheduler to not be woken up by supplying
     [~wakeup_scheduler:false], which can reduce CPU use, but increase latency, because the

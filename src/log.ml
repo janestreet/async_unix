@@ -11,7 +11,7 @@ module Level = struct
     | `Info
     | `Error
     ]
-  with bin_io, compare, sexp
+  [@@deriving bin_io, compare, sexp]
 
   let to_string = function
     | `Debug -> "Debug"
@@ -66,7 +66,7 @@ module Rotation = struct
       ; keep          : [ `All | `Newer_than of Time.Span.t | `At_least of int ]
       ; naming_scheme : [ `Numbered | `Timestamped ]
       }
-    with fields, sexp
+    [@@deriving fields, sexp_of]
   end
 
   module V2 = struct
@@ -76,9 +76,9 @@ module Rotation = struct
       ; time          : Time.Ofday.t sexp_option
       ; keep          : [ `All | `Newer_than of Time.Span.t | `At_least of int ]
       ; naming_scheme : [ `Numbered | `Timestamped | `Dated ]
-      ; zone          : Time.Zone.t with default(Time.Zone.local)
+      ; zone          : Time.Zone.t [@default Time.Zone.local]
       }
-    with fields, sexp
+    [@@deriving fields, sexp]
   end
 
   module type Id_intf = sig
@@ -105,7 +105,7 @@ module Rotation = struct
       ; naming_scheme : naming_scheme
       ; zone          : Time.Zone.t
       }
-    with fields
+    [@@deriving fields]
 
     let sexp_of_t t =
       let a x = Sexp.Atom x and l x = Sexp.List x in
@@ -134,21 +134,6 @@ module Rotation = struct
       let all = List.filter_map ~f:Fn.id [messages; size; time; Some keep; Some naming_scheme; Some zone] in
       l all
 
-
-    let of_v1 { V1. messages; size; time; keep; naming_scheme } =
-      let time, zone =
-        match time with
-        | None -> None, Time.Zone.local
-        | Some (ofday, zone) -> Some ofday, zone
-      in
-      let naming_scheme = (naming_scheme :> naming_scheme)
-      in
-      { messages; size; time; keep; naming_scheme; zone }
-
-    let of_v2 { V2. messages; size; time; keep; naming_scheme; zone } =
-      let naming_scheme = (naming_scheme :> naming_scheme)
-      in
-      { messages; size; time; keep; naming_scheme; zone }
   end
 
   include V3
@@ -161,16 +146,6 @@ module Rotation = struct
     ; keep
     ; naming_scheme
     }
-
-  let t_of_sexp sexp =
-    try V3.of_v2 (V2.t_of_sexp sexp)
-    with v2_exn ->
-      try V3.of_v1 (V1.t_of_sexp sexp)
-      with v1_exn ->
-        Error.raise
-          (Error.tag
-             (Error.of_list [Error.of_exn v2_exn; Error.of_exn v1_exn])
-             "Couldn't parse V1 and V2 log rotation sexp")
 
   let sexp_of_t = V3.sexp_of_t
 
@@ -221,7 +196,7 @@ module Sexp_or_string = struct
     [ `Sexp   of Sexp.t
     | `String of string
     ]
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   let to_string = function
     | `Sexp sexp  -> Sexp.to_string sexp
@@ -230,7 +205,7 @@ module Sexp_or_string = struct
 end
 
 module Message : sig
-  type t with bin_io, sexp
+  type t [@@deriving bin_io, sexp]
 
   val create
     :  ?level:Level.t
@@ -254,11 +229,11 @@ module Message : sig
 
   module Stable : sig
     module V0 : sig
-      type nonrec t = t with bin_io, sexp
+      type nonrec t = t [@@deriving bin_io, sexp]
     end
 
     module V2 : sig
-      type nonrec t = t with bin_io, sexp
+      type nonrec t = t [@@deriving bin_io, sexp]
     end
   end
 end = struct
@@ -269,7 +244,7 @@ end = struct
       ; message : 'a
       ; tags    : (string * string) list
       }
-    with bin_io, sexp
+    [@@deriving bin_io, sexp]
 
     let (=) t1 t2 =
       let compare_tags =
@@ -285,7 +260,7 @@ end = struct
          = 0
     ;;
 
-    TEST_UNIT =
+    let%test_unit _ =
       let time    = Time.now () in
       let level   = Some `Info in
       let message = "test unordered tags" in
@@ -293,7 +268,7 @@ end = struct
       let t2 = { time; level; message; tags = [ "a", "a2"; "a", "a1"; "b", "b1" ] } in
       let t3 = { time; level; message; tags = [ "a", "a2"; "b", "b1"; "a", "a1" ] } in
       assert (t1 = t2);
-      assert (t2 = t3);
+      assert (t2 = t3)
     ;;
   end
   open T
@@ -309,23 +284,23 @@ end = struct
     module Version = struct
       type t =
         | V2
-      with bin_io, sexp, compare
+      [@@deriving bin_io, sexp, compare]
 
       let (<>) t1 t2 = compare t1 t2 <> 0
       let to_string t = Sexp.to_string (sexp_of_t t)
     end
 
     module type Versioned_serializable = sig
-      type t with bin_io, sexp
+      type t [@@deriving bin_io, sexp]
 
       val version : Version.t
     end
 
     module Make_versioned_serializable(T : Versioned_serializable) : sig
-      type t with bin_io, sexp
+      type t [@@deriving bin_io, sexp]
     end with type t = T.t = struct
       type t = T.t
-      type versioned_serializable = Version.t * T.t with bin_io, sexp
+      type versioned_serializable = Version.t * T.t [@@deriving bin_io, sexp]
 
       let t_of_versioned_serializable (version, t) =
         if Version.(<>) version T.version
@@ -344,8 +319,8 @@ end = struct
       ;;
 
       include
-        Binable.Of_binable
-          (struct type t = versioned_serializable with bin_io end)
+        Binable.Stable.Of_binable.V1
+          (struct type t = versioned_serializable [@@deriving bin_io] end)
           (struct
             type t = T.t
             let to_binable t           = (T.version, t)
@@ -354,14 +329,14 @@ end = struct
     end
 
     module V2 = Make_versioned_serializable (struct
-      type nonrec t = Sexp_or_string.t t with bin_io, sexp
+      type nonrec t = Sexp_or_string.t t [@@deriving bin_io, sexp]
 
       let version = Version.V2
     end)
 
     (* this is the serialization scheme in 111.18 and before *)
     module V0 = struct
-      type v0_t = string T.t with bin_io, sexp
+      type v0_t = string T.t [@@deriving bin_io, sexp]
 
       let v0_to_v2 (v0_t : v0_t) : V2.t =
         {
@@ -378,8 +353,8 @@ end = struct
         ; tags    = v2_t.tags
         }
 
-      include Binable.Of_binable
-          (struct type t = v0_t with bin_io end)
+      include Binable.Stable.Of_binable.V1
+          (struct type t = v0_t [@@deriving bin_io] end)
           (struct
             let to_binable = v2_to_v0
             let of_binable = v0_to_v2
@@ -416,7 +391,7 @@ end = struct
     { time; level; message; tags }
   ;;
 
-  TEST_UNIT =
+  let%test_unit _ =
     let msg =
       create ~level:`Info ~tags:["a", "tag"]
         (`String "the quick brown message jumped over the lazy log")
@@ -424,10 +399,10 @@ end = struct
     let v0_sexp = Stable.V0.sexp_of_t msg in
     let v2_sexp = Stable.V2.sexp_of_t msg in
     assert (t_of_sexp v0_sexp = msg);
-    assert (t_of_sexp v2_sexp = msg);
+    assert (t_of_sexp v2_sexp = msg)
   ;;
 
-  TEST_UNIT =
+  let%test_unit _ =
     let msg =
       create ~level:`Info ~tags:["a", "tag"]
         (`Sexp (Sexp.List [ Atom "foo"; Atom "bar" ]))
@@ -435,10 +410,10 @@ end = struct
     let v0_sexp = Stable.V0.sexp_of_t msg in
     let v2_sexp = Stable.V2.sexp_of_t msg in
     assert (t_of_sexp v0_sexp = { msg with message = `String "(foo bar)" });
-    assert (t_of_sexp v2_sexp = msg);
+    assert (t_of_sexp v2_sexp = msg)
   ;;
 
-  TEST_UNIT =
+  let%test_unit _ =
     let msg = create ~level:`Info ~tags:[] (`String "") in
     match sexp_of_t msg with
     | List [ (Atom _) as version; _ ] -> ignore (Stable.Version.t_of_sexp version)
@@ -478,10 +453,10 @@ end = struct
       :: formatted_tags)
   ;;
 
-  TEST_UNIT =
+  let%test_unit _ =
     let check expect t =
       let zone = Time.Zone.utc in
-      <:test_result< string >> (to_write_only_text ~zone t) ~expect
+      [%test_result: string] (to_write_only_text ~zone t) ~expect
     in
     check "2013-12-13 15:00:00.000000Z <message>"
       { time    = Time.of_string "2013-12-13 15:00:00Z"
@@ -500,7 +475,7 @@ end = struct
       ; level   = Some `Info
       ; tags    = ["k1", "v1"; "k2", "v2"]
       ; message = `String "<message>"
-      };
+      }
   ;;
 
   let write_write_only_text t wr =
@@ -524,10 +499,10 @@ module Output : sig
      of type: Level.t -> string -> unit Deferred.t.  It is the responsibility of the write
      function to contain all state, and to clean up after itself.
   *)
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] with sexp
-  type format = [ machine_readable_format | `Text ] with sexp
+  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
 
-  type t with sexp_of
+  type t [@@deriving sexp_of]
 
   val create
     :  ?rotate:(unit -> unit Deferred.t)
@@ -543,14 +518,17 @@ module Output : sig
   val file          : format -> filename:string -> t
   val rotating_file : format -> basename:string -> Rotation.t -> t
 
+  val rotating_file_with_tail : format -> basename:string -> Rotation.t -> t * string Tail.t
+
   val combine : t list -> t
 end = struct
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] with sexp
-  type format = [ machine_readable_format | `Text ] with sexp
+  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
 
   type t =
     { write  : Message.t Queue.t -> unit Deferred.t
-    ; rotate : (unit -> unit Deferred.t) }
+    ; rotate : (unit -> unit Deferred.t)
+    }
 
   let create ?(rotate = (fun () -> Deferred.unit)) write = { write; rotate }
 
@@ -625,7 +603,7 @@ end = struct
       :  format
       -> basename:string
       -> Rotation.t
-      -> t
+      -> t * string Tail.t
   end = struct
     module Make (Id:Rotation.Id_intf) = struct
       let make_filename ~dirname ~basename id =
@@ -692,8 +670,9 @@ end = struct
         ; mutable last_messages : int
         ; mutable last_size     : int
         ; mutable last_time     : Time.t
+        ; log_files             : string Tail.t
         }
-      with sexp
+      [@@deriving sexp_of]
 
       let rotate t =
         let basename, dirname = t.basename, t.dirname in
@@ -702,8 +681,10 @@ end = struct
         List.rev (List.sort files ~cmp:(fun (i1,_) (i2, _) -> Id.cmp_newest_first i1 i2))
         |> Deferred.List.iter ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
+          let dst = make_filename ~dirname ~basename id' in
+          if src = t.filename then Tail.extend t.log_files dst;
           if Id.cmp_newest_first id id' <> 0
-          then Unix.rename ~src ~dst:(make_filename ~dirname ~basename id')
+          then Unix.rename ~src ~dst
           else Deferred.unit)
         >>= fun () ->
         maybe_delete_old_logs ~dirname ~basename t.rotation.keep
@@ -711,8 +692,7 @@ end = struct
         t.last_size     <- 0;
         t.last_messages <- 0;
         t.last_time     <- Time.now ();
-        t.filename      <- make_filename ~dirname ~basename
-                             (Id.create (Rotation.zone t.rotation))
+        t.filename      <- make_filename ~dirname ~basename (Id.create (Rotation.zone t.rotation))
       ;;
 
       let write t msgs =
@@ -743,6 +723,7 @@ end = struct
           | true  -> Filename.basename basename, return (Filename.dirname basename)
           | false -> basename, Sys.getcwd ()
         in
+        let log_files = Tail.create () in
         let t_deferred =
           dirname
           >>| fun dirname ->
@@ -755,6 +736,7 @@ end = struct
           ; last_size     = 0
           ; last_messages = 0
           ; last_time     = Time.now ()
+          ; log_files
           }
         in
         let first_rotate_scheduled = ref false in
@@ -769,7 +751,7 @@ end = struct
               >>= fun () ->
               write t msgs
             end else
-              write t msgs)
+              write t msgs), log_files
       ;;
     end
 
@@ -823,7 +805,8 @@ end = struct
     ;;
   end
 
-  let rotating_file = Rotating_file.create
+  let rotating_file format ~basename rotation = fst (Rotating_file.create format ~basename rotation)
+  let rotating_file_with_tail = Rotating_file.create
   let file          = File.create
   let writer        = Log_writer.create
 
@@ -852,7 +835,7 @@ module Update = struct
     | New_output of Output.t
     | Flush      of unit Ivar.t
     | Rotate     of unit Ivar.t
-  with sexp_of
+  [@@deriving sexp_of]
 
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
@@ -1035,7 +1018,7 @@ let set_level t level =
   t.current_level <- level
 ;;
 
-TEST_UNIT "Level setting" =
+let%test_unit "Level setting" =
   let assert_log_level log expected_level =
     match (level log, expected_level) with
     | `Info, `Info
@@ -1062,43 +1045,44 @@ TEST_UNIT "Level setting" =
   Or_error.ok_exn answer
 ;;
 
-let message t msg = push_update t (Msg msg)
-
+(* should_send is broken out and tested separately for every sending function to avoid the
+   overhead of message allocation when we are just going to drop the message. *)
 let should_send t ~msg_level =
-  (not t.output_is_disabled)
-  && Level.as_or_more_verbose_than ~log_level:(level t) ~msg_level
+  not t.output_is_disabled
+    && Level.as_or_more_verbose_than ~log_level:(level t) ~msg_level
 
-let printf ?level:msg_level ?time ?tags t k =
-  ksprintf (fun msg ->
-    if should_send t ~msg_level
-    then begin
-      Message.create ?level:msg_level ?time ?tags (`String msg)
-      |> message t;
-    end
-  )
-    k
+let message t msg =
+  if should_send t ~msg_level:(Message.level msg)
+  then push_update t (Msg msg)
+
+let sexp ?level ?time ?tags t v to_sexp =
+  if should_send t ~msg_level:level
+  then push_update t (Msg (Message.create ?level ?time ?tags (`Sexp (to_sexp v))))
 ;;
 
-let sexp ?level:msg_level ?time ?tags t v to_sexp =
-  if should_send t ~msg_level
-  then begin
-    Message.create ?level:msg_level ?time ?tags (`Sexp (to_sexp v))
-    |> message t;
-  end
+let string ?level ?time ?tags t s =
+  if should_send t ~msg_level:level
+  then push_update t (Msg (Message.create ?level ?time ?tags (`String s)))
 ;;
 
-let string ?level:msg_level ?time ?tags t s =
-  if should_send t ~msg_level
-  then begin
-    Message.create ?level:msg_level ?time ?tags (`String s)
-    |> message t;
-  end
+let printf ?level ?time ?tags t fmt =
+  ksprintf (fun msg -> string ?level ?time ?tags t msg) fmt
 ;;
 
-let raw   ?time ?tags t k = printf ?time ?tags t k
-let debug ?time ?tags t k = printf ~level:`Debug ?time ?tags t k
-let info  ?time ?tags t k = printf ~level:`Info  ?time ?tags t k
-let error ?time ?tags t k = printf ~level:`Error ?time ?tags t k
+let raw   ?time ?tags t fmt = printf ?time ?tags t fmt
+let debug ?time ?tags t fmt = printf ~level:`Debug ?time ?tags t fmt
+let info  ?time ?tags t fmt = printf ~level:`Info  ?time ?tags t fmt
+let error ?time ?tags t fmt = printf ~level:`Error ?time ?tags t fmt
+
+let%bench_module "unused log messages" =
+  (module struct
+    let (log : t) = create ~level:`Info ~output:[] ~on_error:`Raise
+
+    let%bench "unused printf" = debug log "blah"
+    let%bench "unused printf w/subst" = debug log "%s" "blah"
+    let%bench "unused string" = string log ~level:`Debug "blah"
+    let%bench "used printf" = info log "blah"
+  end)
 
 module type Global_intf = sig
   val log : t Lazy.t

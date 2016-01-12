@@ -6,7 +6,7 @@ module Handlers = struct
   type t =
     { bag : (Signal.t -> unit) sexp_opaque Bag.t
     }
-  with sexp_of
+  [@@deriving sexp_of]
 
   let create () = { bag = Bag.create () }
 
@@ -19,7 +19,7 @@ module Handlers = struct
       try
         handler signal
       with exn ->
-        failwiths "signal handler unexpectedly raised" exn <:sexp_of< exn >>)
+        failwiths "signal handler unexpectedly raised" exn [%sexp_of: exn])
   ;;
 end
 
@@ -30,7 +30,7 @@ type t =
   ; delivered                           : delivered sexp_opaque
   ; thread_safe_notify_signal_delivered : unit -> unit
   }
-with sexp_of
+[@@deriving sexp_of]
 
 let invariant _ = ()
 

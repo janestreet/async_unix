@@ -36,7 +36,7 @@ module type S = sig
       Read_write.t], which defines the set of file descriptors being watched, and for each
       file descriptor, whether it is being watched for read, write, or both.  If a file
       descriptor is not being watched for either, it is not in the map. *)
-  type t with sexp_of
+  type t [@@deriving sexp_of]
 
   include Invariant.S with type t := t
 
@@ -66,14 +66,14 @@ module type S = sig
   (** [pre_check t] does whatever non-thread-safe work is necessary to prepare for the
       system call that checks file descriptors being ready for read or write.  [pre_check]
       does not side effect [t]. *)
-  module Pre : sig type t with sexp_of end
+  module Pre : sig type t [@@deriving sexp_of] end
   val pre_check : t -> Pre.t
 
   (** [thread_safe_check t pre timeout span_or_unit] checks the file descriptors for their
       status and returns when at least one is available, or the [timeout, span_or_unit]
       passes.  [thread_safe_check] does not side effect [t].  Unlike the rest of the
       functions in this module, [thread_safe_check] is thread safe. *)
-  module Check_result : sig type t with sexp_of end
+  module Check_result : sig type t [@@deriving sexp_of] end
   val thread_safe_check
     :  t
     -> Pre.t

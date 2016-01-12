@@ -127,7 +127,7 @@ val unlockf : ?len:Int64.t -> Fd.t -> unit
 
 module File_kind : sig
   type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
-  with sexp
+  [@@deriving sexp]
 
   include Comparable.S with type t := t
 end
@@ -147,7 +147,7 @@ module Stats : sig
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  with fields, sexp
+  [@@deriving fields, sexp, bin_io]
 
   val to_string : t -> string
 end
@@ -297,7 +297,7 @@ type wait_on =
   | `My_group
   | `Pid of Pid.t
   ]
-with sexp
+[@@deriving sexp]
 
 val wait                 : wait_on -> (Pid.t * Exit_or_signal.t        ) Deferred.t
 val wait_nohang          : wait_on -> (Pid.t * Exit_or_signal.t        ) option
@@ -312,9 +312,14 @@ val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
 val waitpid_exn : Pid.t -> unit             Deferred.t
 
 module Inet_addr : sig
-  type t = Unix.Inet_addr.t with bin_io, sexp, compare
+  type t = Unix.Inet_addr.t [@@deriving bin_io, compare, sexp_of]
+
+  val t_of_sexp : Sexp.t -> t
+    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
   (** same as [Core.Unix] *)
+  module Stable        = Unix.Inet_addr.Stable
+  module Blocking_sexp = Unix.Inet_addr.Blocking_sexp
   include Comparable.S with type t := t
   val of_string : string -> t
   val to_string : t -> string
@@ -341,14 +346,25 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [ `Unix of string ] with bin_io, sexp, compare
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
 
       val create : string -> t
       val to_string : t -> string
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] with bin_io, sexp, compare
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
+
+      val t_of_sexp : Sexp.t -> t
+        [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+
+      val __t_of_sexp__ : Sexp.t -> t
+        [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+
+      (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
+      module Blocking_sexp : sig
+        type nonrec t = t [@@deriving bin_io, compare, sexp_poly]
+      end
 
       val create : Inet_addr.t -> port:int -> t
       val create_bind_any : port:int -> t
@@ -358,7 +374,15 @@ module Socket : sig
       val to_host_and_port : t -> Host_and_port.t
     end
 
-    type t = [ Inet.t | Unix.t ] with bin_io, sexp
+    type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
+
+    val t_of_sexp : Sexp.t -> t
+      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+
+    (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
+    module Blocking_sexp : sig
+      type nonrec t = t [@@deriving bin_io, sexp]
+    end
 
     val to_string   : [< t ] -> string
     val to_sockaddr : [< t ] -> Core.Std.Unix.sockaddr
@@ -390,10 +414,10 @@ module Socket : sig
   type ('a, 'b) t
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
     constraint 'b = [< Address.t ]
-  with sexp_of
+  [@@deriving sexp_of]
 
   module Type : sig
-    type 'a t constraint 'a = [< Address.t ] with sexp_of
+    type 'a t constraint 'a = [< Address.t ] [@@deriving sexp_of]
 
     val tcp        : Address.Inet.t t
     val udp        : Address.Inet.t t
@@ -424,7 +448,7 @@ module Socket : sig
     -> ([ `Bound ], 'addr) t Deferred.t
 
   val listen
-    :  ?max_pending_connections : int  (** default is 10 *)
+    :  ?backlog : int  (** default is 10; see {!Unix.listen} *)
     -> ([ `Bound ], 'addr) t
     -> ([ `Passive ], 'addr) t
 
@@ -525,19 +549,26 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-with bin_io, sexp
+[@@deriving bin_io, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-with bin_io, sexp
+[@@deriving bin_io, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-with bin_io, sexp
+[@@deriving bin_io, sexp_of]
+
+val sockaddr_of_sexp : Sexp.t -> sockaddr
+  [@@deprecated "[since 2015-10] Replace [sockaddr] by [sockaddr_blocking_sexp]"]
+
+(** [sockaddr_blocking_sexp] is like [sockaddr], with [of_sexp] that performs DNS lookup
+    to resolve [Inet_addr.t]. *)
+type sockaddr_blocking_sexp = sockaddr [@@deriving bin_io, sexp]
 
 module Addr_info : sig
   type t = Unix.addr_info =
@@ -547,7 +578,15 @@ module Addr_info : sig
     ; ai_addr      : sockaddr
     ; ai_canonname : string
     }
-  with bin_io, sexp
+  [@@deriving bin_io, sexp_of]
+
+  val t_of_sexp : Sexp.t -> t
+    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+
+  (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
+  module Blocking_sexp : sig
+    type nonrec t = t [@@deriving bin_io, sexp]
+  end
 
   type getaddrinfo_option = Unix.getaddrinfo_option =
     | AI_FAMILY of socket_domain
@@ -556,7 +595,7 @@ module Addr_info : sig
     | AI_NUMERICHOST
     | AI_CANONNAME
     | AI_PASSIVE
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   val get : ?service:string -> host:string -> getaddrinfo_option list -> t list Deferred.t
 end
@@ -566,7 +605,7 @@ module Name_info : sig
     { ni_hostname : string
     ; ni_service  : string
     }
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   type getnameinfo_option = Unix.getnameinfo_option =
     | NI_NOFQDN
@@ -574,7 +613,7 @@ module Name_info : sig
     | NI_NAMEREQD
     | NI_NUMERICSERV
     | NI_DGRAM
-  with bin_io, sexp
+  [@@deriving bin_io, sexp]
 
   val get : sockaddr -> getnameinfo_option list -> t Deferred.t
 end
@@ -607,7 +646,7 @@ type error =
   | ECONNABORTED | ECONNRESET | ENOBUFS | EISCONN | ENOTCONN | ESHUTDOWN
   | ETOOMANYREFS | ETIMEDOUT | ECONNREFUSED | EHOSTDOWN | EHOSTUNREACH | ELOOP
   | EOVERFLOW | EUNKNOWNERR of int
-with sexp
+[@@deriving sexp]
 
 exception Unix_error of Error.t * string * string
 
@@ -677,7 +716,7 @@ module Passwd : sig
     ; dir    : string
     ; shell  : string
     }
-  with fields, sexp
+  [@@deriving fields, sexp]
 
   val getbyname     : string -> t option Deferred.t
   val getbyname_exn : string -> t        Deferred.t
@@ -694,7 +733,7 @@ module Group : sig
     ; gid    : int
     ; mem    : string array
     }
-  with fields, sexp
+  [@@deriving fields, sexp]
 
   val getbyname     : string -> t option Deferred.t
   val getbyname_exn : string -> t        Deferred.t
@@ -702,6 +741,12 @@ module Group : sig
   val getbygid     : int -> t option Deferred.t
   val getbygid_exn : int -> t        Deferred.t
 end
+
+module Ifaddr = Core.Std.Unix.Ifaddr
+
+(* [getifaddrs] gets the information using the socket-based netlink interface, which
+   can block, see: https://www.infradead.org/~tgr/libnl/doc/core.html. *)
+val getifaddrs : unit -> Ifaddr.t list Deferred.t
 
 (** Return the login name of the user executing the process.
 

@@ -25,14 +25,14 @@ open Core.Std
 open Import
 
 module Read_result : sig
-  type 'a t = [ `Ok of 'a | `Eof ] with bin_io, sexp
+  type 'a t = [ `Ok of 'a | `Eof ] [@@deriving bin_io, sexp]
 
   include Monad.S with type 'a t := 'a t
 end
 
 module Id : Unique_id
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
@@ -148,7 +148,7 @@ type 'a read_one_chunk_at_a_time_result =
       never consumed (and never will be, since the reader is at eof). *)
   | `Eof_with_unconsumed_data of string
   ]
-with sexp_of
+[@@deriving sexp_of]
 
 type 'a handle_chunk_result =
   [ (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
@@ -167,7 +167,7 @@ type 'a handle_chunk_result =
                        | `Need_unknown
                        ]
   ]
-with sexp_of
+[@@deriving sexp_of]
 
 val read_one_chunk_at_a_time
   :  t
@@ -175,6 +175,25 @@ val read_one_chunk_at_a_time
                      -> pos : int
                      -> len : int
                      -> 'a handle_chunk_result Deferred.t)
+  -> 'a read_one_chunk_at_a_time_result Deferred.t
+
+(** [`Stop a] or [`Continue] respects the usual [Iobuf] semantics where data up to the
+    [Iobuf.Lo_bound] is considered consumed. *)
+type 'a handle_iobuf_result =
+  [ `Stop of 'a
+  | `Continue
+  ]
+[@@deriving sexp_of]
+
+(** [read_one_iobuf_at_a_time] is like [read_one_chunk_at_a_time], except that the
+    user-supplied [handle_chunk] function receives its data in an [Iobuf.t], and uses the
+    [Iobuf] position to communicate how much data was consumed.
+    [read_one_iobuf_at_a_time] is implemented as a wrapper around
+    [read_one_chunk_at_a_time]. *)
+val read_one_iobuf_at_a_time
+  :  t
+  -> handle_chunk : ((read_write, Iobuf.seek) Iobuf.t
+                     -> 'a handle_iobuf_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss],

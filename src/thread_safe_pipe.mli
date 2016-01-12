@@ -10,7 +10,7 @@
 open Core.Std
 open Import
 
-type 'a t with sexp_of
+type 'a t [@@deriving sexp_of]
 
 (** [create ()] returns a reader end, which must be used inside Async, and a writer end,
     which must be used outside Async.  [create] can be called inside or outside Async. *)

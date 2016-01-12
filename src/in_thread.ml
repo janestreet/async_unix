@@ -5,21 +5,6 @@ open Raw_scheduler
 
 module Priority = Linux_ext.Priority
 
-module Helper_thread = struct
-  include Thread_pool.Helper_thread
-
-  let create ?priority ?name () =
-    let t = the_one_and_only ~should_lock:true in
-    let finalize_helper_thread helper_thread =
-      Thread_pool.finished_with_helper_thread t.thread_pool helper_thread
-    in
-    Result.map (Thread_pool.create_helper_thread t.thread_pool ?name ?priority)
-      ~f:(fun helper_thread ->
-        add_finalizer_exn t helper_thread finalize_helper_thread;
-        helper_thread);
-  ;;
-end
-
 let run ?priority ?thread ?(when_finished = `Best) ?name f =
   let t = the_one_and_only ~should_lock:true in
   let doit () =
@@ -62,6 +47,53 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
        the async lock and manipulate async datastructures.  This seems hard to think about
        if async hasn't even started yet. *)
     Deferred.bind Deferred.unit doit
+;;
+
+module Helper_thread = struct
+  (* A wrapper around [Thread_pool]'s helper thread, so we can attach a finalizer. *)
+  type t =
+    { thread_pool_helper_thread : Thread_pool.Helper_thread.t
+    }
+  [@@deriving fields, sexp_of]
+
+  (* Both [create] and [create_now] add Async finalizers to the returned helper thread so
+     that the thread can be added back to the set of worker threads when there are no
+     references to the helper thread and the thread has no pending work.  Because
+     [Thread_pool.finished_with_helper_thread] needs to acquire the thread pool lock, it
+     cannot be run within an ordinary finalizer, since that could cause it to be run in a
+     context where the code interrupted by the GC might already be holding the thread pool
+     lock, which would result in a deadlock.  Hence we use an Async finalizer -- this
+     causes the GC to merely schedule an Async job that calls
+     [Thread_pool.finished_with_helper_thread].  We don't attach the finalizer inside
+     [Thread_pool] because the thread pool doesn't know about Async, and in particular
+     doesn't know about Async finalizers. *)
+  let create_internal scheduler thread_pool_helper_thread =
+    let finalize { thread_pool_helper_thread } =
+      Thread_pool.finished_with_helper_thread scheduler.thread_pool
+        thread_pool_helper_thread
+    in
+    let t = { thread_pool_helper_thread } in
+    add_finalizer_exn scheduler t finalize;
+    t
+  ;;
+
+  let create_now ?priority ?name () =
+    let scheduler = the_one_and_only ~should_lock:true in
+    Result.map (Thread_pool.create_helper_thread scheduler.thread_pool ?name ?priority)
+      ~f:(fun helper_thread -> create_internal scheduler helper_thread)
+  ;;
+
+  let create ?priority ?name () =
+    let scheduler = the_one_and_only ~should_lock:true in
+    run (fun () -> Thread_pool.become_helper_thread scheduler.thread_pool ?name ?priority)
+    >>| fun helper_thread ->
+    create_internal scheduler (ok_exn helper_thread)
+  ;;
+end
+
+let run ?priority ?thread ?when_finished ?name f =
+  let thread = Option.map thread ~f:Helper_thread.thread_pool_helper_thread in
+  run ?priority ?thread ?when_finished ?name f;
 ;;
 
 let syscall     ~name f = run ~name (fun () ->                Syscall.syscall f )

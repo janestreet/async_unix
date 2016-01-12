@@ -3,7 +3,7 @@ open Import
 
 module Unix = Unix_syscalls
 
-type env = Core.Std.Unix.env with sexp
+type env = Core.Std.Unix.env [@@deriving sexp]
 
 type t =
   { pid         : Pid.t
@@ -15,7 +15,7 @@ type t =
   ; working_dir : string option
   ; env         : env
   }
-with fields, sexp_of
+[@@deriving fields, sexp_of]
 
 type 'a with_create_args =
   ?working_dir : string
@@ -33,10 +33,10 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
   | Ok { pid; stdin; stdout; stderr } ->
     let create_fd name file_descr =
       Fd.create Fifo file_descr
-        (Info.create "child process" ~here:_here_ (name, `pid pid, `prog prog, `args args)
-           <:sexp_of<
+        (Info.create "child process" ~here:[%here] (name, `pid pid, `prog prog, `args args)
+           [%sexp_of:
                string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]
-            >>)
+            ])
     in
     Ok { pid
        ; stdin  = Writer.create (create_fd "stdin"  stdin )
@@ -57,7 +57,7 @@ module Output = struct
         ; stderr      : string
         ; exit_status : Unix.Exit_or_signal.t
         }
-      with compare, sexp
+      [@@deriving compare, sexp]
     end
   end
 
@@ -84,7 +84,7 @@ module Lines_or_sexp = struct
   type t =
     | Lines of string list
     | Sexp of Sexp.t
-  with sexp_of
+  [@@deriving sexp_of]
 
   let create string =
     try Sexp (Sexp.of_string (String.strip string))
@@ -102,7 +102,7 @@ module Failure = struct
     ; stdout      : Lines_or_sexp.t
     ; stderr      : Lines_or_sexp.t
     }
-  with sexp_of
+  [@@deriving sexp_of]
 end
 
 let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
@@ -119,7 +119,7 @@ let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
       ; stdout = Lines_or_sexp.create stdout
       ; stderr = Lines_or_sexp.create stderr
       }
-      <:sexp_of< Failure.t >>
+      [%sexp_of: Failure.t]
 ;;
 
 let collect_stdout_lines_and_wait ?accept_nonzero_exit t =
@@ -128,9 +128,9 @@ let collect_stdout_lines_and_wait ?accept_nonzero_exit t =
   String.split_lines s
 ;;
 
-TEST_UNIT "first arg is not prog" =
+let%test_unit "first arg is not prog" =
   let args = [ "219068700202774381" ] in
-  <:test_pred< string list Or_error.t >>
+  [%test_pred: string list Or_error.t]
     (Poly.equal (Ok args))
     (Thread_safe.block_on_async_exn
        (fun () ->
@@ -149,4 +149,18 @@ let run_lines ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
   run ?accept_nonzero_exit ?working_dir ?env ~prog ~args ()
   >>|? fun s ->
   String.split_lines s
+;;
+
+let run_expect_no_output ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
+  run ?accept_nonzero_exit ?working_dir ?env ~prog ~args ()
+  >>| function
+  | Error _ as err      -> err
+  | Ok ""               -> Ok ()
+  | Ok non_empty_output ->
+    Or_error.error "Process.run_expect_no_output: non-empty output" () (fun () ->
+      [%sexp
+        { prog   = (prog             : string)
+        ; args   = (args             : string list)
+        ; output = (non_empty_output : string)
+        }])
 ;;

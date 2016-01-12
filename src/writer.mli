@@ -26,7 +26,7 @@ open Import
 
 module Id : Unique_id
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
@@ -54,7 +54,7 @@ val io_stats : Io_stats.t
 val stdout : t Lazy.t
 val stderr : t Lazy.t
 
-type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, sexp
+type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin_io, sexp]
 
 
 (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
@@ -219,7 +219,23 @@ val write_line : t -> string -> unit
     The given integer is taken modulo 256. *)
 val write_byte : t -> int -> unit
 
-val write_sexp  : ?hum:bool (** default is [false] *) -> t -> Sexp.t -> unit
+module Terminate_with : sig
+  type t = Newline | Space_if_needed [@@deriving sexp_of]
+end
+
+(** [write_sexp t sexp] writes to [t] the string representation of [sexp], possibly
+    followed by a terminating character as per [Terminate_with].  With
+    [~terminate_with:Newline], the terminating character is a newline.  With
+    [~terminate_with:Space_if_needed], if a space is needed to ensure that the sexp reader
+    knows that it has reached the end of the sexp, then the terminating character will be
+    a space; otherwise, no terminating character is added.  A terminating space is needed
+    if the string representation doesn't end in [')'] or ['"']. *)
+val write_sexp
+  :  ?hum            : bool             (** default is [false] *)
+  -> ?terminate_with : Terminate_with.t (** default is [Space_if_needed] *)
+  -> t
+  -> Sexp.t
+  -> unit
 
 (** [write_bin_prot] writes out a value using its bin_prot sizer/writer pair.  The format
     is the "size-prefixed binary protocol", in which the length of the data is written
@@ -250,11 +266,25 @@ val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
     clients simultaneously (e.g. on a cluster), because these functions then avoid
     needlessly exhausting memory by sharing the data. *)
 
-(** [schedule_bigstring t bstr] schedules a write of bigstring [bstr].
-    It is not safe to change the bigstring until the writer has been
-    successfully flushed or closed after this operation. *)
+(** [schedule_bigstring t bstr] schedules a write of bigstring [bstr].  It is not safe to
+    change the bigstring until the writer has been successfully flushed or closed after
+    this operation. *)
 val schedule_bigstring    : t -> ?pos:int -> ?len:int -> Bigstring.t    -> unit
 val schedule_bigsubstring : t                         -> Bigsubstring.t -> unit
+
+(** [schedule_iobuf_peek] is like [schedule_bigstring], but for an iobuf.  It is not safe
+    to change the iobuf until the writer has been successfully flushed or closed after
+    this operation. *)
+val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read], _) Iobuf.t -> unit
+
+(** [schedule_iobuf_consume] is like [schedule_iobuf_peek], and additionally advances the
+    iobuf beyond the portion that has been written.  Until the result is determined, it is
+    not safe to assume whether the iobuf has been advanced yet or not. *)
+val schedule_iobuf_consume
+  :  t
+  -> ?len:int
+  -> ([> read], Iobuf.seek) Iobuf.t
+  -> unit Deferred.t
 
 (** [schedule_iovec t iovec] schedules a write of I/O-vector [iovec].  It is not safe to
     change the bigstrings underlying the I/O-vector until the writer has been successfully

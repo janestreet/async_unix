@@ -16,8 +16,14 @@
     Sometimes one wants work to run in a dedicated thread, e.g. some C libraries require
     this.  To do this, use [Helper_thread], see below.
 
-    All of the functions exposed by this module are thread safe; they synchronize using
-    a mutex on the thread pool.
+    All of the functions exposed by this module are thread safe; they synchronize using a
+    mutex on the thread pool.
+
+    One must not call thread-pool functions from a GC finalizer, since a finalizer could
+    run within a thread running a thread-pool function, which already holds the lock, and
+    would therefore deadlock or error when attempting to re-acquire it.  This is
+    accomplished elsewhere by using Async finalizers, which are run from ordinary Async
+    jobs, and thus do not hold the thread-pool lock.
 
     One can control the priority of threads in the pool (in the sense of
     [Linux_ext.setpriority]).  Work added to the pool can optionally be given a priority,
@@ -35,7 +41,7 @@ open Import
 
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
@@ -82,11 +88,12 @@ val num_work_completed : t -> int
     to start running in a thread. *)
 val has_unstarted_work : t -> bool
 
+(** A helper thread is a thread with its own dedicated work queue.  Work added for the
+    helper thread is guaranteed to be run by that thread.  The helper thread only runs
+    work explicitly supplied to it.  Helper threads count towards a thread pool's
+    [max_num_threads]. *)
 module Helper_thread : sig
-  (** A helper thread is a thread with its own dedicated work queue.  Work added for the
-      helper thread is guaranteed to be run by that thread.  The helper thread only runs
-      work explicitly supplied to it. *)
-  type t
+  type t [@@deriving sexp_of]
 
   (** [default_name t] returns the name that will be used for work performed by [t],
       unless that work is added with an overriding name *)
@@ -97,17 +104,25 @@ module Helper_thread : sig
   val default_priority : t -> Priority.t
 end
 
-(** [create_helper_thread ?priority ?name t] creates a new helper thread.
-
-    The thread pool does not internally refer to the [Helper_thread.t] it returns.  So, it
-    is OK for client code to use a finalizer to detect it becoming unused.
-
-    It is an error if no threads are available.  It is an error to call
-    [create_helper_thread t] after [finished_with t].
-
-    When the helper thread runs work, it will be at the helper thread's name and priority,
-    except for work that is added with an overriding priority or name. *)
+(** [create_helper_thread ?priority ?name t] takes an available thread from the thread
+    pool and makes it a helper thread, raising if no threads are available or if
+    [finished_with t] was previously called.  The new helper thread runs work with [name]
+    and [priority], except for work that is added with an overriding priority or name.
+    The thread remains a helper thread until [finished_with_helper_thread] is called, if
+    ever. *)
 val create_helper_thread
+  :  ?priority : Priority.t  (** default is [default_priority t] *)
+  -> ?name     : string      (** default is ["helper thread"] *)
+  -> t
+  -> Helper_thread.t Or_error.t
+
+(** [become_helper_thread ?priority ?name t] should be run from within work supplied to
+    [add_work].  When [become_helper_thread] runs, it transitions the current thread into
+    a helper thread.
+
+    Other than that, [become_helper_thread] is like [create_helper_thread], except it
+    cannot fail because no threads are available. *)
+val become_helper_thread
   :  ?priority : Priority.t  (** default is [default_priority t] *)
   -> ?name     : string      (** default is ["helper thread"] *)
   -> t

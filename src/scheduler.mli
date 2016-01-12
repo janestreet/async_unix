@@ -10,11 +10,14 @@
 open Core.Std
 open Import
 
-type t = Raw_scheduler.t with sexp_of
+type t = Raw_scheduler.t [@@deriving sexp_of]
 
 (** [t ()] returns the Async scheduler.  If the scheduler hasn't been created yet, this
     will create it and acquire the Async lock. *)
 val t : unit -> t
+
+(** Accessors *)
+val max_num_threads : unit -> int
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
     running handlers, one by one without interruption, until there are no more handlers to
@@ -98,9 +101,9 @@ val preserve_execution_context' : ('a -> 'b Deferred.t) -> ('a -> 'b Deferred.t)
     cycle. *)
 val cycle_start : unit -> Time.t
 
-(** [cycle_times ()] returns a stream that will have one element for each cycle that Async
-    runs, with the amount of time that the cycle took (as determined by calls to Time.now
-    at the beginning and end of the cycle). *)
+(** [cycle_times ()] returns a stream that is extended with an element at the start of
+    each Async cycle, with the amount of time that the previous cycle took, as determined
+    by calls to [Time.now] at the beginning and end of the cycle. *)
 val cycle_times : unit -> Time.Span.t Stream.t
 
 (** [report_long_cycle_times ?cutoff ()] sets up something that will print a warning to
@@ -195,8 +198,8 @@ val add_busy_poller
     handler for the main monitor.
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
-val handle_thread_pool_stuck         : (stuck_for:Time.Span.t -> unit) -> unit
-val default_handle_thread_pool_stuck :  stuck_for:Time.Span.t -> unit
+val handle_thread_pool_stuck         : (stuck_for:Time_ns.Span.t -> unit) -> unit
+val default_handle_thread_pool_stuck :  stuck_for:Time_ns.Span.t -> unit
 
 (** [yield ()] returns a deferred that becomes determined after the current cycle
     completes.  This can be useful to improve fairness by [yield]ing within a computation
@@ -210,3 +213,14 @@ val yield : unit -> unit Deferred.t
 
     [yield_every] raises if [n <= 0]. *)
 val yield_every : n:int -> (unit -> unit Deferred.t) Staged.t
+
+(** [time_spent_waiting_for_io ()] returns the amount of time that the Async scheduler has
+    spent in calls to [epoll_wait] (or [select]) since the start of the program. *)
+val time_spent_waiting_for_io : unit -> Time_ns.Span.t
+
+(** [set_min_inter_cycle_timeout] sets the minimum timeout that the scheduler will pass to
+    the OS when it checks for I/O between cycles.  The minimum is zero by default.
+    Setting it to a nonzero value is used to increase thread fairness between the
+    scheduler and other threads.  A plausible setting is 1us.  This can also be set via
+    the [ASYNC_CONFIG] environment variable. *)
+val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit

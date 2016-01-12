@@ -1,3 +1,136 @@
+## 113.24.00
+
+
+- In the periodic check for a Writer buffer have too old data,
+  eliminated allocation and generally improved performance.
+
+  This eliminated a large source of allocation in a simple TCP pingpong
+  benchmark `bench/pingpong`.
+
+- Removed allocation in the Async scheduler's code that detects the
+  thread-pool being stuck.  This involved switching it to use `Time_ns`
+  rather than `Time`.
+
+  This eliminates a relatively large source of allocation in a simple
+  TCP-pingpong benchmark `bench/pingpong`.
+
+- Switched to ppx.
+
+- Improved the Async scheduler's to allocate a `handle_fired` function
+  once, rather than every time it calls `advance_clock`.
+
+- Added `Fd_by_descr.find_exn`, to avoid the option allocated by
+  `Fd_by_descr.find`.  Used it to reduce allocation in the Async
+  scheduler.
+
+- Improved `Reader.load_sexp*` functions to behave better when loading
+  from a non files, e.g. a pipe.  Previously, it produced an empty error
+  message because it mistakenly attempted to read the sexp a second time
+  in order to determine the error position.  Now it produces a good
+  error message, but without the (impossible to obtain) error position.
+
+- In `Async_unix.Syscall`, added a zero-allocation syscall interface,
+  removing sources of allocation as observed when running a simple TCP
+  pingpong benchmark (found in `bench/pingpong`).
+
+- Added
+
+    val time_spent_waiting_for_io : unit -> Time_ns.Span.t
+
+  to `Scheduler` which returns the amount of time that the Async scheduler has
+  spent in calls to `epoll_wait` (or `select`) since the start of the program.
+
+- Changed `In_thread.Helper_thread.create` from:
+
+    val create : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
+
+  to:
+
+    val create : ?priority:Priority.t -> ?name:string -> unit -> t Deferred.t
+
+  Kept around the prior function, renamed as `create_now`.
+
+  Switching `create` to return a deferred allows it to, when there are
+  no available threads, wait until one becomes available.  This, in
+  turn, avoids rare nondeterminstic failures in programs that make heavy
+  use of the thread pool and create a helper thread, when the creation
+  happens at just the wrong time, when no thread is available.
+
+  Split out `Thread_safe_ivar` from the internals of `Thread_pool`, so
+  that it can be used in other tests, and in particular in a new
+  unified test added by this feature.
+
+- Make `Unix_syscalls.Stats` bin-io-able.
+
+- Fixed a bug in `Thread_safe.block_on_async*`, in which the execution
+  context wasn't properly restored before returning.
+
+- Add a function in `Process` that expects empty output, mirroring `Shell.run`.
+
+- Added `Reader.read_one_iobuf_at_a_time`, which is like
+  `read_one_chunk_at_a_time`, except that the user-supplied
+  `handle_chunk` function receives its data in an `Iobuf.t`, and uses
+  the `Iobuf` position to communicate how much data was consumed.
+
+  This facilitates using reader in scenarios (such as with protogen)
+  where `Iobuf`s are expected (and presently allocated around the
+  bigstring at each call) and the calculation of consumed bytes from the
+  `Iobuf` is duplicated in few places.
+
+- `Log.message` used to always logs the message, even if its log level was too low.
+  This has been fixed.
+
+- Add writer functions to schedule an iobuf to be written out.
+
+- Add `Unix.Inet_addr.Stable`.
+
+- Alter `Async.Std.Socket.Address.Inet.Blocking_sexp` to expose the
+  polymorphic variant functions, so that you can include it in a
+  separate polymorphic variant type.
+
+  Also, expose `Async.Std.Socket.Address.Inet.__t_of_sexp__` to give a
+  deprecation message, instead of a message about the function not
+  existing.
+
+- Fixed a bug in Async's `In_thread.Helper_thread`, which wasn't
+  finalizing helper threads, due to a bug in `Thread_pool`, which wasn't
+  finalizing helper threads.  The fix was to move the finalization out
+  of `Thread_pool`, where we don't care about it, to
+  `In_thread.Helper_thread`, where we do.
+
+  Added `Scheduler.max_num_threads : unit -> int`.
+
+- Make `Epoll_file_descr_watcher` trigger callbacks for error conditions such as closed pipes.
+
+  Testing
+  -------
+  Three new unit tests, all validating appropriate behavior in the case that a Unix pipe is
+  opened, then the read end is closed after reading only part of the data sent by the write
+  end.
+
+  1. A test in writer.ml verifying that `Writer.consumer_left` is triggered.  Before the fix
+     to `Epoll_file_descr_watcher`, `Writer.consumer_left` would never become determined in
+     this case.
+
+  2. A test in fd.ml verifying that `Fd.ready_to` is triggered for the writing fd.  Before
+     the fix to `Epoll_file_descr_watcher`, `Fd.ready_to` would never become determined in
+     this case.
+
+  3. A test in linux_ext.ml verifying that `Epoll.wait_timeout_after` is triggered.  This
+     test shows that epoll reports the ERR flag for the file descriptor in this case, and
+     therefore that `Epoll_file_descr_watcher` needs to pay attention to the ERR flag.
+
+- Added to `Writer.write_sexp` an optional `?terminate_with` argument,
+  that specifies how to terminate the string representation of the sexp.
+  This also makes it clear that the default behavior,
+  `~terminate_with:Space_if_needed`, might append a space to the sexp
+  you are outputting if its representation is not enclosed in either ()
+  or "" .  `Sexp.output_hum` an `Sexp.output_mach` do not have this
+  behavior, so porting non-async code to async could introduce
+  unexpected differences in the output.
+
+- Add an Async wrapper for `Core.Std.Unix.getifaddrs`.
+
 ## 113.00.00
 
 - Made Async dump core when it reports a "bug in async scheduler".

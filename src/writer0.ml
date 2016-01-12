@@ -2,7 +2,6 @@ open Core.Std
 open Import
 
 module Core_unix = Core.Std.Unix
-module Scheduler = Raw_scheduler
 module Unix      = Unix_syscalls
 
 module IOVec = Core.Std.Unix.IOVec
@@ -15,19 +14,21 @@ let debug = Debug.writer
 
 module Check_buffer_age' = struct
   type 'a t =
-    { writer          : 'a
-    ; queue           : (Int63.t * Time.t) Queue.t
-    ; maximum_age     : Time.Span.t
+    { writer               : 'a
+    ; maximum_age          : Time_ns.Span.t
+    (* [Queue.length bytes_received_queue = Queue.length times_received_queue] *)
+    ; bytes_received_queue : Int63.t   Queue.t
+    ; times_received_queue : Time_ns.t Queue.t
     (* The buffer-age check is responsible for filling in [too_old] if it detects an age
        violation. *)
-    ; mutable too_old : unit Ivar.t
+    ; mutable too_old      : unit Ivar.t
     }
-  with sexp_of
+  [@@deriving sexp_of]
 end
 
 module Open_flags = Unix.Open_flags
 
-type open_flags = (Open_flags.t, exn) Result.t with sexp_of
+type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
 
 module Scheduled = struct
   type t = (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Deque.t
@@ -116,12 +117,17 @@ type t =
      consumer leaves.  By default, it raises, but that can be disabled. *)
   ; consumer_left                      : unit Ivar.t
   ; mutable raise_when_consumer_leaves : bool (** default is [true] *)
-
+  (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
+     created, and starts a deferred computation that calls [Unix.fcntl_getfl].
+     [open_flags] is used to report an error when [fd] is not writable.  [Fd] treats the
+     call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
+     completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
+     leak even though client code doesn't explicitly wait on [open_flags]. *)
   ; open_flags                         : open_flags Deferred.t
   }
-with fields, sexp_of
+[@@deriving fields, sexp_of]
 
-type writer = t with sexp_of
+type writer = t [@@deriving sexp_of]
 
 let set_raise_when_consumer_leaves t bool = t.raise_when_consumer_leaves <- bool
 
@@ -167,7 +173,7 @@ let invariant t : unit =
         | `Open | `Closed_and_flushing -> assert (Ivar.is_empty close_finished)
         | `Closed -> ()))
       ~close_started:(check (fun close_started ->
-        <:test_result< bool >> (Ivar.is_empty close_started)
+        [%test_result: bool] (Ivar.is_empty close_started)
           ~expect:
             (match t.close_state with
              | `Open -> true
@@ -181,7 +187,7 @@ let invariant t : unit =
         if Ivar.is_full consumer_left then assert (is_stopped_permanently t)))
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
-  with exn -> failwiths "writer invariant failed" (exn, t) <:sexp_of< exn * t >>
+  with exn -> failwiths "writer invariant failed" (exn, t) [%sexp_of: exn * t]
 ;;
 
 module Check_buffer_age : sig
@@ -203,67 +209,63 @@ end = struct
 
   let active_checks = Bag.create ()
 
-  let maybe_start_loop =
-    let loop_running = ref false in
-    let rec loop () =
-      if Bag.is_empty active_checks
-      then loop_running := false
-      else begin
-        Clock.after (sec 1.)
-        >>> fun () ->
-        let now = Scheduler.cycle_start () in
-        Bag.iter active_checks ~f:(fun e ->
-          Queue.enqueue e.queue (e.writer.bytes_received, now));
-        let backed_up_writers =
-          Bag.fold active_checks ~init:[] ~f:(fun acc e ->
-            let bytes_written = e.writer.bytes_written in
-            let rec loop () =
-              match Queue.peek e.queue with
-              | None -> acc
-              | Some (bytes_received, time) ->
-                if Int63.(bytes_received <= bytes_written)
-                then begin
-                  ignore (Queue.dequeue e.queue);
-                  loop ()
-                end else if Time.Span.(>) (Time.diff now time) e.maximum_age
-                then e::acc
-                else begin
-                  if Ivar.is_full e.too_old then e.too_old <- Ivar.create ();
-                  acc
-                end
-            in
-            loop ())
-        in
-        List.iter backed_up_writers ~f:(fun e ->
-          Monitor.send_exn e.writer.monitor
-            (Error.to_exn
-               (Error.create "writer buffer has data older than"
-                  (e.maximum_age, e.writer) <:sexp_of< Time.Span.t * writer >>));
-          Ivar.fill_if_empty e.too_old ());
-        loop ()
-      end
+  let () =
+    let backed_up_writers = ref [] in
+    let now = ref Time_ns.epoch in
+    let send_backed_up_writer_error e =
+      Monitor.send_exn e.writer.monitor
+        (Error.to_exn
+           (Error.create "writer buffer has data older than" (e.maximum_age, e.writer)
+              [%sexp_of: Time_ns.Span.t * writer]));
+      Ivar.fill_if_empty e.too_old ();
     in
-    fun () ->
-      if not !loop_running then begin
-        loop_running := true;
-        loop ();
-      end
+    let process_active_check e =
+      let continue = ref true in
+      while !continue do
+        if Queue.is_empty e.bytes_received_queue
+        then continue := false
+        else
+          let bytes_received = Queue.peek_exn e.bytes_received_queue in
+          let time_received  = Queue.peek_exn e.times_received_queue in
+          if Int63.( <= ) bytes_received e.writer.bytes_written
+          then (
+            ignore (Queue.dequeue_exn e.bytes_received_queue : Int63.t);
+            ignore (Queue.dequeue_exn e.times_received_queue : Time_ns.t))
+          else (
+            continue := false;
+            if Time_ns.Span.( > ) (Time_ns.diff !now time_received) e.maximum_age
+            then backed_up_writers := e :: !backed_up_writers
+            else if Ivar.is_full e.too_old then e.too_old <- Ivar.create ())
+      done;
+      if e.writer.bytes_received > e.writer.bytes_written
+      then (
+        Queue.enqueue e.bytes_received_queue e.writer.bytes_received;
+        Queue.enqueue e.times_received_queue !now);
+    in
+    every Time_ns.Span.second ~continue_on_error:false (fun () ->
+      assert (List.is_empty !backed_up_writers);
+      if not (Bag.is_empty active_checks)
+      then (
+        now := Kernel_scheduler.(cycle_start (t ()));
+        Bag.iter active_checks ~f:process_active_check;
+        if not (List.is_empty !backed_up_writers)
+        then (
+          List.iter !backed_up_writers ~f:send_backed_up_writer_error;
+          backed_up_writers := [])));
   ;;
 
   let create writer ~maximum_age =
     match maximum_age with
     | `Unlimited -> None
     | `At_most maximum_age ->
-      let res =
+      Some (
         Bag.add active_checks
           { writer
-          ; queue       = Queue.create ()
-          ; maximum_age
-          ; too_old     = Ivar.create ()
-          }
-      in
-      maybe_start_loop ();
-      Some res
+          ; bytes_received_queue = Queue.create ()
+          ; times_received_queue = Queue.create ()
+          ; maximum_age          = Time_ns.Span.of_span maximum_age
+          ; too_old              = Ivar.create ()
+          })
   ;;
 
   let destroy t =
@@ -349,7 +351,7 @@ let final_flush ?force t =
 ;;
 
 let close ?force_close t =
-  if debug then Debug.log "Writer.close" t <:sexp_of< t >>;
+  if debug then Debug.log "Writer.close" t [%sexp_of: t];
   begin match t.close_state with
   | `Closed_and_flushing | `Closed -> ()
   | `Open ->
@@ -409,7 +411,7 @@ let stop_permanently t =
 
 let die t error = stop_permanently t; Error.raise error
 
-type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] with bin_io, sexp
+type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin_io, sexp]
 
 let create
       ?buf_len
@@ -466,7 +468,7 @@ let create
   in
   Monitor.detach_and_iter_errors inner_monitor ~f:(fun exn ->
     Monitor.send_exn monitor
-      (Error.to_exn (Error.create "writer error" (exn, t) <:sexp_of< exn * t >>)));
+      (Error.to_exn (Error.create "writer error" (exn, t) [%sexp_of: exn * t])));
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
   t
@@ -482,7 +484,8 @@ let of_out_channel oc kind = create (Fd.of_out_channel oc kind)
 let ensure_can_write t =
   match t.close_state with
   | `Open | `Closed_and_flushing -> ()
-  | `Closed -> failwiths "attempt to use closed writer" t <:sexp_of< t >>
+  | `Closed ->
+    failwiths "attempt to use closed writer" t [%sexp_of: t]
 ;;
 
 let open_file ?(append = false) ?(close_on_exec = true) ?(perm = 0o666) file =
@@ -562,11 +565,11 @@ let thread_io_cutoff = 262_144
 (* If whe writer was closed, we should be quiet.  But if it wasn't, then someone was
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
-  if not (is_closed t) then failwiths "writer fd unexpectedly closed " t <:sexp_of< t >>
+  if not (is_closed t) then failwiths "writer fd unexpectedly closed " t [%sexp_of: t]
 ;;
 
 let rec start_write t =
-  if debug then Debug.log "Writer.start_write" t <:sexp_of< t >>;
+  if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
   assert (t.background_writer_state = `Running);
   let iovecs, contains_mmapped, iovecs_len = mk_iovecs t in
   let handle_write_result = function
@@ -575,11 +578,11 @@ let rec start_write t =
       if n >= 0
       then write_finished t n
       else die t (Error.create "write system call returned negative result" (t, n)
-                    <:sexp_of< t * int >>)
+                    [%sexp_of: t * int])
     | `Error (Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _)) ->
       write_when_ready t
     | `Error (Unix.Unix_error (EBADF, _, _)) ->
-      die t (Error.create "write got EBADF" t <:sexp_of< t >>)
+      die t (Error.create "write got EBADF" t [%sexp_of: t])
     | `Error ((Unix.Unix_error
                  (( EPIPE
                   | ECONNRESET
@@ -617,23 +620,23 @@ let rec start_write t =
             Bigstring.writev_assume_fd_is_nonblocking file_descr iovecs))
 
 and write_when_ready t =
-  if debug then Debug.log "Writer.write_when_ready" t <:sexp_of< t >>;
+  if debug then Debug.log "Writer.write_when_ready" t [%sexp_of: t];
   assert (t.background_writer_state = `Running);
   Fd.ready_to t.fd `Write
   >>> function
-  | `Bad_fd -> die t (Error.create "writer ready_to got Bad_fd" t <:sexp_of< t >>)
+  | `Bad_fd -> die t (Error.create "writer ready_to got Bad_fd" t [%sexp_of: t])
   | `Closed -> fd_closed t
   | `Ready -> start_write t
 
 and write_finished t bytes_written =
   if debug
-  then Debug.log "Writer.write_finished" (bytes_written, t) <:sexp_of< int * t >>;
+  then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
   assert (t.background_writer_state = `Running);
   let int63_bytes_written = Int63.of_int bytes_written in
   Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:int63_bytes_written;
   t.bytes_written <- Int63.(int63_bytes_written + t.bytes_written);
   if Int63.(t.bytes_written > t.bytes_received)
-  then die t (Error.create "writer wrote more bytes than it received" t <:sexp_of< t >>);
+  then die t (Error.create "writer wrote more bytes than it received" t [%sexp_of: t]);
   fill_flushes t;
   t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
   (* Remove processed iovecs from t.scheduled. *)
@@ -643,7 +646,7 @@ and write_finished t bytes_written =
     | None ->
       if bytes_written > 0
       then die t (Error.create "writer wrote nonzero amount but IO_queue is empty" t
-                    <:sexp_of< t >>)
+                    [%sexp_of: t])
     | Some ({ buf; pos; len }, kind) ->
       if bytes_written >= len then begin
         (* Current I/O-vector completely written.  Internally generated buffers get
@@ -698,7 +701,7 @@ let maybe_start_writer t =
       in
       if not can_write_fd
       then failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
-             <:sexp_of< open_flags * t >>;
+             [%sexp_of: open_flags * t];
       start_write t);
 ;;
 
@@ -838,11 +841,15 @@ let write_line t s =
 
 let write_byte t i = write_char t (char_of_int (i % 256))
 
+module Terminate_with = struct
+  type t = Newline | Space_if_needed [@@deriving sexp_of]
+end
+
 let write_sexp_internal =
   let initial_size = 1024 * 1024 in
   let buffer = Buffer.create initial_size in
   let blit_str = ref (String.create initial_size) in
-  fun ~terminate_with ?(hum = false) t sexp ->
+  fun ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp ->
     Buffer.clear buffer;
     if hum
     then Sexp.to_buffer_hum ~buf:buffer ~indent:!Sexp.default_indent sexp
@@ -853,8 +860,8 @@ let write_sexp_internal =
     Buffer.blit buffer 0 !blit_str 0 len;
     write t !blit_str ~len;
     match terminate_with with
-    | `Newline -> newline t
-    | `Maybe_a_space ->
+    | Newline -> newline t
+    | Space_if_needed ->
       (* If the string representation doesn't start/end with paren or double quote, we add
          a space after it to ensure that the parser can recognize the end of the sexp. *)
       let c = !blit_str.[0] in
@@ -862,8 +869,8 @@ let write_sexp_internal =
       then write_char t ' '
 ;;
 
-let write_sexp ?hum t sexp =
-  write_sexp_internal t sexp ?hum ~terminate_with:`Maybe_a_space
+let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =
+  write_sexp_internal t sexp ?hum ~terminate_with
 ;;
 
 let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
@@ -889,7 +896,7 @@ let write_bin_prot_no_size_header t ~size write v =
     if written <> size
     then failwiths "Writer.write_bin_prot_no_size_header bug!"
            (`written written, `size size)
-           <:sexp_of< [ `written of int ] * [ `size of int ] >>;
+           [%sexp_of: [ `written of int ] * [ `size of int ]];
     maybe_start_writer t;
   end
 ;;
@@ -930,6 +937,19 @@ let schedule_bigsubstring t bigsubstring =
     ~len:(Bigsubstring.length bigsubstring)
 ;;
 
+let schedule_iobuf_peek t ?pos ?len iobuf =
+  schedule_iovec t (Iobuf.Expert.to_iovec_shared ?pos ?len iobuf)
+;;
+
+let schedule_iobuf_consume t ?len iobuf =
+  let iovec = Iobuf.Expert.to_iovec_shared ?len iobuf in
+  let len = iovec.len in
+  schedule_iovec t iovec;
+  flushed_time t
+  >>| fun _ ->
+  Iobuf.advance iobuf len
+;;
+
 (* The code below ensures that no calls happen on a closed writer. *)
 
 let fsync t = ensure_can_write t; flushed t >>= fun _ -> Unix.fsync t.fd
@@ -944,13 +964,18 @@ let schedule_bigstring t ?pos ?len bstr =
   ensure_can_write t; schedule_bigstring t ?pos ?len bstr
 let schedule_bigsubstring t bigsubstring =
   ensure_can_write t; schedule_bigsubstring t bigsubstring
+let schedule_iobuf_peek t ?pos ?len iobuf =
+  ensure_can_write t; schedule_iobuf_peek t ?pos ?len iobuf
+let schedule_iobuf_consume t ?len iobuf =
+  ensure_can_write t; schedule_iobuf_consume t ?len iobuf
 let write_gen ~length ~blit_to_bigstring ?pos ?len t src =
   ensure_can_write t; write_gen ~length ~blit_to_bigstring ?pos ?len t src
 let write ?pos ?len t s             = ensure_can_write t; write ?pos ?len t s
 let write_line t s                  = ensure_can_write t; write_line t s
 let writef t                        = ensure_can_write t; writef t
 let write_marshal t ~flags v        = ensure_can_write t; write_marshal t ~flags v
-let write_sexp ?hum t s             = ensure_can_write t; write_sexp ?hum t s
+let write_sexp ?hum ?terminate_with t s =
+  ensure_can_write t; write_sexp ?hum ?terminate_with t s
 let write_iobuf ?pos ?len t iobuf   = ensure_can_write t; write_iobuf ?pos ?len t iobuf
 let write_bigstring ?pos ?len t src = ensure_can_write t; write_bigstring ?pos ?len t src
 let write_bigsubstring t s          = ensure_can_write t; write_bigsubstring t s
@@ -1033,14 +1058,14 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
   | Error exn ->
     let fail v sexp_of_v =
       failwiths "Writer.with_file_atomic could not create file"
-        (file, v) <:sexp_of< string * v >>
+        (file, v) [%sexp_of: string * v]
     in
     Monitor.try_with (fun () -> Unix.unlink temp_file)
     >>| function
-    | Ok () -> fail exn <:sexp_of< exn >>
+    | Ok () -> fail exn [%sexp_of: exn]
     | Error exn2 ->
       fail (exn, `Cleanup_failed exn2)
-        <:sexp_of< exn * [ `Cleanup_failed of exn ] >>
+        [%sexp_of: exn * [ `Cleanup_failed of exn ]]
 ;;
 
 let save ?temp_file ?perm ?fsync file ~contents =
@@ -1057,14 +1082,14 @@ let save_lines ?temp_file ?perm ?fsync file lines =
 
 let save_sexp ?temp_file ?perm ?fsync ?(hum=true) file sexp =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
-    write_sexp_internal t sexp ~hum ~terminate_with:`Newline;
+    write_sexp_internal t sexp ~hum ~terminate_with:Newline;
     Deferred.unit)
 ;;
 
 let save_sexps ?temp_file ?perm ?fsync ?(hum=true) file sexps =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     List.iter sexps ~f:(fun sexp ->
-      write_sexp_internal t sexp ~hum ~terminate_with:`Newline);
+      write_sexp_internal t sexp ~hum ~terminate_with:Newline);
     Deferred.unit)
 
 let with_flushed_at_close t ~flushed ~f =

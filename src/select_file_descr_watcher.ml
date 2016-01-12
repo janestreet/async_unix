@@ -12,7 +12,7 @@ type t =
   ; handle_fd_write_ready : File_descr.t -> unit
   ; handle_fd_write_bad   : File_descr.t -> unit
   }
-with sexp_of
+[@@deriving sexp_of]
 
 let backend = Config.File_descr_watcher.Select
 
@@ -21,7 +21,7 @@ let invariant t : unit =
     Read_write.iter t.descr_tables ~f:(Table.invariant ignore ignore);
   with exn ->
     failwiths "Select_file_descr_watcher.invariant failed" (exn, t)
-      <:sexp_of< exn * t >>
+      [%sexp_of: exn * t]
 ;;
 
 type 'a additional_create_args
@@ -54,12 +54,12 @@ let reset_in_forked_process _ = ()
 
 let iter t ~f =
   Read_write.iteri t.descr_tables ~f:(fun read_or_write table ->
-    Table.iter table ~f:(fun ~key ~data:_ -> f key read_or_write))
+    Table.iteri table ~f:(fun ~key ~data:_ -> f key read_or_write))
 ;;
 
 module Pre = struct
   type t = File_descr.t list Read_write.t
-  with sexp_of
+  [@@deriving sexp_of]
 end
 
 let set t file_descr desired =
@@ -76,7 +76,7 @@ module Check_result = struct
     { pre           : Pre.t
     ; select_result : (Unix.Select_fds.t, exn) Result.t
     }
-  with sexp_of
+  [@@deriving sexp_of]
 end
 
 let thread_safe_check (type a) (_ : t) (pre : Pre.t) (timeout : a Timeout.t) (span : a) =
@@ -118,12 +118,12 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
           | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
           | Error exn ->
             failwiths "fstat raised unexpected exn" (file_descr, exn)
-              <:sexp_of< File_descr.t * exn >>)
+              [%sexp_of: File_descr.t * exn])
       in
       List.iter (bad `Write) ~f:t.handle_fd_write_bad;
       List.iter (bad `Read ) ~f:t.handle_fd_read_bad;
-    | Error exn -> failwiths "select raised unexpected exn" exn <:sexp_of< exn >>
+    | Error exn -> failwiths "select raised unexpected exn" exn [%sexp_of: exn]
   with exn ->
     failwiths "File_descr_watcher.post_check bug" (exn, check_result, t)
-      <:sexp_of< exn * Check_result.t * t >>
+      [%sexp_of: exn * Check_result.t * t]
 ;;

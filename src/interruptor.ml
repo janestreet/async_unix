@@ -15,7 +15,7 @@ type t =
   ; mutable already_interrupted : bool
   ; clearbuffer                 : string sexp_opaque
   }
-with sexp_of
+[@@deriving sexp_of]
 
 let invariant _ = ()
 

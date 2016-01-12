@@ -19,7 +19,7 @@ module Level : sig
     | `Info  (** default level *)
     | `Error
     ]
-  with bin_io, compare, sexp
+  [@@deriving bin_io, compare, sexp]
 
   include Stringable with type t := t
 
@@ -27,7 +27,7 @@ module Level : sig
 end
 
 module Message : sig
-  type t with sexp_of
+  type t [@@deriving sexp_of]
 
   val time        : t -> Time.t
   val message     : t -> string
@@ -39,11 +39,11 @@ module Message : sig
   module Stable : sig
     module V0 : sig
       (* [V0.bin_t] is the [Message.bin_t] in jane-111.18 and before *)
-      type nonrec t = t with bin_io, sexp
+      type nonrec t = t [@@deriving bin_io, sexp]
     end
 
     module V2 : sig
-      type nonrec t = t with bin_io, sexp
+      type nonrec t = t [@@deriving bin_io, sexp]
     end
   end
 end
@@ -79,7 +79,7 @@ module Rotation : sig
       - Symlinks encourage tailing, which is a bad way to communicate information.
       - They complicate archiving processes (the symlink must be skipped).
   *)
-  type t with sexp_of
+  type t [@@deriving sexp_of]
 
   module type Id_intf = sig
     type t
@@ -120,14 +120,16 @@ module Rotation : sig
 end
 
 module Output : sig
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] with sexp
-  type format = [ machine_readable_format | `Text ] with sexp
+  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
 
   type t
 
   (** [create f] returns a t, given a function that actually performs the final output
-      work.  It is the responsibility of the write function to contain all state, and to
+      work. It is the responsibility of the write function to contain all state, and to
       clean up after itself when it is garbage collected (which may require a finalizer).
+      The function should avoid modifying the contents of the queue; it's reused for each
+      [Output.t].
 
       The "stock" output modules support a sexp and bin_prot output format, and other
       output modules should make efforts to support them as well where it is
@@ -149,6 +151,10 @@ module Output : sig
   val writer        : format -> Writer.t -> t
   val file          : format -> filename:string -> t
   val rotating_file : format -> basename:string -> Rotation.t -> t
+  (** returns a tail of the filenames. When rotate is called, the previous filename is put
+      on the tail *)
+  val rotating_file_with_tail : format -> basename:string -> Rotation.t -> t * string Tail.t
+
   (** See {!Async_extended.Std.Log} for syslog and colorized console output. *)
 end
 
@@ -204,7 +210,7 @@ module Blocking : sig
     -> 'a
 end
 
-type t with sexp_of
+type t [@@deriving sexp_of]
 
 (** An interface for singleton logs *)
 module type Global_intf = sig
@@ -380,6 +386,9 @@ val string
   -> t
   -> string
   -> unit
+
+(** [message] log a preexisting message *)
+val message : t -> Message.t -> unit
 
 module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors

@@ -15,7 +15,7 @@ module How_to_dump : sig
     = Default
     | Call_abort
     | Call_gcore
-  with sexp_of
+  [@@deriving sexp_of]
 end
 
 (** [start_watching] starts a regular async job (via [Clock.every]) that increments a

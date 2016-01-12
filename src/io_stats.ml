@@ -7,7 +7,7 @@ type t =
   ; mutable file   : Int63.t
   ; mutable socket : Int63.t
   }
-with sexp
+[@@deriving sexp]
 
 let create () =
   { total  = Int63.zero
