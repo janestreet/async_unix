@@ -2,8 +2,8 @@
     the same thing as their counterparts in [Sys], but instead return deferreds.  For a
     description of their semantics see the documentation for the [Sys] module. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 val argv : string array
 val executable_name : string

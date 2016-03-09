@@ -21,6 +21,8 @@ module Unix = struct
   include Unix_syscalls
 end
 
+include Assign_try_with_log_exn (* see comment in assign_try_with_log_exn.mli *)
+
 let after        = Clock.after
 let at           = Clock.at
 let every        = Clock.every
@@ -131,6 +133,33 @@ include struct
     let pos_in             = overwrite1
     let in_channel_length  = overwrite1
   end
+
+  module Sexp : sig
+
+    include module type of struct include Sexp end
+
+
+(*
+    val save : ?perm : int -> string -> t -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking." ]
+
+    val save_hum : ?perm : int -> string -> t -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:true to avoid blocking." ]
+
+    val save_mach : ?perm : int -> string -> t -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking." ]
+
+    val save_sexps : ?perm : int -> string -> t list -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking." ]
+
+    val save_sexps_hum : ?perm : int -> string -> t list -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexps ~hum:true to avoid blocking." ]
+
+    val save_sexps_mach : ?perm : int -> string -> t list -> unit
+      [@@deprecated "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking." ]
+*)
+
+  end = Sexp
 end
 
 let exit = Shutdown.exit

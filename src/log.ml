@@ -216,6 +216,7 @@ module Message : sig
 
   val time        : t -> Time.t
   val level       : t -> Level.t option
+  val set_level   : t -> Level.t option -> t
   val message     : t -> string
   val raw_message : t -> [ `String of string | `Sexp of Sexp.t ]
   val tags        : t -> (string * string) list
@@ -422,6 +423,8 @@ end = struct
 
   let time t    = t.time
   let level t   = t.level
+
+  let set_level t level = { t with level }
 
   let raw_message t = t.message
 
@@ -1045,23 +1048,23 @@ let%test_unit "Level setting" =
   Or_error.ok_exn answer
 ;;
 
-(* should_send is broken out and tested separately for every sending function to avoid the
+(* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
-let should_send t ~msg_level =
+let would_log t msg_level =
   not t.output_is_disabled
     && Level.as_or_more_verbose_than ~log_level:(level t) ~msg_level
 
 let message t msg =
-  if should_send t ~msg_level:(Message.level msg)
+  if would_log t (Message.level msg)
   then push_update t (Msg msg)
 
-let sexp ?level ?time ?tags t v to_sexp =
-  if should_send t ~msg_level:level
-  then push_update t (Msg (Message.create ?level ?time ?tags (`Sexp (to_sexp v))))
+let sexp ?level ?time ?tags t sexp =
+  if would_log t level
+  then push_update t (Msg (Message.create ?level ?time ?tags (`Sexp sexp)))
 ;;
 
 let string ?level ?time ?tags t s =
-  if should_send t ~msg_level:level
+  if would_log t level
   then push_update t (Msg (Message.create ?level ?time ?tags (`String s)))
 ;;
 
@@ -1092,6 +1095,8 @@ module type Global_intf = sig
   val set_output   : Output.t list -> unit
   val get_output : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
+  val would_log    : Level.t option -> bool
+
   val raw          : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
   val info         : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
   val error        : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
@@ -1110,8 +1115,7 @@ module type Global_intf = sig
     :  ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
-    -> 'a
-    -> ('a -> Sexp.t)
+    -> Sexp.t
     -> unit
 
   val string
@@ -1143,6 +1147,7 @@ module Make_global() : Global_intf = struct
   let set_output output    = set_output (Lazy.force log) output
   let get_output ()        = get_output (Lazy.force log)
   let set_on_error handler = set_on_error (Lazy.force log) handler
+  let would_log level      = would_log (Lazy.force log) level
 
   let raw   ?time ?tags k = raw   ?time ?tags (Lazy.force log) k
   let info  ?time ?tags k = info  ?time ?tags (Lazy.force log) k
@@ -1151,9 +1156,9 @@ module Make_global() : Global_intf = struct
 
   let flushed () = flushed (Lazy.force log)
   let rotate ()  = rotate (Lazy.force log)
-  let printf  ?level ?time ?tags k         = printf ?level ?time ?tags (Lazy.force log) k
-  let sexp    ?level ?time ?tags v to_sexp = sexp ?level ?time ?tags (Lazy.force log) v to_sexp
-  let string  ?level ?time ?tags s         = string ?level ?time ?tags (Lazy.force log) s
+  let printf   ?level ?time ?tags k         = printf ?level ?time ?tags (Lazy.force log) k
+  let sexp     ?level ?time ?tags s         = sexp ?level ?time ?tags (Lazy.force log) s
+  let string   ?level ?time ?tags s         = string ?level ?time ?tags (Lazy.force log) s
   let message msg = message (Lazy.force log) msg
 end
 

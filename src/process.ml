@@ -17,15 +17,15 @@ type t =
   }
 [@@deriving fields, sexp_of]
 
-type 'a with_create_args =
-  ?working_dir : string
-  -> ?env : env
-  -> prog : string
-  -> args : string list
+type 'a create
+  =  ?env         : env
+  -> ?working_dir : string
+  -> prog         : string
+  -> args         : string list
   -> unit
-  -> 'a
+  -> 'a Deferred.t
 
-let create ?working_dir ?(env = `Extend []) ~prog ~args () =
+let create ?(env = `Extend []) ?working_dir ~prog ~args () =
   In_thread.syscall ~name:"create_process_env" (fun () ->
     Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
   >>| function
@@ -47,6 +47,10 @@ let create ?working_dir ?(env = `Extend []) ~prog ~args () =
        ; working_dir
        ; env
        }
+;;
+
+let create_exn ?env ?working_dir ~prog ~args () =
+  create ?env ?working_dir ~prog ~args () >>| ok_exn
 ;;
 
 module Output = struct
@@ -105,6 +109,11 @@ module Failure = struct
   [@@deriving sexp_of]
 end
 
+type 'a collect
+  =  ?accept_nonzero_exit : int list
+  -> t
+  -> 'a Deferred.t
+
 let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
   collect_output_and_wait t
   >>| fun { stdout; stderr; exit_status } ->
@@ -122,11 +131,18 @@ let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
       [%sexp_of: Failure.t]
 ;;
 
-let collect_stdout_lines_and_wait ?accept_nonzero_exit t =
-  collect_stdout_and_wait ?accept_nonzero_exit t
-  >>|? fun s ->
-  String.split_lines s
+let map_collect collect f ?accept_nonzero_exit t =
+  let%map a = collect ?accept_nonzero_exit t in
+  f a
 ;;
+
+let collect_stdout_and_wait_exn = map_collect collect_stdout_and_wait ok_exn
+
+let collect_stdout_lines_and_wait =
+  map_collect collect_stdout_and_wait (Or_error.map ~f:String.split_lines)
+;;
+
+let collect_stdout_lines_and_wait_exn = map_collect collect_stdout_lines_and_wait ok_exn
 
 let%test_unit "first arg is not prog" =
   let args = [ "219068700202774381" ] in
@@ -138,21 +154,35 @@ let%test_unit "first arg is not prog" =
           >>=? collect_stdout_lines_and_wait))
 ;;
 
-let run ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
-  create ?working_dir ?env ~prog ~args ()
+type 'a run
+  =  ?accept_nonzero_exit : int list
+  -> ?env                 : env
+  -> ?working_dir         : string
+  -> prog                 : string
+  -> args                 : string list
+  -> unit
+  -> 'a Deferred.t
+
+let run ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
+  create ?env ?working_dir ~prog ~args ()
   >>= function
   | Error _ as e -> return e
   | Ok t -> collect_stdout_and_wait ?accept_nonzero_exit t
 ;;
 
-let run_lines ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
-  run ?accept_nonzero_exit ?working_dir ?env ~prog ~args ()
-  >>|? fun s ->
-  String.split_lines s
+let map_run run f ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
+  let%map a = run ?accept_nonzero_exit ?env ?working_dir ~prog ~args () in
+  f a
 ;;
 
-let run_expect_no_output ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
-  run ?accept_nonzero_exit ?working_dir ?env ~prog ~args ()
+let run_exn = map_run run ok_exn
+
+let run_lines = map_run run (Or_error.map ~f:String.split_lines)
+
+let run_lines_exn = map_run run_lines ok_exn
+
+let run_expect_no_output ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
+  run ?accept_nonzero_exit ?env ?working_dir ~prog ~args ()
   >>| function
   | Error _ as err      -> err
   | Ok ""               -> Ok ()
@@ -164,3 +194,5 @@ let run_expect_no_output ?accept_nonzero_exit ?working_dir ?env ~prog ~args () =
         ; output = (non_empty_output : string)
         }])
 ;;
+
+let run_expect_no_output_exn = map_run run_expect_no_output ok_exn

@@ -7,8 +7,8 @@
     lock, does a computation (e.g. fills an ivar), and then runs a "cycle" of Async
     computations. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 type t = Raw_scheduler.t [@@deriving sexp_of]
 
@@ -99,12 +99,14 @@ val preserve_execution_context' : ('a -> 'b Deferred.t) -> ('a -> 'b Deferred.t)
 
 (** [cycle_start ()] returns the result of [Time.now ()] called at the beginning of
     cycle. *)
-val cycle_start : unit -> Time.t
+val cycle_start    : unit -> Time.t
+val cycle_start_ns : unit -> Time_ns.t
 
 (** [cycle_times ()] returns a stream that is extended with an element at the start of
     each Async cycle, with the amount of time that the previous cycle took, as determined
     by calls to [Time.now] at the beginning and end of the cycle. *)
-val cycle_times : unit -> Time.Span.t Stream.t
+val cycle_times    : unit -> Time.Span.t    Stream.t
+val cycle_times_ns : unit -> Time_ns.Span.t Stream.t
 
 (** [report_long_cycle_times ?cutoff ()] sets up something that will print a warning to
     stderr whenever there is an Async cycle that is too long, as specified by [cutoff],
@@ -224,3 +226,7 @@ val time_spent_waiting_for_io : unit -> Time_ns.Span.t
     scheduler and other threads.  A plausible setting is 1us.  This can also be set via
     the [ASYNC_CONFIG] environment variable. *)
 val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit
+
+(** [num_jobs_run ()] returns the number of jobs that have been run since starting.  The
+    returned value includes the currently running job. *)
+val num_jobs_run : unit -> int

@@ -1,3 +1,93 @@
+## 113.33.00
+
+- expose a function to get the number of jobs that async has run since Scheduler.go
+
+- In `Log` change `sexp` to be immediate rather than lazy.
+
+  This changes the behavior the `sexp` function.  I've gone through the entire
+  tree rewriting `sexp` to `create_s`, attempting to follow these guidelines:
+
+  - If the logging is clearly intended to always happen (error logging,
+  transaction log logging, etc.) I translated the call unguarded.
+
+  - If the logging was already guarded with an if statetment I translated
+  the call unguarded.
+
+  - Otherwise, I added a call to `Log.would_log` as a guarding if.  This duplicates
+  the behavior of `sexp`, which would avoid the sexp conversion if the log
+  message was never going to be logged.
+
+
+- `Writer.with_file_atomic` checks if destination file exists and then
+  stats it to get existing permissions. File can go away before the call
+  to stat, which would make the `with_file_atomic` to error out, which
+  seems harsh. I think it is better to continue on in this case.
+  Besides, `Async.file_exists` is essentially just another stat, so we might as
+  well just do the stat without checking whether file exists or not.
+
+- Moved various `let%test`'s in `Async_unix` library into their own
+  module.  I'd like the `let%test`'s to be in files that depend on
+  `Std`, so that they can pick up a top-level side effect that `Std`
+  does, specifically the assignment of `Monitor.try_with_log_exn`.  The
+  child feature of this feature makes the change to do that assignment.
+
+- Changed the `Async_unix` library's assignment of
+  `Monitor.try_with_log_exn` to be a top-level side effect that happens
+  if `Async_unix.Std` is used.  This fixes a bug in which
+  `Thread_safe.block_on_async` (and other bits of `Async_unix`) failed to
+  to do the assignment.  The assignment was part of `Scheduler.go`,
+  which isn't called by `Thread_safe.block_on_async`.  This in turn
+  cause programs that use `Thread_safe.block_on_async` and do not use
+  `Scheduler.go`, like inline tests, to raise if they needed to report
+  an exception raised to `Monitor.try_with` that already returned.
+
+- Deprecate the (blocking) `Sexp.save_*` functions in `Async_unix.Std`.
+
+  Please do not switch from `Sexp.save*` to `Writer.save_sexp*` in this
+  feature -- this feature is just for the deprecation.  You can do the
+  switch in a subfeature or later feature.
+
+  A note aboute `Core_extended.Sexp`
+  ----------------------------------
+
+  This feature causes surprising behavior in `Core_extended.Sexp`, where
+  opening `Async.Std` undoes any previous open of `Core_extended.Std`:
+
+       open Core.Std
+       open Core_extended.Std
+
+       type t = int Sexp.Comprehension.t `@@deriving sexp`
+
+       open Async.Std
+
+       type u = int Sexp.Comprehension.t `@@deriving sexp`
+
+  The type `t` is fine but `u` fails to compile because at that point
+  the module Sexp has no submodule Comprehension.
+
+  But we already have the same problem with module `Unix` if you open
+  `Async.Std` after `Core_extended.Std`, so I left the `Sexp` module as is.
+
+- Added `Async.Unix.Stats.compare`.
+
+- Changed Async's logging of exceptions raised to a `Monitor.try_with`
+  that already returned to use `Log.Global.sexp` rather than
+  `Log.global.error`.  For logs that use single-line sexps, that makes
+  them much nicer.
+
+- Added to `Async.Scheduler` `Time_ns` analogs of `cycle_start` and
+  `cycle_times`:
+
+      val cycle_start_ns : unit -> Time_ns.t
+      val cycle_times_ns : unit -> Time_ns.Span.t Stream.t
+
+- I'm tired of having to write `>>| ok_exn` after most calls to Process, let's just make
+  Process provide these functions directly.
+  Also you can't write `>>| ok_exn` nicely anyway when using the let%bind and friends.
+
+- Added a test demonstrating that `Async.Process.create` returns `Ok`
+  when `exec` fails.  And updated the `create`'s documentation.
+
 ## 113.24.00
 
 

@@ -21,8 +21,8 @@
     deal with such asynchronous exceptions in the usual way, by handling the stream
     returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)].
 *)
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 module Id : Unique_id
 
@@ -492,7 +492,7 @@ val transfer
   -> unit Deferred.t
 
 (** [pipe t] returns the writing end of a pipe attached to [t] that pushes back when [t]
-    cannot keep up with the data being pushed in.  Closing the pipe will close [t]. *)
+    cannot keep up with the data being pushed in.  Closing the pipe does not close [t]. *)
 val pipe : t -> string Pipe.Writer.t
 
 (** [of_pipe info pipe_w] returns a writer [t] such that data written to [t] will appear

@@ -1,5 +1,5 @@
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 (** [shutdown ?force status] initiates shutdown, which runs all the [at_shutdown]
     functions, waits for them to finish, and then exits with the supplied status.  The

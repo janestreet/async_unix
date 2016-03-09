@@ -6,8 +6,8 @@
     variable.
 *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 module How_to_dump : sig
   type t

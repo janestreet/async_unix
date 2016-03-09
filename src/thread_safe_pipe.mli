@@ -7,8 +7,8 @@
 
     For documentation of [wakeup_scheduler], see the {!Thread_safe} module. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 type 'a t [@@deriving sexp_of]
 

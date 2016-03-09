@@ -1024,11 +1024,11 @@ let apply_umask perm =
 ;;
 
 let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
-  Async_sys.file_exists file
-  >>= fun file_exists ->
-  (match file_exists with
-   | `Yes -> (Unix.stat file >>| fun stats -> Some stats.perm)
-   | `No | `Unknown -> return None)
+  (Monitor.try_with (fun () -> Unix.stat file)
+   >>| function
+   | Ok stats -> Some stats.perm
+   | Error _  -> None
+  )
   >>= fun current_file_permissions ->
   Unix.mkstemp (Option.value temp_file ~default:file)
   >>= fun (temp_file, fd) ->
@@ -1120,8 +1120,8 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
     else begin
       let read_result =
         match max_num_values_per_read with
-        | None            -> Pipe.read_now'        pipe_r ~consumer
-        | Some num_values -> Pipe.read_now_at_most pipe_r ~consumer ~num_values
+        | None                  -> Pipe.read_now' pipe_r ~consumer
+        | Some max_queue_length -> Pipe.read_now' pipe_r ~consumer ~max_queue_length
       in
       match read_result with
       | `Eof               -> Ivar.fill end_of_pipe_r ()

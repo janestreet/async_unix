@@ -5,7 +5,7 @@
 
     Once a signal manager starts managing a signal, it never stops. *)
 
-open Core.Std
+open! Core.Std
 
 type t [@@deriving sexp_of]
 

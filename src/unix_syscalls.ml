@@ -88,7 +88,7 @@ type open_flag =
   | `Rsync
   ]
 
-type file_perm = int [@@deriving sexp, bin_io]
+type file_perm = int [@@deriving sexp, bin_io, compare]
 
 let openfile ?perm ?(close_on_exec = false) file ~mode =
   let mode = List.map mode ~f:convert_open_flag in
@@ -217,7 +217,7 @@ module Stats = struct
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields, sexp, bin_io]
+  [@@deriving fields, sexp, bin_io, compare]
 
   let of_unix (u : Unix.stats) =
     { dev   = u.st_dev
@@ -485,22 +485,6 @@ let waitpid_exn pid =
          (`Child_pid pid, exit_or_signal)
          [%sexp_of: [ `Child_pid of Pid.t ] * Exit_or_signal.t]
 ;;
-
-let%test_unit "fork_exec ~env last binding takes precedence" =
-  protectx ~finally:Unix.remove (Filename.temp_file "test" "fork_exec.env.last-wins")
-    ~f:(fun temp_file ->
-      Thread_safe.block_on_async_exn (fun () ->
-        let env = [ "VAR", "first"; "VAR", "last" ] in
-        Deferred.List.iter
-          [ `Replace_raw (List.map env ~f:(fun (v, s) -> v ^ "=" ^ s))
-          ; `Replace env
-          ; `Extend env
-          ]
-          ~f:(fun env ->
-            fork_exec () ~env ~prog:"sh" ~args:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]
-            >>= waitpid_exn
-            >>| fun () ->
-            [%test_result: string] ~expect:"last\n" (In_channel.read_all temp_file))))
 
 module Inet_addr = struct
   include Unix.Inet_addr
@@ -837,23 +821,6 @@ module Socket = struct
     >>| function
     | `Interrupted -> `Socket_closed
     | `Socket_closed | `Ok _ as x -> x
-  ;;
-
-  let%test_unit "accept interrupted by Fd.close" =
-    Thread_safe.block_on_async_exn (fun () ->
-      let test socket_type address =
-        let t = create socket_type in
-        bind t address
-        >>= fun t ->
-        let t = listen t in
-        don't_wait_for (Clock.after (sec 0.1) >>= fun () -> Fd.close t.fd);
-        Clock.with_timeout (sec 0.2) (accept t)
-        >>| function
-        | `Result (`Ok _) -> failwith "accepted an unexpected connection"
-        | `Result `Socket_closed -> ()
-        | `Timeout -> failwith "timed out despite closure of listening socket"
-      in
-      test Type.tcp (Address.Inet.create_bind_any ~port:0))
   ;;
 
   let connect_interruptible t address ~interrupt =

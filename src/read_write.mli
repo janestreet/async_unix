@@ -1,6 +1,6 @@
 (** [Read_write] is like [Dirpair], except "buy/sell" has been changed to "read/write". *)
 
-open Core.Std
+open! Core.Std
 
 module Key : sig
   type t = [ `Read | `Write ] [@@deriving sexp]

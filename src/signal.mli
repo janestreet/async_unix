@@ -1,4 +1,4 @@
-open Import
+open! Import
 
 include module type of Core.Std.Signal with type t = Core.Std.Signal.t
 

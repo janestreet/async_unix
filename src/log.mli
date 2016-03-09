@@ -7,8 +7,8 @@
     A (limited) [Blocking] module is supplied to accommodate the portion of a program that
     runs outside of Async.
 *)
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 module Level : sig
   (** Describes both the level of a log and the level of a message sent to a log.  There
@@ -29,10 +29,18 @@ end
 module Message : sig
   type t [@@deriving sexp_of]
 
+  val create
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> [ `String of string | `Sexp of Sexp.t ]
+    -> t
+
   val time        : t -> Time.t
   val message     : t -> string
   val raw_message : t -> [ `String of string | `Sexp of Sexp.t ]
   val level       : t -> Level.t option
+  val set_level   : t -> Level.t option -> t
   val tags        : t -> (string * string) list
   val add_tags    : t -> (string * string) list -> t
 
@@ -221,6 +229,7 @@ module type Global_intf = sig
   val set_output   : Output.t list -> unit
   val get_output   : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
+  val would_log    : Level.t option -> bool
 
   (** logging functions as the functions that operate on a given log.  In this case they
       operate on a single log global to the module *)
@@ -260,11 +269,10 @@ module type Global_intf = sig
     -> 'a
 
   val sexp
-    :  ?level : Level.t
-    -> ?time  : Time.t
-    -> ?tags  : (string * string) list
-    -> 'a
-    -> ('a -> Sexp.t)
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> Sexp.t
     -> unit
 
   val string
@@ -366,16 +374,13 @@ val printf
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** [sexp] logging of values without first converting them to a string.  In the case
-    where the log level would discard this message no string conversion will ever be
-    done. *)
+(** [sexp] log sexps directly *)
 val sexp
-  :  ?level : Level.t
-  -> ?time  : Time.t
-  -> ?tags  : (string * string) list
+  :  ?level:Level.t
+  -> ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
-  -> 'a
-  -> ('a -> Sexp.t)
+  -> Sexp.t
   -> unit
 
 (** [string] logging of string values *)
@@ -389,6 +394,10 @@ val string
 
 (** [message] log a preexisting message *)
 val message : t -> Message.t -> unit
+
+(** [would_log] returns true if a message at the given log level would be logged if sent
+    immediately. *)
+val would_log : t -> Level.t option -> bool
 
 module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors

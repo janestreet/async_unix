@@ -2,8 +2,8 @@
 
     See {!Scheduler.add_busy_poller} for the user-level interface. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 type t [@@deriving sexp_of]
 

@@ -6,8 +6,8 @@
     There are also a number of cosmetic changes (e.g. polymorphic variants) and other
     improvements (e.g. phantom types on sockets) over the standard Unix module. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 module Syscall_result = Unix.Syscall_result
 
@@ -147,7 +147,7 @@ module Stats : sig
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields, sexp, bin_io]
+  [@@deriving fields, sexp, bin_io, compare]
 
   val to_string : t -> string
 end

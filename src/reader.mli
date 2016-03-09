@@ -21,8 +21,8 @@
     ]}
 *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 module Read_result : sig
   type 'a t = [ `Ok of 'a | `Eof ] [@@deriving bin_io, sexp]

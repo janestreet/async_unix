@@ -47,13 +47,13 @@ include struct
   let with_local                  = with_local
 end
 
-let cycle_count () = Kernel_scheduler.(cycle_count (t ()))
+let cycle_count    () = Kernel_scheduler.(cycle_count (t ()))
+let cycle_start_ns () = Kernel_scheduler.(cycle_start (t ()))
 
-let cycle_start () = Time_ns.to_time Kernel_scheduler.(cycle_start (t ()))
+let cycle_start () = Time_ns.to_time (cycle_start_ns ())
 
-let cycle_times () =
-  Stream.map Kernel_scheduler.(cycle_times (t ())) ~f:Time_ns.Span.to_span
-;;
+let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
+let cycle_times    () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span
 
 let event_precision () =
   Time_ns.Span.to_span Kernel_scheduler.(event_precision (t ()))
@@ -775,54 +775,51 @@ let add_finalizer_exn t x f =
     (fun heap_block -> f (Heap_block.value heap_block))
 ;;
 
-let go ~try_with_log_exn =
-  stage (fun ?raise_unhandled_exn () ->
-    Async_kernel.Monitor0.try_with_log_exn := try_with_log_exn;
-    if debug then Debug.log_string "Scheduler.go";
-    let t = the_one_and_only ~should_lock:false in
-    (* [go] is called from the main thread and so must acquire the lock if the thread has
-       not already done so implicitly via use of an async operation that uses
-       [the_one_and_only]. *)
-    if not (am_holding_lock t) then lock t;
-    if t.have_called_go then failwith "cannot Scheduler.go more than once";
-    t.have_called_go <- true;
-    if not t.is_running then begin
-      t.is_running <- true;
-      be_the_scheduler t ?raise_unhandled_exn;
-    end else begin
-      unlock t;
-      (* We wakeup the scheduler so it can respond to whatever async changes this thread
-         made. *)
-      thread_safe_wakeup_scheduler t;
-      (* Since the scheduler is already running, so we just pause forever. *)
-      Time.pause_forever ();
-    end)
+let go ?raise_unhandled_exn () =
+  if debug then Debug.log_string "Scheduler.go";
+  let t = the_one_and_only ~should_lock:false in
+  (* [go] is called from the main thread and so must acquire the lock if the thread has
+     not already done so implicitly via use of an async operation that uses
+     [the_one_and_only]. *)
+  if not (am_holding_lock t) then lock t;
+  if t.have_called_go then failwith "cannot Scheduler.go more than once";
+  t.have_called_go <- true;
+  if not t.is_running then begin
+    t.is_running <- true;
+    be_the_scheduler t ?raise_unhandled_exn;
+  end else begin
+    unlock t;
+    (* We wakeup the scheduler so it can respond to whatever async changes this thread
+       made. *)
+    thread_safe_wakeup_scheduler t;
+    (* Since the scheduler is already running, so we just pause forever. *)
+    Time.pause_forever ();
+  end
 ;;
 
-let go_main ~try_with_log_exn =
-  stage (fun
-          ?raise_unhandled_exn
-          ?file_descr_watcher
-          ?max_num_open_file_descrs
-          ?max_num_threads
-          ~main () ->
-          if not (is_ready_to_initialize ())
-          then failwith "Async was initialized prior to [Scheduler.go_main]";
-          let max_num_open_file_descrs =
-            Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
-          in
-          let max_num_threads =
-            Option.map max_num_threads ~f:Max_num_threads.create_exn
-          in
-          the_one_and_only_ref :=
-            Ready_to_initialize (fun () ->
-              create
-                ?file_descr_watcher
-                ?max_num_open_file_descrs
-                ?max_num_threads
-                ());
-          Deferred.upon Deferred.unit main;
-          unstage (go ~try_with_log_exn) ?raise_unhandled_exn ())
+let go_main
+      ?raise_unhandled_exn
+      ?file_descr_watcher
+      ?max_num_open_file_descrs
+      ?max_num_threads
+      ~main () =
+  if not (is_ready_to_initialize ())
+  then failwith "Async was initialized prior to [Scheduler.go_main]";
+  let max_num_open_file_descrs =
+    Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
+  in
+  let max_num_threads =
+    Option.map max_num_threads ~f:Max_num_threads.create_exn
+  in
+  the_one_and_only_ref :=
+    Ready_to_initialize (fun () ->
+      create
+        ?file_descr_watcher
+        ?max_num_open_file_descrs
+        ?max_num_threads
+        ());
+  Deferred.upon Deferred.unit main;
+  go ?raise_unhandled_exn ();
 ;;
 
 let is_running () =
@@ -945,6 +942,11 @@ let yield_every ~n =
   stage (fun () ->
     let t = t () in
     yield_every t.kernel_scheduler)
+;;
+
+let num_jobs_run () =
+  let t = t () in
+  Kernel_scheduler.num_jobs_run t.kernel_scheduler;
 ;;
 
 let%test_unit _ = invariant (t ())

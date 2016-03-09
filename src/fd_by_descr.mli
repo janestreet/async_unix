@@ -3,8 +3,8 @@
     In this interface, we use [Raw_fd.t] rather than [Fd.t] to avoid a dependency cycle,
     because the [Fd] module can't be defined yet. *)
 
-open Core.Std
-open Import
+open! Core.Std
+open! Import
 
 type t [@@deriving sexp_of]
 
