@@ -587,7 +587,7 @@ let have_lock_do_cycle t =
 
 let sync_changed_fds_to_file_descr_watcher t =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-  let make_file_descr_watcher_agree_with (fd : Fd.t) =
+  let make_file_descr_watcher_agree_with = (fun (fd : Fd.t) ->
     fd.watching_has_changed <- false;
     let desired =
       Read_write.mapi fd.watching ~f:(fun read_or_write watching ->
@@ -607,7 +607,7 @@ let sync_changed_fds_to_file_descr_watcher t =
     with exn ->
       failwiths "sync_changed_fds_to_file_descr_watcher unable to set fd"
         (desired, fd, exn, t) [%sexp_of: bool Read_write.t * Fd.t * exn * t]
-  in
+  ) [@inline always] in
   let changed = t.fds_whose_watching_has_changed in
   t.fds_whose_watching_has_changed <- [];
   List.iter changed ~f:make_file_descr_watcher_agree_with;

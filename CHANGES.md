@@ -1,3 +1,7 @@
+## 113.33.00+4.03
+
+Various updates to work with OCaml 4.03.0
+
 ## 113.33.00
 
 - expose a function to get the number of jobs that async has run since Scheduler.go

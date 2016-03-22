@@ -223,7 +223,7 @@ val mkfifo
   -> string
   -> unit Deferred.t
 
-val symlink : src:string -> dst:string -> unit Deferred.t
+val symlink : ?to_dir:bool -> src:string -> dst:string -> unit Deferred.t
 
 val readlink : string -> string Deferred.t
 
