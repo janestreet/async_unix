@@ -50,21 +50,27 @@ let block_on_async t f =
      allow the scheduler, which is running in another thread, to run. *)
   if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
   then failwith "called [block_on_async] from within async";
+  (* While [block_on_async] is blocked, the Async scheduler may run and set the execution
+     context.  So we save and restore the execution context, if we're in the main thread.
+     The restoration is necessary because subsequent code in the main thread can do
+     operations that rely on the execution context. *)
+  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
   (* Create a scheduler thread if the scheduler isn't already running. *)
-  if not t.is_running then begin
+  if not t.is_running
+  then (
     t.is_running <- true;
+    (* Release the Async lock if necessary, so that the scheduler can acquire it. *)
+    if am_holding_lock t then unlock t;
+    let scheduler_ran_a_job = Thread_safe_ivar.create () in
+    upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
     ignore (Core.Std.Thread.create
               (fun () ->
                  Exn.handle_uncaught ~exit:true (fun () ->
                    lock t;
                    never_returns (be_the_scheduler t)))
-              ());
-  end;
-  (* While [block_on_async] is blocked, Async can run and set the execution context.  So
-     we save and restore the execution context, if we're in the main thread.  The
-     restoration is necessary because subsequent code in the main thread can do operations
-     that rely on the execution context. *)
-  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
+              () : Core.Std.Thread.t);
+    (* Block until the scheduler has run the above job. *)
+    Thread_safe_ivar.read scheduler_ran_a_job);
   let maybe_blocked =
     run_holding_async_lock t
       (fun () -> Monitor.try_with f ~name:"block_on_async")
@@ -102,12 +108,15 @@ let block_on_async t f =
      be, if the user has done operations that adjust the current execution context,
      e.g. [Monitor.within].  If we're not in the main thread, the we don't need to
      and cannot restore the execution context, because we do not hold the Async lock. *)
-  if is_main_thread () then begin
+  if is_main_thread ()
+  then (
     lock t;
-    Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context;
-  end;
-  res
-;;
+    (* While [block_on_async] is blocked, Async can run and set the execution context.  So
+       we restore the execution context, if we're in the main thread.  The restoration is
+       necessary because subsequent code in the main thread can do operations that rely on
+       the execution context. *)
+    Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context);
+  res ;;
 
 let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
 

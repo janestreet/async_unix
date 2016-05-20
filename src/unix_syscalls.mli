@@ -80,17 +80,7 @@ module Open_flags : module type of Unix.Open_flags
 val fcntl_getfl : Fd.t -> Open_flags.t Deferred.t
 val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
 
-(** [close fd] closes the file descriptor [fd], and raises an exception if [fd] has
-    already been closed.
-
-    In some situations, one may need to cause Async to release an fd that it is managing
-    without closing the underlying file descriptor.  In that case, one should supply
-    [~should_close_file_descriptor:false], which will skip the underlying close() system
-    call. *)
-val close
-  :  ?should_close_file_descriptor : bool  (** default is [true] *)
-  -> Fd.t
-  -> unit Deferred.t
+include module type of Fd.Close
 
 val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End ] -> int64 Deferred.t
 

@@ -15,7 +15,9 @@ let%test_module "Fd" =
         then return false
         else if String.equal !cell expected
         then return true
-        else Clock.after (sec 0.1) >>= fun () -> loop (tries - 1)
+        else (
+          let%bind () = Clock.after (sec 0.1) in
+          loop (tries - 1))
       in
       loop 100;
     ;;
@@ -44,12 +46,13 @@ let%test_module "Fd" =
         let d = every_ready_to fdr_async `Read read_into_cell (fdr, read) in
         assert (String.equal !read "");
         assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
         assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
-        close fdr_async >>= fun () -> d)
+        let%bind () = close fdr_async in
+        d)
       |> function
       | `Result `Closed -> assert (String.equal !read "foobar")
       | `Result _ -> assert false
@@ -68,10 +71,10 @@ let%test_module "Fd" =
         in
         assert (String.equal !read "");
         assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
         assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
         Ivar.fill stop ();
         assert (Unix.write fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
@@ -94,12 +97,13 @@ let%test_module "Fd" =
         in
         assert (String.equal !read "");
         assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foo" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
         assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
-        wait_until_cell_is_equal_to read "foobar" >>= fun b ->
+        let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
-        close fdr_async >>= fun () -> d)
+        let%bind () = close fdr_async in
+        d)
       |> function
       | `Result `Closed -> assert (String.equal !read "foobar")
       | `Result _ -> assert false
@@ -116,8 +120,7 @@ let%test_module "Fd" =
           create Fifo w (Info.of_string "<writer>")
         in
         let read =
-          ready_to r `Read
-          >>= function
+          match%bind ready_to r `Read with
           | `Bad_fd -> assert false
           | `Closed -> assert false
           | `Ready  ->
@@ -139,26 +142,24 @@ let%test_module "Fd" =
         let len = 1_000_000 in
         let iovec = Unix.IOVec.of_bigstring (Bigstring.create len) in
         let write =
-          syscall_in_thread w ~name:"writev" (fun fd ->
-            Bigstring.writev fd [| iovec |])
-          >>= function
+          match%bind
+            syscall_in_thread w ~name:"writev" (fun fd ->
+              Bigstring.writev fd [| iovec |])
+          with
           | `Already_closed -> assert false
           | `Error exn      -> failwiths "write error" exn [%sexp_of: exn]
           | `Ok n           ->
             assert (n >= 0 && n <= len);
-            ready_to w `Write
-            >>| function
+            match%map ready_to w `Write with
             | `Bad_fd -> assert false
             | `Closed -> assert false
             | `Ready  -> ()
         in
-        read
-        >>= fun () ->
-        write
-        >>= fun () ->
-        syscall_in_thread w ~name:"writev" (fun fd ->
-          Bigstring.writev fd [| iovec |])
-        >>| function
+        let%bind () = read in
+        let%bind () = write in
+        match%map
+          syscall_in_thread w ~name:"writev" (fun fd -> Bigstring.writev fd [| iovec |])
+        with
         | `Error (Unix.Unix_error (EPIPE, "writev", "")) -> ()
         | `Error exn      -> failwiths "bad write error" exn [%sexp_of: exn]
         | `Ok n           -> failwiths "no write error" n [%sexp_of: int]

@@ -34,15 +34,27 @@ let shutdown ?(force = !default_force_ref ()) status =
     shutting_down_ref := `Yes status;
     upon (Deferred.all
             (List.map !todo ~f:(fun (backtrace, f) ->
-               f ()
-               >>| fun () ->
+               let%map result = Monitor.try_with_or_error f in
+               begin match result with
+               | Ok () -> ()
+               | Error error ->
+                 Core.Std.Debug.eprints "at_shutdown function raised"
+                   (error, backtrace) [%sexp_of: Error.t * Backtrace.t];
+               end;
                if debug
                then Debug.log "one at_shutdown function finished" backtrace
-                      [%sexp_of: Backtrace.t])))
-      (fun _ ->
+                      [%sexp_of: Backtrace.t];
+               result)))
+      (fun results ->
          match shutting_down () with
          | `No -> assert false
-         | `Yes status -> exit status);
+         | `Yes status ->
+           let status =
+             match Or_error.combine_errors_unit results with
+             | Ok () -> status
+             | Error _ -> if status = 0 then 1 else status
+           in
+           exit status);
     upon force (fun () ->
       Debug.log_string "Shutdown forced.";
       exit 1);

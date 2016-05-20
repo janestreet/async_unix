@@ -77,9 +77,13 @@ let poll t =
           ~backtrace:`Get;
         true
     in
-    if should_kill then (u.is_alive <- false; killed_some := true);
+    if should_kill
+    then (
+      u.is_alive <- false;
+      killed_some := true);
   done;
-  if !killed_some then t.pollers <- Array.filter t.pollers ~f:Poller.is_alive;
+  if !killed_some
+  then t.pollers <- Array.filter t.pollers ~f:Poller.is_alive;
 ;;
 
 let add t poll =

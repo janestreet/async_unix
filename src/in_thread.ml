@@ -19,12 +19,13 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
           | `Best                 -> try_lock t
         in
         if locked
-        then
+        then (
           protect ~finally:(fun () -> unlock t) ~f:(fun () ->
             Ivar.fill ivar result;
-            have_lock_do_cycle t)
-        else thread_safe_enqueue_external_job t
-               (current_execution_context t) (fun () -> Ivar.fill ivar result) ()
+            have_lock_do_cycle t))
+        else (
+          thread_safe_enqueue_external_job t
+            (current_execution_context t) (fun () -> Ivar.fill ivar result) ())
       in
       match thread with
       | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
@@ -85,8 +86,10 @@ module Helper_thread = struct
 
   let create ?priority ?name () =
     let scheduler = the_one_and_only ~should_lock:true in
-    run (fun () -> Thread_pool.become_helper_thread scheduler.thread_pool ?name ?priority)
-    >>| fun helper_thread ->
+    let%map helper_thread =
+      run (fun () ->
+        Thread_pool.become_helper_thread scheduler.thread_pool ?name ?priority)
+    in
     create_internal scheduler (ok_exn helper_thread)
   ;;
 end

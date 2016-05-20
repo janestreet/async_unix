@@ -19,38 +19,48 @@ type t =
 
 type 'a create
   =  ?env         : env
+  -> ?stdin       : string
   -> ?working_dir : string
   -> prog         : string
   -> args         : string list
   -> unit
   -> 'a Deferred.t
 
-let create ?(env = `Extend []) ?working_dir ~prog ~args () =
-  In_thread.syscall ~name:"create_process_env" (fun () ->
-    Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
-  >>| function
+let create ?(env = `Extend []) ?stdin:write_to_stdin ?working_dir ~prog ~args () =
+  match%map
+    In_thread.syscall ~name:"create_process_env" (fun () ->
+      Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
+  with
   | Error exn -> Or_error.of_exn exn
   | Ok { pid; stdin; stdout; stderr } ->
     let create_fd name file_descr =
       Fd.create Fifo file_descr
         (Info.create "child process" ~here:[%here] (name, `pid pid, `prog prog, `args args)
-           [%sexp_of:
-               string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]
-            ])
+           [%sexp_of: string
+                      * [ `pid of Pid.t ]
+                      * [ `prog of string ]
+                      * [ `args of string list ]])
     in
-    Ok { pid
-       ; stdin  = Writer.create (create_fd "stdin"  stdin )
-       ; stdout = Reader.create (create_fd "stdout" stdout)
-       ; stderr = Reader.create (create_fd "stderr" stderr)
-       ; prog
-       ; args
-       ; working_dir
-       ; env
-       }
+    let t =
+      { pid
+      ; stdin  = Writer.create (create_fd "stdin"  stdin )
+      ; stdout = Reader.create (create_fd "stdout" stdout)
+      ; stderr = Reader.create (create_fd "stderr" stderr)
+      ; prog
+      ; args
+      ; working_dir
+      ; env
+      }
+    in
+    begin match write_to_stdin with
+    | None -> ()
+    | Some write_to_stdin -> Writer.write t.stdin write_to_stdin
+    end;
+    Ok t
 ;;
 
-let create_exn ?env ?working_dir ~prog ~args () =
-  create ?env ?working_dir ~prog ~args () >>| ok_exn
+let create_exn ?env ?stdin ?working_dir ~prog ~args () =
+  create ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
 ;;
 
 module Output = struct
@@ -73,14 +83,10 @@ let wait t = Unix.waitpid t.pid
 let collect_output_and_wait t =
   let stdout = Reader.contents t.stdout in
   let stderr = Reader.contents t.stderr in
-  Writer.close t.stdin
-  >>= fun () ->
-  wait t
-  >>= fun exit_status ->
-  stdout
-  >>= fun stdout ->
-  stderr
-  >>= fun stderr ->
+  let%bind () = Writer.close t.stdin ~force_close:(Deferred.never ()) in
+  let%bind exit_status = wait t in
+  let%bind stdout = stdout in
+  let%bind stderr = stderr in
   return { Output. stdout; stderr; exit_status }
 ;;
 
@@ -115,8 +121,7 @@ type 'a collect
   -> 'a Deferred.t
 
 let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
-  collect_output_and_wait t
-  >>| fun { stdout; stderr; exit_status } ->
+  let%map { stdout; stderr; exit_status } = collect_output_and_wait t in
   match exit_status with
   | Ok () -> Ok stdout
   | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
@@ -157,21 +162,21 @@ let%test_unit "first arg is not prog" =
 type 'a run
   =  ?accept_nonzero_exit : int list
   -> ?env                 : env
+  -> ?stdin               : string
   -> ?working_dir         : string
   -> prog                 : string
   -> args                 : string list
   -> unit
   -> 'a Deferred.t
 
-let run ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
-  create ?env ?working_dir ~prog ~args ()
-  >>= function
+let run ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
+  match%bind create ?env ?stdin ?working_dir ~prog ~args () with
   | Error _ as e -> return e
   | Ok t -> collect_stdout_and_wait ?accept_nonzero_exit t
 ;;
 
-let map_run run f ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
-  let%map a = run ?accept_nonzero_exit ?env ?working_dir ~prog ~args () in
+let map_run run f ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
+  let%map a = run ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () in
   f a
 ;;
 
@@ -181,9 +186,8 @@ let run_lines = map_run run (Or_error.map ~f:String.split_lines)
 
 let run_lines_exn = map_run run_lines ok_exn
 
-let run_expect_no_output ?accept_nonzero_exit ?env ?working_dir ~prog ~args () =
-  run ?accept_nonzero_exit ?env ?working_dir ~prog ~args ()
-  >>| function
+let run_expect_no_output ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
+  match%map run ?accept_nonzero_exit ?env ?working_dir ?stdin ~prog ~args () with
   | Error _ as err      -> err
   | Ok ""               -> Ok ()
   | Ok non_empty_output ->

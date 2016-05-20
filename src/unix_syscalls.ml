@@ -26,15 +26,14 @@ type error = Unix.error =
 
 exception Unix_error = Unix.Unix_error
 
-let close = Fd.close
+include Fd.Close
 
 module Open_flags = Unix.Open_flags
 
 let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 
 let system_exn s =
-  system s
-  >>| fun status ->
+  let%map status = system s in
   if not (Result.is_ok status)
   then failwiths "system failed" (s, status) [%sexp_of: string * Exit_or_signal.t]
 ;;
@@ -92,13 +91,13 @@ type file_perm = int [@@deriving sexp, bin_io, compare]
 
 let openfile ?perm ?(close_on_exec = false) file ~mode =
   let mode = List.map mode ~f:convert_open_flag in
-  In_thread.syscall_exn ~name:"openfile" (fun () ->
-    let file_descr = Unix.openfile ?perm file ~mode in
-    if close_on_exec then Unix.set_close_on_exec file_descr;
-    file_descr)
-  >>= fun file_descr ->
-  Fd.Kind.infer_using_stat file_descr
-  >>| fun kind ->
+  let%bind file_descr =
+    In_thread.syscall_exn ~name:"openfile" (fun () ->
+      let file_descr = Unix.openfile ?perm file ~mode in
+      if close_on_exec then Unix.set_close_on_exec file_descr;
+      file_descr)
+  in
+  let%map kind = Fd.Kind.infer_using_stat file_descr in
   Fd.create kind file_descr (Info.of_string file)
 ;;
 
@@ -171,13 +170,15 @@ let unlockf ?(len = 0L) fd =
 ;;
 
 let with_file ?exclusive ?perm file ~mode ~f =
-  let doit f = openfile file ~mode ?perm >>= fun fd -> Fd.with_close fd ~f in
+  let doit f =
+    let%bind fd = openfile file ~mode ?perm in
+    Fd.with_close fd ~f
+  in
   match exclusive with
   | None -> doit f
   | Some read_or_write ->
     doit (fun fd ->
-      lockf fd read_or_write
-      >>= fun () ->
+      let%bind () = lockf fd read_or_write in
       Monitor.protect (fun () -> f fd) ~finally:(fun () -> unlockf fd; Deferred.unit))
 ;;
 
@@ -286,9 +287,10 @@ let fchown fd ~uid ~gid =
 ;;
 
 let access filename perm =
-  Monitor.try_with (fun () ->
-    In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
-  >>| function
+  match%map
+    Monitor.try_with (fun () ->
+      In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
+  with
   | Ok res -> res
   | Error exn -> Error (Monitor.extract_exn exn)
 ;;
@@ -317,16 +319,16 @@ let mkdir ?p ?(perm = 0o777) dirname =
     in
     (* if [dirname = "/a/b/c"], then [base = "/"] and [dirs = ["a"; "b"; "c"]] *)
     let base, dirs = loop [] dirname in
-    Deferred.List.fold dirs ~init:base ~f:(fun acc dir ->
-      let dir = String.concat [acc; "/"; dir] in
-      Monitor.try_with (fun () -> mkdir dir)
-      >>| function
-      | Ok () -> dir
-      | Error e ->
-        match Monitor.extract_exn e with
-        | Unix_error (EEXIST, _, _) -> dir
-        | _ -> raise e)
-    >>| fun (_ : string) ->
+    let%map _ : string =
+      Deferred.List.fold dirs ~init:base ~f:(fun acc dir ->
+        let dir = String.concat [acc; "/"; dir] in
+        match%map Monitor.try_with (fun () -> mkdir dir) with
+        | Ok () -> dir
+        | Error e ->
+          match Monitor.extract_exn e with
+          | Unix_error (EEXIST, _, _) -> dir
+          | _ -> raise e)
+    in
     ()
 ;;
 
@@ -354,9 +356,8 @@ let closedir handle =
 ;;
 
 let pipe info =
-  In_thread.syscall_exn ~name:"pipe" (fun () -> Unix.pipe ())
-  >>| fun (reader, writer) ->
-  let create file_descr kind = Fd.create Fifo file_descr (Info.tag info kind) in
+  let%map reader, writer = In_thread.syscall_exn ~name:"pipe" (fun () -> Unix.pipe ()) in
+  let create file_descr kind = Fd.create Fifo file_descr (Info.tag info ~tag:kind) in
   (`Reader (create reader "reader"), `Writer (create writer "writer"))
 ;;
 
@@ -378,8 +379,9 @@ let mkdtemp filename =
 ;;
 
 let mkstemp filename =
-  In_thread.syscall_exn ~name:"mkstemp" (fun () -> Unix.mkstemp filename)
-  >>| fun (name, file_descr) ->
+  let%map name, file_descr =
+    In_thread.syscall_exn ~name:"mkstemp" (fun () -> Unix.mkstemp filename)
+  in
   (name, Fd.create File file_descr (Info.of_string name))
 ;;
 
@@ -471,15 +473,13 @@ let wait          = make_wait wait_nohang
 let wait_untraced = make_wait wait_nohang_untraced
 
 let waitpid pid =
-  wait (`Pid pid)
-  >>| fun (pid', exit_or_signal) ->
+  let%map pid', exit_or_signal = wait (`Pid pid) in
   assert (pid = pid');
   exit_or_signal;
 ;;
 
 let waitpid_exn pid =
-  waitpid pid
-  >>| fun exit_or_signal ->
+  let%map exit_or_signal = waitpid pid in
   if Result.is_error exit_or_signal
   then failwiths "child process didn't exit with status zero"
          (`Child_pid pid, exit_or_signal)
@@ -741,9 +741,10 @@ module Socket = struct
     setopt t Opt.reuseaddr reuseaddr;
     set_close_on_exec t.fd;
     let sockaddr = Address.to_sockaddr address in
-    Fd.syscall_in_thread_exn t.fd ~name:"bind"
-      (fun file_descr -> Unix.bind file_descr ~addr:sockaddr)
-    >>| fun () ->
+    let%map () =
+      Fd.syscall_in_thread_exn t.fd ~name:"bind"
+        (fun file_descr -> Unix.bind file_descr ~addr:sockaddr)
+    in
     let info =
       Info.create "socket" (`bound_on address)
         (let sexp_of_address = sexp_of_address t in
@@ -807,18 +808,17 @@ module Socket = struct
 
            [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
            standard OCaml I/O-function (e.g. for reading from channels).  *)
-        Fd.interruptible_ready_to t.fd `Read ~interrupt
-        >>| (function
-          | `Ready -> `Repeat ()
-          | `Interrupted as x -> `Finished x
-          | `Closed -> `Finished `Socket_closed
-          | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t])
+        begin match%map Fd.interruptible_ready_to t.fd `Read ~interrupt with
+        | `Ready -> `Repeat ()
+        | `Interrupted as x -> `Finished x
+        | `Closed -> `Finished `Socket_closed
+        | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t]
+        end
       | `Error exn -> raise exn)
   ;;
 
   let accept t =
-    accept_interruptible t ~interrupt:(Fd.close_started t.fd)
-    >>| function
+    match%map accept_interruptible t ~interrupt:(Fd.close_started t.fd) with
     | `Interrupted -> `Socket_closed
     | `Socket_closed | `Ok _ as x -> x
   ;;
@@ -844,8 +844,7 @@ module Socket = struct
     | `Already_closed -> fail_closed ()
     | `Ok () -> return (success ())
     | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) -> begin
-        Fd.interruptible_ready_to t.fd `Write ~interrupt
-        >>| function
+        match%map Fd.interruptible_ready_to t.fd `Write ~interrupt with
         | `Closed -> fail_closed ()
         | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd [%sexp_of: Fd.t]
         | `Interrupted as x -> x
@@ -866,8 +865,7 @@ module Socket = struct
   ;;
 
   let connect t addr =
-    connect_interruptible t addr ~interrupt:(Deferred.never ())
-    >>| function
+    match%map connect_interruptible t addr ~interrupt:(Deferred.never ()) with
     | `Interrupted -> assert false  (* impossible *)
     | `Ok t -> t
   ;;

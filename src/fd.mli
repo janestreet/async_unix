@@ -90,35 +90,50 @@ val supports_nonblock : t -> bool
     [clear_nonblock t] has no effect if [not (supports_nonblock t)]. *)
 val clear_nonblock : t -> unit
 
-(** [close t] prevents further use of [t], and closes the underlying file descriptor once
-    all the current uses are finished.  The result of [close] becomes determined once the
-    underlying file descriptor has been closed, i.e. once the [close()] system call
-    returns.  It is ok to call [close] multiple times on the same [t]; calls subsequent to
-    the initial call will have no effect, but will return the same deferred as the
-    original call.
+(** The [Close] module exists to collect [close] and its associated types, so they
+    can be easily reused elsewhere, e.g. [Unix_syscalls]. *)
+module Close : sig
+  type socket_handling =
+    | Shutdown_socket
+    | Do_not_shutdown_socket
 
-    In some situations, one may need to cause Async to release an fd that it is managing
-    without closing the underlying file descriptor.  In that case, one should supply
-    [~should_close_file_descriptor:false], which will skip the underlying [close()] system
-    call.
+  type file_descriptor_handling =
+    | Close_file_descriptor of socket_handling
+    | Do_not_close_file_descriptor
 
-    If [should_close_file_descriptor] is [true], [close_finished t] becomes determined
-    after the [close()] system call on [t]'s underlying file descriptor returns.  If
-    [should_close_file_descriptor] is [false], then [close_finished] becomes determined
-    immediately.
+  (** [close t] prevents further use of [t], and makes [shutdown()] and [close()] system
+      calls on [t]'s underlying file descriptor] according to the
+      [file_descriptor_handling] argument and whether or not [t] is a socket, i.e. [kind t
+      = Socket `Active]:
 
-    [close_finished] differs from [close] in that it does not have the side effect of
-    initiating a close.
+      {v
+        | file_descriptor_handling                     | shutdown() | close() |
+        |----------------------------------------------+------------+---------|
+        | Do_not_close_file_descriptor                 | no         | no      |
+        | Close_file_descriptor Shutdown_socket        | if socket  | yes     |
+        | Close_file_descriptor Do_not_shutdown_socket | no         | yes     |
+      v}
 
-    [is_closed t] returns [true] iff [close t] has been called.
+      The result of [close] becomes determined once the system calls complete.  It is OK
+      to call [close] multiple times on the same [t]; calls subsequent to the initial call
+      will have no effect, but will return the same deferred as the original call. *)
+  val close
+    :  ?file_descriptor_handling:file_descriptor_handling
+    (** default is [Close_file_descriptor Shutdown_socket] *)
+    -> t
+    -> unit Deferred.t
+end
 
-    [close_started t] becomes determined when [close t] is called. *)
-val close
-  :  ?should_close_file_descriptor : bool  (** default is [true] *)
-  -> t
-  -> unit Deferred.t
+include module type of Close
+
+(** [close_started t] becomes determined when [close t] is called. *)
 val close_started  : t -> unit Deferred.t
+
+(** [close_finished] returns the same result as [close], but differs in that it does not
+    have the side effect of initiating a close. *)
 val close_finished : t -> unit Deferred.t
+
+(** [is_closed t] returns [true] iff [close t] has been called. *)
 val is_closed : t -> bool
 
 (** [with_close t f] applies [f] to [t], returns the result of [f], and closes [t]. *)

@@ -417,7 +417,8 @@ end = struct
   let%test_unit _ =
     let msg = create ~level:`Info ~tags:[] (`String "") in
     match sexp_of_t msg with
-    | List [ (Atom _) as version; _ ] -> ignore (Stable.Version.t_of_sexp version)
+    | List [ (Atom _) as version; _ ] ->
+      ignore (Stable.Version.t_of_sexp version : Stable.Version.t)
     | _ -> assert false
   ;;
 

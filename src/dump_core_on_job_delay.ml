@@ -29,7 +29,8 @@ let start_watching ~dump_if_delayed_by ~how_to_dump =
   let dump_type              = How_to_dump.choose_dump_type how_to_dump in
   let dump_if_delayed_by_sec = Time.Span.to_sec dump_if_delayed_by in
   let tick_interval          = sec (dump_if_delayed_by_sec /. 10.) in
-  ignore (Thread.create (fun () -> watch dump_if_delayed_by_sec dump_type) ());
+  ignore (Thread.create (fun () -> watch dump_if_delayed_by_sec dump_type) ()
+          : Thread.t);
   Clock.every tick_interval tick;
 ;;
 

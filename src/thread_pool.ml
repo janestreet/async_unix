@@ -182,19 +182,18 @@ module Internal = struct
     ;;
 
     let set_name t name =
-      if String.(<>) name t.name then begin
+      if String.(<>) name t.name
+      then (
         set_thread_name name;
-        t.name <- name;
-      end;
+        t.name <- name);
     ;;
 
     let set_priority t priority =
-      if not (Priority.equal t.priority priority) then begin
+      if not (Priority.equal t.priority priority)
+      then (
         setpriority priority;
-        t.priority <- priority;
-      end;
+        t.priority <- priority);
     ;;
-
   end
 
   (* [Thread_pool.t] *)
@@ -324,7 +323,8 @@ module Internal = struct
     match t.state with
     | `In_use | `Finished -> ()
     | `Finishing ->
-      if t.unfinished_work = 0 then begin
+      if t.unfinished_work = 0
+      then (
         let set x f = Option.value_exn (Field.setter f) t x in
         Fields.iter
           ~id:ignore
@@ -336,13 +336,12 @@ module Internal = struct
           ~thread_creation_failure_lockout:ignore
           ~last_thread_creation_failure:ignore
           ~thread_by_id:(fun _ ->
-            Hashtbl.iter_vals t.thread_by_id ~f:Thread.stop;
+            Hashtbl.iter t.thread_by_id ~f:Thread.stop;
             Hashtbl.clear t.thread_by_id)
           ~available_threads:(set [])
           ~work_queue:ignore
           ~unfinished_work:ignore
-          ~num_work_completed:ignore;
-      end;
+          ~num_work_completed:ignore);
   ;;
 
   let finished_with t =
@@ -375,10 +374,10 @@ module Internal = struct
     | `In_use | `Finished -> ()
     | `Finishing ->
       let thread = helper_thread.thread in
-      if thread.unfinished_work = 0 then begin
+      if thread.unfinished_work = 0
+      then (
         helper_thread.state <- `Finished;
-        make_thread_available t thread;
-      end;
+        make_thread_available t thread);
   ;;
 
   let create_thread t =
@@ -454,7 +453,7 @@ module Internal = struct
     if debug then Debug.log "add_work" t [%sexp_of: t];
     if not (is_in_use t)
     then error "add_work called on finished thread pool" t [%sexp_of: t]
-    else begin
+    else (
       let work =
         { Work.
           doit
@@ -467,8 +466,7 @@ module Internal = struct
       | `None_available -> Queue.enqueue t.work_queue work
       | `Ok thread -> assign_work_to_thread thread work
       end;
-      Ok ()
-    end
+      Ok ())
   ;;
 
   let become_helper_thread_internal
@@ -523,7 +521,7 @@ module Internal = struct
            (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t]
     else if not (is_in_use t)
     then error "add_work_for_helper_thread called on finished thread pool" t [%sexp_of: t]
-    else begin
+    else (
       match helper_thread.state with
       | `Finishing | `Finished ->
         error "add_work_for_helper_thread called on helper thread no longer in use"
@@ -540,8 +538,7 @@ module Internal = struct
               Option.value priority
                 ~default:(Helper_thread.default_priority helper_thread)
           };
-        Ok ();
-    end
+        Ok ())
   ;;
 
   let finished_with_helper_thread t helper_thread =
@@ -625,10 +622,10 @@ let%test_module _ =
 
     let wait_until_no_unfinished_work t =
       let rec loop i =
-        if t.unfinished_work > 0 then begin
+        if t.unfinished_work > 0
+        then (
           Time.pause (sec 0.01);
-          loop (i + 1);
-        end;
+          loop (i + 1));
       in
       loop 0
     ;;
@@ -683,23 +680,22 @@ let%test_module _ =
             Core.Std.Thread.create (fun () ->
               let start = Time.now () in
               let rec loop () =
-                if is_in_use t then begin
+                if is_in_use t then (
                   let how_long = Time.diff (Time.now ()) start in
-                  if Time.Span.(>=) how_long (sec 10.) then begin
+                  if Time.Span.(>=) how_long (sec 10.)
+                  then (
                     Debug.log "thread-pool unit test hung"
                       (t,
                        worker_threads_have_fully_started,
                        worker_threads_should_continue)
                       [%sexp_of: t * unit Thread_safe_ivar.t * unit Thread_safe_ivar.t];
-                    exit 1;
-                  end else begin
+                    exit 1)
+                  else (
                     Time.pause (sec 0.1);
-                    loop ();
-                  end
-                end;
+                    loop ()));
               in
-              loop ()
-            ) ()
+              loop ())
+              ()
           in
           let jobs = ref [] in
           for i = 0 to num_jobs - 1; do

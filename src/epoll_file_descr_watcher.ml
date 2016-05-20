@@ -87,10 +87,10 @@ let reset_in_forked_process t = Epoll.close t.epoll
 
 let iter t ~f =
   Epoll.iter t.epoll ~f:(fun file_descr flags ->
-    if not (is_timerfd t file_descr) then begin
+    if not (is_timerfd t file_descr)
+    then (
       if Flags.do_intersect flags Flags.in_ then f file_descr `Read;
-      if Flags.do_intersect flags Flags.out then f file_descr `Write;
-    end);
+      if Flags.do_intersect flags Flags.out then f file_descr `Write));
 ;;
 
 let set t file_descr desired =

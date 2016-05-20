@@ -59,7 +59,9 @@ val set_default_force : (unit -> unit Deferred.t) -> unit
 val shutting_down : unit -> [ `No | `Yes of int ]
 
 (** [at_shutdown f] causes [f ()] to be run when [shutdown] is called, and for [shutdown]
-    to wait until the returned deferred finishes.
+    to wait until the returned deferred finishes.  If [f] raises (synchronously or
+    asynchronously), then the exception is printed to stderr and the program exits
+    nonzero, irrespective of the status supplied to [shutdown].
 
     If [shutdown] has already been called, then calling [at_shutdown f] does nothing. *)
 val at_shutdown : (unit -> unit Deferred.t) -> unit

@@ -82,7 +82,7 @@ val of_pipe : Info.t -> string Pipe.Reader.t -> t Deferred.t
     guarantee of granularity is made. *)
 val create : ?buf_len:int -> Fd.t -> t
 
-val of_in_channel : in_channel -> Fd.Kind.t -> t
+val of_in_channel : In_channel.t -> Fd.Kind.t -> t
 
 (** [with_file file f] opens [files], creates a reader with it, and passes the reader to
     [f].  It closes the reader when the result of [f] becomes determined, and returns
@@ -362,3 +362,12 @@ val load_annotated_sexp      : (Sexp.Annotated.t, 'a, 'a      Or_error.t) load
 val load_annotated_sexp_exn  : (Sexp.Annotated.t, 'a, 'a                ) load
 val load_annotated_sexps     : (Sexp.Annotated.t, 'a, 'a list Or_error.t) load
 val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list           ) load
+
+type ('a, 'b) load_bin_prot
+  =  ?exclusive : bool  (** default is [false] *)
+  -> ?max_len   : int
+  -> string
+  -> 'a Bin_prot.Type_class.reader
+  -> 'b Deferred.t
+val load_bin_prot      : ('a, 'a Or_error.t) load_bin_prot
+val load_bin_prot_exn  : ('a, 'a           ) load_bin_prot

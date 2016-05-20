@@ -31,6 +31,7 @@ type env = Core.Std.Unix.env [@@deriving sexp]
     it returns [OK t], where [wait t] returns an [Error]. *)
 type 'a create
   =  ?env         : env  (** default is [`Extend []] *)
+  -> ?stdin       : string
   -> ?working_dir : string
   -> prog         : string
   -> args         : string list
@@ -65,10 +66,10 @@ end
 
 val collect_output_and_wait : t -> Output.t Deferred.t
 
-(** [run] [create]s a process and [wait]s for it to complete.  If the process exits with
-    an acceptable status, then [run] returns its stdout.  If the process exits
-    unacceptably, then [run] returns an error indicating what went wrong that includes
-    stdout and stderr.
+(** [run] [create]s a process, feeds it [stdin] if provided, and [wait]s for it to
+    complete.  If the process exits with an acceptable status, then [run] returns its
+    stdout.  If the process exits unacceptably, then [run] returns an error indicating
+    what went wrong that includes stdout and stderr.
 
     Acceptable statuses are zero, and any nonzero values specified in
     [accept_nonzero_exit].
@@ -87,6 +88,7 @@ val collect_output_and_wait : t -> Output.t Deferred.t
 type 'a run
   =  ?accept_nonzero_exit : int list  (** default is [] *)
   -> ?env                 : env       (** default is [`Extend []] *)
+  -> ?stdin               : string
   -> ?working_dir         : string
   -> prog                 : string
   -> args                 : string list

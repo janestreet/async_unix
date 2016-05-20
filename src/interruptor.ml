@@ -45,24 +45,25 @@ let create ~create_fd =
 let thread_safe_interrupt t =
   if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
   (* BEGIN ATOMIC *)
-  if not t.already_interrupted then begin
+  if not t.already_interrupted
+  then (
     t.already_interrupted <- true;
     (* END ATOMIC *)
     if debug then Debug.log_string "writing to interrupt_pipe_write";
     Fd.syscall_exn (Read_write.get t.pipe `Write) ~nonblocking:true
       (fun file_descr ->
          try
-           ignore (Unix.write_assume_fd_is_nonblocking file_descr "w")
+           ignore (Unix.write_assume_fd_is_nonblocking file_descr "w" : int)
          with
-           Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ())
-  end
+           Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ()))
 ;;
 
 let clear t =
   if debug then Debug.log_string "Interruptor.clear";
   (* We only need to clear the pipe if it was written to.  This saves a system call in the
      common case. *)
-  if t.already_interrupted then begin
+  if t.already_interrupted
+  then (
     Fd.syscall_exn (Read_write.get t.pipe `Read) ~nonblocking:true
       (fun file_descr ->
          let rec loop () =
@@ -79,8 +80,7 @@ let clear t =
            in
            if read_again then loop ()
          in
-         loop ());
-  end;
+         loop ()));
   (* We must clear [already_interrupted] after emptying the pipe.  If we did it before,
      a [thread_safe_interrupt] could come along in between.  We would then be left with
      [already_interrupted = true] and an empty pipe, which would then cause a

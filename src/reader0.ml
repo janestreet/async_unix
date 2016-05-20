@@ -128,8 +128,7 @@ module Internal = struct
   let of_in_channel ic kind = create (Fd.of_in_channel ic kind)
 
   let open_file ?(close_on_exec = true) ?buf_len file =
-    Unix.openfile file ~mode:[`Rdonly] ~perm:0o000 ~close_on_exec
-    >>| fun fd ->
+    let%map fd = Unix.openfile file ~mode:[`Rdonly] ~perm:0o000 ~close_on_exec in
     create fd ?buf_len
   ;;
 
@@ -174,15 +173,14 @@ module Internal = struct
   let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
 
   let with_reader_exclusive t f =
-    Unix.lockf t.fd `Read
-    >>= fun () ->
+    let%bind () = Unix.lockf t.fd `Read in
     Monitor.protect f ~finally:(fun () ->
       if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
       Deferred.unit)
   ;;
 
   let with_file ?buf_len ?(exclusive = false) file ~f =
-    open_file ?buf_len file >>= fun t ->
+    let%bind t = open_file ?buf_len file in
     with_close t ~f:(fun () ->
       if exclusive
       then with_reader_exclusive t (fun () -> f t)
@@ -240,22 +238,22 @@ module Internal = struct
               ~bytes:(Int63.of_int bytes_read);
             if bytes_read = 0
             then eof ()
-            else begin
+            else (
               t.pos <- 0;
               t.available <- t.available + bytes_read;
               t.last_read_time <- read_time;
-              Ivar.fill result `Ok
-            end
+              Ivar.fill result `Ok)
         in
         let buf = t.buf in
-        if t.available > 0 && t.pos > 0 then begin
+        if t.available > 0 && t.pos > 0
+        then (
           Bigstring.blit ~src:buf ~src_pos:t.pos ~dst:buf ~dst_pos:0
             ~len:t.available;
-          t.pos <- 0;
-        end;
+          t.pos <- 0);
         let pos = t.available in
         let len = Bigstring.length buf - pos in
-        if not (Fd.supports_nonblock t.fd) then begin
+        if not (Fd.supports_nonblock t.fd)
+        then (
           begin match t.close_may_destroy_buf with
           | `Yes -> t.close_may_destroy_buf <- `Not_now
           | `Not_now | `Not_ever -> ()
@@ -275,8 +273,8 @@ module Internal = struct
           | `Closed ->
             (* If we're here, somebody [close]d the reader while we were making the system
                call.  [close] couldn't [destroy], so we need to. *)
-            destroy t; eof ()
-        end else begin
+            destroy t; eof ())
+        else (
           let rec loop () =
             (* Force the async cycle to end between reads, allowing others to run. *)
             Fd.ready_to t.fd `Read
@@ -308,8 +306,7 @@ module Internal = struct
                     | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
                     | exn -> raise exn)
           in
-          loop ()
-        end)
+          loop ()))
   ;;
 
   (* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok].
@@ -323,13 +320,12 @@ module Internal = struct
     | `In_use ->
       if t.available > 0
       then return (f `Ok)
-      else
-        get_data t
-        >>| fun ok_or_eof ->
+      else (
+        let%map ok_or_eof = get_data t in
         match t.state with
         | `Not_in_use -> assert false
         | `Closed -> f `Eof
-        | `In_use -> f ok_or_eof
+        | `In_use -> f ok_or_eof)
   ;;
 
   (* [with_nonempty_buffer' t f] is an optimized version of
@@ -431,14 +427,14 @@ module Internal = struct
                   then failwiths "read_one_chunk_at_a_time got overflow in buffer len" t
                          [%sexp_of: t];
                   (* Grow the internal buffer if needed. *)
-                  if new_len > buf_len then begin
+                  if new_len > buf_len
+                  then (
                     let new_buf = Bigstring.create new_len in
                     if t.available > 0
                     then Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
                            ~dst:new_buf ~dst_pos:0;
                     t.buf <- new_buf;
-                    t.pos <- 0;
-                  end;
+                    t.pos <- 0);
                   loop ~force_refill:true
             in
             let deferred = handle_chunk t.buf ~pos:t.pos ~len in
@@ -464,15 +460,14 @@ module Internal = struct
       Iobuf.reset iobuf;
       Iobuf.advance iobuf pos;
       Iobuf.resize iobuf ~len;
-      handle_chunk iobuf
-      >>| fun handle_result ->
+      let%map handle_result = handle_chunk iobuf in
       if Iobuf.is_empty iobuf (* [is_empty] implies all data was consumed *)
       then (handle_result :> _ handle_chunk_result)
-      else
+      else (
         let consumed = len - Iobuf.length iobuf in
         match handle_result with
         | `Continue -> `Consumed      (consumed, `Need_unknown)
-        | `Stop a   -> `Stop_consumed (a       , consumed))
+        | `Stop a   -> `Stop_consumed (a       , consumed)))
   ;;
 
   module Read (S : Substring_intf.S) (Name : sig val name : string end) = struct
@@ -497,16 +492,14 @@ module Internal = struct
         let rec loop s amount_read =
           if S.length s = 0
           then Ivar.fill result `Ok
-          else begin
+          else (
             read t s
             >>> function
             | `Eof -> Ivar.fill result (`Eof amount_read)
-            | `Ok len -> loop (S.drop_prefix s len) (amount_read + len)
-          end
+            | `Ok len -> loop (S.drop_prefix s len) (amount_read + len))
         in
         loop s 0)
     ;;
-
   end
 
   module Read_substring = Read (Substring) (struct let name = "substring" end)
@@ -673,9 +666,10 @@ module Internal = struct
           begin match Or_error.try_with (fun () -> parse_fun ~pos:0 ~len:1 space) with
           | Error _ as e -> k e
           | Ok (Sexp.Done (sexp, parse_pos))       -> k (Ok (`Ok (sexp, parse_pos)))
-          | Ok (Sexp.Cont (Parsing_whitespace, _)) -> k (Ok `Eof)
+          | Ok (Sexp.Cont (Parsing_toplevel_whitespace, _)) -> k (Ok `Eof)
           | Ok (Sexp.Cont (( Parsing_atom
                            | Parsing_list
+                           | Parsing_nested_whitespace
                            | Parsing_sexp_comment
                            | Parsing_block_comment), _))
             -> failwiths "Reader.read_sexp got unexpected eof" t [%sexp_of: t]
@@ -723,11 +717,10 @@ module Internal = struct
             | Ok `Ok (sexp, parse_pos) ->
               if Pipe.is_closed pipe_w
               then Ivar.fill result ()
-              else begin
+              else (
                 Pipe.write pipe_w sexp
                 >>> fun () ->
-                loop (Some parse_pos)
-              end)
+                loop (Some parse_pos)))
         in
         loop parse_pos)
     in
@@ -813,7 +806,7 @@ module Internal = struct
       else failwiths "Reader.read_marshal got EOF with bytes remaining" n [%sexp_of: int]
     in
     let header = String.create Marshal.header_size in
-    really_read t header >>= function
+    match%bind really_read t header with
     | `Eof n -> return (eofn n)
     | `Ok ->
       let len = Marshal.data_size header 0 in
@@ -821,13 +814,13 @@ module Internal = struct
       String.blit ~src:header ~dst:buf ~src_pos:0 ~dst_pos:0
         ~len:Marshal.header_size;
       let sub = Substring.create buf ~pos:Marshal.header_size ~len in
-      really_read_substring t sub >>| function
+      match%map really_read_substring t sub with
       | `Eof n -> eofn n
       | `Ok -> `Ok buf
   ;;
 
   let read_marshal t =
-    read_marshal_raw t >>| function
+    match%map read_marshal_raw t with
     | `Eof -> `Eof
     | `Ok buf -> `Ok (Marshal.from_string buf 0)
   ;;
@@ -835,15 +828,15 @@ module Internal = struct
   let read_all t read_one =
     let pipe_r, pipe_w = Pipe.create () in
     let finished =
-      Deferred.repeat_until_finished ()
-        (fun () ->
-           read_one t
-           >>= function
-           | `Eof -> return (`Finished ())
-           | `Ok one ->
-             if Pipe.is_closed pipe_w
-             then return (`Finished ())
-             else Pipe.write pipe_w one >>| fun () -> `Repeat ())
+      Deferred.repeat_until_finished () (fun () ->
+        match%bind read_one t with
+        | `Eof -> return (`Finished ())
+        | `Ok one ->
+          if Pipe.is_closed pipe_w
+          then return (`Finished ())
+          else (
+            let%map () = Pipe.write pipe_w one in
+            `Repeat ()))
     in
     upon finished (fun () ->
       close t
@@ -857,14 +850,13 @@ module Internal = struct
   let contents t =
     let buf = Buffer.create 1024 in
     let sbuf = String.create 1024 in
-    Deferred.repeat_until_finished () (fun () ->
-      read t sbuf
-      >>| function
-      | `Eof -> `Finished ()
-      | `Ok l -> Buffer.add_substring buf sbuf 0 l; `Repeat ())
-    >>= fun () ->
-    close t
-    >>| fun () ->
+    let%bind () =
+      Deferred.repeat_until_finished () (fun () ->
+        match%map read t sbuf with
+        | `Eof -> `Finished ()
+        | `Ok l -> Buffer.add_substring buf sbuf 0 l; `Repeat ())
+    in
+    let%map () = close t in
     Buffer.contents buf
   ;;
 
@@ -895,13 +887,12 @@ module Internal = struct
              | `Ok ->
                if Pipe.is_closed pipe_w
                then Ivar.fill finished ()
-               else begin
+               else (
                  let pos = t.pos in
                  let len = t.available in
                  consume t len;
                  Pipe.write pipe_w (Bigstring.to_string t.buf ~pos ~len)
-                 >>> loop
-               end)
+                 >>> loop))
          in
          loop ())
   ;;
@@ -958,8 +949,7 @@ let finished_read t =
 
 let do_read t f =
   use t;
-  f ()
-  >>| fun x ->
+  let%map x = f () in
   finished_read t;
   x
 ;;
@@ -1051,7 +1041,10 @@ let contents t = do_read t (fun () -> contents t)
 
 let file_contents file = with_file file ~f:contents
 
-let file_lines file = open_file file >>= fun t -> Pipe.to_list (lines t)
+let file_lines file =
+  let%bind t = open_file file in
+  Pipe.to_list (lines t)
+;;
 
 let transfer t = use t; transfer t
 
@@ -1105,17 +1098,18 @@ let gen_load_exn
       (get_error : Sexp.Annotated.t list -> Error.t) : a Deferred.t =
   let may_load_file_multiple_times = ref false in
   let load ~sexp_kind =
-    Monitor.try_with ~extract_exn:true (fun () ->
-      with_file ?exclusive file ~f:(fun t ->
-        may_load_file_multiple_times :=
-          (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
-             kinds.  We can only load it multiple times if it has kind [File]. *)
-          (match Fd.kind (fd t) with
-           | File -> true
-           | Char | Fifo | Socket _ -> false);
-        use t;
-        Pipe.to_list (gen_read_sexps t ~sexp_kind)))
-    >>| function
+    match%map
+      Monitor.try_with ~extract_exn:true (fun () ->
+        with_file ?exclusive file ~f:(fun t ->
+          may_load_file_multiple_times :=
+            (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+               kinds.  We can only load it multiple times if it has kind [File]. *)
+            (match Fd.kind (fd t) with
+             | File -> true
+             | Char | Fifo | Socket _ -> false);
+          use t;
+          Pipe.to_list (gen_read_sexps t ~sexp_kind)))
+    with
     | Ok sexps -> sexps
     | Error exn ->
       match exn with
@@ -1132,15 +1126,15 @@ let gen_load_exn
              [%sexp_of: string * string])
       | _ -> raise exn
   in
-  load ~sexp_kind
-  >>= fun sexps ->
+  let%bind sexps = load ~sexp_kind in
   try
     return (convert sexps)
   with
   | Of_sexp_error (exn, _bad_subsexp) ->
     if !may_load_file_multiple_times
     then
-      load ~sexp_kind:Annotated >>= fun sexps -> Error.raise (get_error sexps)
+      let%bind sexps = load ~sexp_kind:Annotated in
+      Error.raise (get_error sexps)
     else
       failwiths "invalid sexp (failed to determine location information)"
         (file, exn) [%sexp_of: string * exn]
@@ -1167,21 +1161,23 @@ module Macro_loader = Sexplib.Macro.Loader (struct
   end
 
   let load_sexps file =
-    Monitor.try_with ~extract_exn:true (fun () ->
-      with_file file ~f:(fun t -> Pipe.to_list (read_sexps t)))
-    >>| function
+    match%map
+      Monitor.try_with ~extract_exn:true (fun () ->
+        with_file file ~f:(fun t -> Pipe.to_list (read_sexps t)))
+    with
     | Ok sexps -> sexps
     | Error e -> raise (Sexplib.Macro.add_error_location file e)
   ;;
 
   let load_annotated_sexps file =
-    Monitor.try_with ~extract_exn:true (fun () ->
-      with_file file ~f:(fun t -> Pipe.to_list (read_annotated_sexps t)))
-    >>| function
+    match%map
+      Monitor.try_with ~extract_exn:true (fun () ->
+        with_file file ~f:(fun t -> Pipe.to_list (read_annotated_sexps t)))
+    with
     | Ok sexps -> sexps
     | Error e -> raise (Sexplib.Macro.add_error_location file e)
   ;;
-end)
+  end)
 
 let get_load_result_exn = function
   | `Result x -> x
@@ -1307,12 +1303,38 @@ let pipe t =
 ;;
 
 let drain t =
-  read_one_chunk_at_a_time t
-    ~handle_chunk:(fun _bigstring ~pos:_ ~len:_ -> return `Continue)
-  >>= function
+  match%bind
+    read_one_chunk_at_a_time t
+      ~handle_chunk:(fun _bigstring ~pos:_ ~len:_ -> return `Continue)
+  with
   | `Stopped _
   | `Eof_with_unconsumed_data _
     -> assert false
   | `Eof ->
     close t
+;;
+
+type ('a, 'b) load_bin_prot
+  =  ?exclusive : bool
+  -> ?max_len   : int
+  -> string
+  -> 'a Bin_prot.Type_class.reader
+  -> 'b Deferred.t
+
+let load_bin_prot ?exclusive ?max_len file bin_reader =
+  match%map
+    with_file ?exclusive file ~f:(fun t ->
+      Monitor.try_with_or_error
+        ~here:[%here]
+        ~name:"Reader.load_bin_prot"
+        (fun () -> read_bin_prot ?max_len t bin_reader))
+  with
+  | Ok (`Ok v)        -> Ok v
+  | Ok `Eof           -> Or_error.error_string "Reader.load_bin_prot got unexpected eof"
+  | Error _ as result -> result
+;;
+
+let load_bin_prot_exn ?exclusive ?max_len file bin_reader =
+  load_bin_prot ?exclusive ?max_len file bin_reader
+  >>| ok_exn
 ;;

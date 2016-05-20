@@ -128,8 +128,10 @@ val force_current_cycle_to_end : unit -> unit
 val is_running : unit -> bool
 
 (** [set_max_num_jobs_per_priority_per_cycle int] sets the maximum number of jobs that
-    will be done at each priority within each Async cycle.  The default is [500]. *)
+    will be done at each priority within each Async cycle. The default is [500].
+    [max_num_jobs_per_priority_per_cycle] retrieves the current value.  *)
 val set_max_num_jobs_per_priority_per_cycle : int -> unit
+val max_num_jobs_per_priority_per_cycle     : unit -> int
 
 (** [set_max_inter_cycle_timeout span] sets the maximum amount of time the scheduler will
     remain blocked (on epoll or select) between cycles. *)
@@ -170,6 +172,12 @@ val is_ready_to_initialize : unit -> bool
     then start the Async scheduler. *)
 val reset_in_forked_process : unit -> unit
 
+(** [make_async_unusable ()] makes subsequent attempts to use the Async scheduler raise.
+    One use of [make_async_unusable] is if one forks from a process already running the
+    Async scheduler, and one wants to run non-Async OCaml code in the child process, with
+    the guarantee that the child process does not use Async. *)
+val make_async_unusable : unit -> unit
+
 (** Async supports "busy polling", which runs a thread that busy loops running
     user-supplied polling functions.  The busy-loop thread is distinct from Async's
     scheduler thread.
@@ -207,6 +215,12 @@ val default_handle_thread_pool_stuck :  stuck_for:Time_ns.Span.t -> unit
     completes.  This can be useful to improve fairness by [yield]ing within a computation
     to give other jobs a chance to run. *)
 val yield : unit -> unit Deferred.t
+
+(** [yield_until_no_jobs_remain ()] returns a deferred that becomes determined the next
+    time Async's job queue is empty.  This is useful in tests where one needs to wait for
+    the completion of all the jobs based on what's in the queue, but those jobs might
+    create other jobs not depend on I/O or the passage of wall-clock time. *)
+val yield_until_no_jobs_remain : unit -> unit Deferred.t
 
 (** [yield_every ~n] returns a function that will act as [yield] every [n] calls and as
     [Deferred.unit] the rest of the time.  This is useful for improving fairness in

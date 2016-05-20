@@ -33,21 +33,18 @@ let in_async_unless_closed ?wakeup_scheduler t f ~if_closed =
   in_async ?wakeup_scheduler (fun () ->
     if Pipe.is_closed t
     then If_closed.closed if_closed
-    else begin
+    else (
       f ();
-      If_closed.written if_closed
-    end)
+      If_closed.written if_closed))
 ;;
 
 let in_async_unless_closed_wait t f ~if_closed =
   in_async_wait (fun () ->
     if Pipe.is_closed t
     then return (If_closed.closed if_closed)
-    else begin
-      f ()
-      >>| fun () ->
-      If_closed.written if_closed
-    end)
+    else (
+      let%map () = f () in
+      If_closed.written if_closed))
 ;;
 
 let create () =

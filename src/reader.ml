@@ -6,8 +6,7 @@ include Reader0
 module Writer = Writer0
 
 let of_pipe info pipe_r =
-  Unix.pipe info
-  >>| fun (`Reader reader_fd, `Writer writer_fd) ->
+  let%map `Reader reader_fd, `Writer writer_fd = Unix.pipe info in
   let reader = create reader_fd in
   let writer =
     Writer.create
@@ -19,9 +18,10 @@ let of_pipe info pipe_r =
   then Debug.log "Reader.of_pipe" (pipe_r, reader, writer)
          [%sexp_of: string Pipe.Reader.t * t * Writer.t];
   don't_wait_for (
-    Writer.transfer writer pipe_r ~stop:(close_finished reader)
-      (fun s -> Writer.write writer s)
-    >>= fun () ->
+    let%bind () =
+      Writer.transfer writer pipe_r ~stop:(close_finished reader)
+        (fun s -> Writer.write writer s)
+    in
     Writer.close writer);
   reader
 ;;

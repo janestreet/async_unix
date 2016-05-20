@@ -63,6 +63,10 @@ let set_max_num_jobs_per_priority_per_cycle i =
   Kernel_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
 ;;
 
+let max_num_jobs_per_priority_per_cycle () =
+  Kernel_scheduler.(max_num_jobs_per_priority_per_cycle (t ()))
+;;
+
 let force_current_cycle_to_end () = Kernel_scheduler.(force_current_cycle_to_end (t ()))
 
 type t =
@@ -222,7 +226,8 @@ let is_main_thread () = current_thread_id () = 0
 let remove_fd t fd = Fd_by_descr.remove t.fd_by_descr fd
 
 let maybe_start_closing_fd t (fd : Fd.t) =
-  if fd.num_active_syscalls = 0 then begin
+  if fd.num_active_syscalls = 0
+  then (
     match fd.state with
     | Closed | Open _ -> ()
     | Close_requested (execution_context, do_close_syscall) ->
@@ -231,8 +236,7 @@ let maybe_start_closing_fd t (fd : Fd.t) =
          reused by the OS and replaced. *)
       remove_fd t fd;
       Fd.set_state fd Closed;
-      Kernel_scheduler.enqueue t.kernel_scheduler execution_context do_close_syscall ();
-  end;
+      Kernel_scheduler.enqueue t.kernel_scheduler execution_context do_close_syscall ());
 ;;
 
 let dec_num_active_syscalls_fd t (fd : Fd.t) =
@@ -297,12 +301,12 @@ let update_check_access t do_check =
      then None
      else
        Some (fun () ->
-         if not (am_holding_lock t) then begin
+         if not (am_holding_lock t)
+         then (
            Debug.log "attempt to access Async from thread not holding the Async lock"
              (Backtrace.get (), t, Time.now ())
              [%sexp_of: Backtrace.t * t * Time.t];
-           exit 1;
-         end))
+           exit 1)))
 ;;
 
 (* Try to create a timerfd.  It returns [None] if [Core] is not built with timerfd support
@@ -328,7 +332,7 @@ let try_create_timerfd () =
 
 let default_handle_thread_pool_stuck ~stuck_for =
   if Time_ns.Span.(>=) stuck_for Config.report_thread_pool_stuck_for
-  then begin
+  then (
     let now = Time_ns.now () in
     let message =
       sprintf "\
@@ -347,8 +351,7 @@ let default_handle_thread_pool_stuck ~stuck_for =
 %!"
         message
         (Time_ns.Span.to_short_string
-           (Time_ns.Span.(-) Config.abort_after_thread_pool_stuck_for stuck_for))
-  end;
+           (Time_ns.Span.(-) Config.abort_after_thread_pool_stuck_for stuck_for)));
 ;;
 
 let detect_stuck_thread_pool t =
@@ -363,11 +366,11 @@ let detect_stuck_thread_pool t =
       let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
       if !is_stuck && num_work_completed = !stuck_num_work_completed
       then t.handle_thread_pool_stuck ~stuck_for:(Time_ns.diff now !became_stuck_at)
-      else begin
+      else (
         is_stuck := true;
         became_stuck_at := now;
         stuck_num_work_completed := num_work_completed;
-      end);
+      ));
 ;;
 
 let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
@@ -376,10 +379,10 @@ let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
 let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
   Read_write.set fd.watching read_or_write desired;
-  if not fd.watching_has_changed then begin
+  if not fd.watching_has_changed
+  then (
     fd.watching_has_changed <- true;
-    t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed;
-  end
+    t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed)
 ;;
 
 let request_start_watching t fd read_or_write watching =
@@ -391,7 +394,7 @@ let request_start_watching t fd read_or_write watching =
      doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
      file-descr-watcher to monitor such descriptors. *)
   then `Unsupported
-  else begin
+  else (
     let result =
       match Read_write.get fd.watching read_or_write with
       | Watch_once _ | Watch_repeatedly _ -> `Already_watching
@@ -416,8 +419,7 @@ let request_start_watching t fd read_or_write watching =
       set_fd_desired_watching t fd read_or_write watching;
       if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t;
     end;
-    result
-  end
+    result);
 ;;
 
 let request_stop_watching t fd read_or_write value =
@@ -573,6 +575,14 @@ let reset_in_forked_process () =
   init ();
 ;;
 
+let make_async_unusable () =
+  reset_in_forked_process ();
+  Async_kernel.Scheduler.make_async_unusable ();
+  the_one_and_only_ref :=
+    Ready_to_initialize (fun () ->
+      raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])
+;;
+
 let thread_safe_enqueue_external_job t f =
   Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
@@ -615,10 +625,10 @@ let sync_changed_fds_to_file_descr_watcher t =
 
 let maybe_calibrate_tsc t =
   let now = Tsc.now () in
-  if Tsc.compare now t.next_tsc_calibration >= 0 then begin
+  if Tsc.compare now t.next_tsc_calibration >= 0 then (
     Tsc.Calibrator.calibrate ();
     t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000));
-  end;
+  );
 ;;
 
 let create_job ?execution_context t f x =
@@ -754,16 +764,14 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   in
   if raise_unhandled_exn
   then Error.raise error
-  else begin
+  else (
     (try Pervasives.do_at_exit () with _ -> ());
     Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
     if should_dump_core
-    then begin
+    then (
       Debug.log_string "dumping core";
-      Dump_core_on_job_delay.dump_core ();
-    end;
-    exit 1;
-  end
+      Dump_core_on_job_delay.dump_core ());
+    exit 1);
 ;;
 
 let add_finalizer t heap_block f =
@@ -784,17 +792,17 @@ let go ?raise_unhandled_exn () =
   if not (am_holding_lock t) then lock t;
   if t.have_called_go then failwith "cannot Scheduler.go more than once";
   t.have_called_go <- true;
-  if not t.is_running then begin
+  if not t.is_running
+  then (
     t.is_running <- true;
-    be_the_scheduler t ?raise_unhandled_exn;
-  end else begin
+    be_the_scheduler t ?raise_unhandled_exn)
+  else (
     unlock t;
     (* We wakeup the scheduler so it can respond to whatever async changes this thread
        made. *)
     thread_safe_wakeup_scheduler t;
     (* Since the scheduler is already running, so we just pause forever. *)
-    Time.pause_forever ();
-  end
+    Time.pause_forever ());
 ;;
 
 let go_main
@@ -855,18 +863,20 @@ let set_max_inter_cycle_timeout span =
 ;;
 
 let start_busy_poller_thread_if_not_running t =
-  if not t.busy_poll_thread_is_running then begin
+  if not t.busy_poll_thread_is_running
+  then (
     t.busy_poll_thread_is_running <- true;
     let kernel_scheduler = t.kernel_scheduler in
     let _thread : Thread.t =
       Thread.create (fun () ->
         let rec loop () =
           lock t;
-          if Busy_pollers.is_empty t.busy_pollers then begin
+          if Busy_pollers.is_empty t.busy_pollers
+          then (
             t.busy_poll_thread_is_running <- false;
             unlock t;
-            (* We don't loop here, thus exiting the thread. *)
-          end else begin
+            (* We don't loop here, thus exiting the thread. *))
+          else (
             Busy_pollers.poll t.busy_pollers;
             if Kernel_scheduler.num_pending_jobs kernel_scheduler > 0
             then Kernel_scheduler.run_cycle kernel_scheduler;
@@ -876,14 +886,12 @@ let start_busy_poller_thread_if_not_running t =
                its time not holding both locks, which thus allows other OCaml threads
                that want to hold both locks the chance to run. *)
             Thread.yield ();
-            loop ();
-          end
+            loop ());
         in
-        loop ();
-      ) ()
+        loop ())
+        ()
     in
-    ()
-  end;
+    ());
 ;;
 
 let add_busy_poller poll =
@@ -935,6 +943,11 @@ let handle_thread_pool_stuck f =
 let yield () =
   let t = t () in
   Kernel_scheduler.yield t.kernel_scheduler;
+;;
+
+let yield_until_no_jobs_remain () =
+  let t = t () in
+  Kernel_scheduler.yield_until_no_jobs_remain t.kernel_scheduler;
 ;;
 
 let yield_every ~n =

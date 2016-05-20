@@ -102,7 +102,7 @@ val set_buffer_age_limit : t -> buffer_age_limit -> unit
     write to a pipe that broke because the consumer on the other side left. *)
 val consumer_left : t -> unit Deferred.t
 
-val of_out_channel : out_channel -> Fd.Kind.t -> t
+val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file.  *)
@@ -165,28 +165,45 @@ val set_fd : t -> Fd.t -> unit Deferred.t
       end
     ]}
 
-    If it is difficult to write only part of a value, one can choose to not support [?pos]
-    and [?len]:
+    In some cases it may be difficult to write only part of a value:
 
     {[
-      module Write_a : sig
-        val write : A.t -> Writer.t -> unit
+      module B : sig
+        type t
+        val length : t -> int
+        val blit_to_bigstring : t -> Bigstring.t -> pos:int -> unit
+      end
+    ]}
+
+    In these cases, use [write_gen_whole] instead.  It never requires writing only part of
+    a value, although it is potentially less space-efficient.  It may waste portions of
+    previously-allocated write buffers if they are too small.
+
+    {[
+      module Write_b : sig
+        val write : B.t -> Writer.t -> unit
       end = struct
-        let write a writer =
-          Writer.write_gen
-            ~length:A.length
-            ~blit_to_bigstring:A.blit_to_bigstring
-            writer a
+        let write b writer =
+          Writer.write_gen_whole
+            ~length:B.length
+            ~blit_to_bigstring:B.blit_to_bigstring
+            writer b
       end
     ]}
 *)
 val write_gen
-  :  length            : ('a -> int)
-  -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
-  -> ?pos              : int
+  :  ?pos              : int
   -> ?len              : int
   -> t
   -> 'a
+  -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
+  -> length            : ('a -> int)
+  -> unit
+val write_gen_whole
+  :  t
+  -> 'a
+  -> blit_to_bigstring : ('a -> Bigstring.t -> pos:int -> unit)
+  -> length            : ('a -> int)
   -> unit
 
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
@@ -323,6 +340,10 @@ val monitor : t -> Monitor.t
     is forced, data in the writer's buffer may not be written to the file descriptor.  You
     can check this by calling [bytes_to_write] after [close] finishes.
 
+    WARNING: [force_close] will not reliably stop any write that is in progress.
+    If there are any in-flight system calls, it will wait for them to finish, which
+    includes [writev], which can legitimately block forever.
+
     [close] will raise an exception if the [Unix.close] on the underlying file descriptor
     fails.
 
@@ -453,6 +474,18 @@ val save_sexps
   -> ?hum       : bool  (** default is [true] *)
   -> string
   -> Sexp.t list
+  -> unit Deferred.t
+
+(** [save_bin_prot t bin_writer 'a] writes ['a] to [t] using its bin_writer, in the
+    size-prefixed format, like [write_bin_prot].  To read a file produced using
+    [save_bin_prot], one would typically use [Reader.load_bin_prot]. *)
+val save_bin_prot
+  :  ?temp_file : string
+  -> ?perm      : Unix.file_perm
+  -> ?fsync     : bool  (** default is [false] *)
+  -> string
+  -> 'a Bin_prot.Type_class.writer
+  -> 'a
   -> unit Deferred.t
 
 (** [transfer' t pipe_r f] repeatedly reads values from [pipe_r] and feeds them to [f],

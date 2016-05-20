@@ -113,7 +113,7 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
           | `Write -> pre.write
         in
         List.fold fds ~init:[] ~f:(fun ac file_descr ->
-          match Syscall.syscall (fun () -> ignore (Unix.fstat file_descr)) with
+          match Syscall.syscall (fun () -> ignore (Unix.fstat file_descr : Unix.stats)) with
           | Ok () -> ac
           | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
           | Error exn ->

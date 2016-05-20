@@ -28,7 +28,9 @@ module Kind = struct
     | S_CHR -> Char
     | S_FIFO -> Fifo
     | S_SOCK ->
-      Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN then `Passive else `Active)
+      Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN
+              then `Passive
+              else `Active)
   ;;
 
   let infer_using_stat file_descr =
@@ -66,55 +68,64 @@ let stderr =
 ;;
 
 let clear_nonblock t =
-  if t.supports_nonblock then begin
+  if t.supports_nonblock
+  then (
     t.supports_nonblock <- false;
-    if t.have_set_nonblock then begin
+    if t.have_set_nonblock
+    then (
       t.have_set_nonblock <- false;
-      Unix.clear_nonblock t.file_descr;
-    end;
-  end;
+      Unix.clear_nonblock t.file_descr));
 ;;
 
-let close ?(should_close_file_descriptor = true) t =
-  if debug then Debug.log "Fd.close" t [%sexp_of: t];
-  begin match t.state with
-  | Close_requested _ | Closed -> ()
-  | Open close_started ->
-    Ivar.fill close_started ();
-    let do_close_syscall () =
-      don't_wait_for begin
-        let close_finished =
-          if not should_close_file_descriptor
-          then Deferred.unit
-          else
-            Monitor.protect
-              ~finally:(fun () ->
-                In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
-              (fun () ->
-                 match t.kind with
-                 | Socket `Active ->
-                   In_thread.syscall_exn ~name:"shutdown" (fun () ->
-                     Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
-                 | _ -> return ())
-        in
-        close_finished
-        >>| fun () ->
-        Ivar.fill t.close_finished ();
-      end
-    in
-    let scheduler = the_one_and_only () in
-    let kernel_scheduler = scheduler.kernel_scheduler in
-    set_state t
-      (Close_requested (Kernel_scheduler.current_execution_context kernel_scheduler,
-                        do_close_syscall));
-    (* Notify other users of this fd that it is going to be closed. *)
-    Scheduler.request_stop_watching scheduler t `Read  `Closed;
-    Scheduler.request_stop_watching scheduler t `Write `Closed;
-    (* If there are no syscalls in progress, then start closing the fd. *)
-    Scheduler.maybe_start_closing_fd scheduler t;
-  end;
-  Ivar.read t.close_finished;
-;;
+module Close = struct
+  type socket_handling =
+    | Shutdown_socket
+    | Do_not_shutdown_socket
+
+  type file_descriptor_handling =
+    | Close_file_descriptor of socket_handling
+    | Do_not_close_file_descriptor
+
+  let close ?(file_descriptor_handling = Close_file_descriptor Shutdown_socket) t =
+    if debug then Debug.log "Fd.close" t [%sexp_of: t];
+    begin match t.state with
+    | Close_requested _ | Closed -> ()
+    | Open close_started ->
+      Ivar.fill close_started ();
+      let do_close_syscall () =
+        don't_wait_for (
+          let%map () =
+            match file_descriptor_handling with
+            | Do_not_close_file_descriptor -> return ()
+            | Close_file_descriptor socket_handling ->
+              Monitor.protect
+                ~finally:(fun () ->
+                  In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
+                (fun () ->
+                   match t.kind, socket_handling with
+                   | Socket `Active, Shutdown_socket ->
+                     In_thread.syscall_exn ~name:"shutdown" (fun () ->
+                       Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
+                   | _ -> return ())
+          in
+          Ivar.fill t.close_finished ())
+      in
+      let scheduler = the_one_and_only () in
+      let kernel_scheduler = scheduler.kernel_scheduler in
+      set_state t
+        (Close_requested (Kernel_scheduler.current_execution_context kernel_scheduler,
+                          do_close_syscall));
+      (* Notify other users of this fd that it is going to be closed. *)
+      Scheduler.request_stop_watching scheduler t `Read  `Closed;
+      Scheduler.request_stop_watching scheduler t `Write `Closed;
+      (* If there are no syscalls in progress, then start closing the fd. *)
+      Scheduler.maybe_start_closing_fd scheduler t;
+    end;
+    Ivar.read t.close_finished;
+  ;;
+end
+
+include Close
 
 let close_finished t = Ivar.read t.close_finished
 
@@ -130,8 +141,7 @@ let with_file_descr_deferred t f =
   match inc_num_active_syscalls t with
   | `Already_closed -> return `Already_closed
   | `Ok ->
-    Monitor.try_with (fun () -> f t.file_descr)
-    >>| fun result ->
+    let%map result = Monitor.try_with (fun () -> f t.file_descr) in
     Scheduler.dec_num_active_syscalls_fd (the_one_and_only ()) t;
     match result with
     | Ok x -> `Ok x
@@ -139,8 +149,7 @@ let with_file_descr_deferred t f =
 ;;
 
 let with_file_descr_deferred_exn t f =
-  with_file_descr_deferred t f
-  >>| function
+  match%map with_file_descr_deferred t f with
   | `Ok x           -> x
   | `Error exn      -> raise exn
   | `Already_closed ->
@@ -194,8 +203,7 @@ let ready_to t read_or_write =
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Ready
   | `Watching ->
-    Ivar.read ready
-    >>| function
+    match%map Ivar.read ready with
     | `Bad_fd | `Closed | `Ready as x -> x
     | `Interrupted -> assert false (* impossible *)
 ;;
@@ -224,16 +232,16 @@ let every_ready_to t read_or_write f x =
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Unsupported
   | `Watching ->
-    Ivar.read finished
-    >>| function
+    match%map Ivar.read finished with
     | `Bad_fd | `Closed as x -> x
     | `Interrupted -> assert false (* impossible *)
 ;;
 
 let syscall_in_thread t ~name f =
-  with_file_descr_deferred t (fun file_descr ->
-    In_thread.syscall ~name (fun () -> f file_descr))
-  >>| function
+  match%map
+    with_file_descr_deferred t (fun file_descr ->
+      In_thread.syscall ~name (fun () -> f file_descr))
+  with
   | `Error e ->
     failwiths "Fd.syscall_in_thread problem -- please report this" e [%sexp_of: exn]
   | `Already_closed -> `Already_closed
@@ -244,8 +252,7 @@ let syscall_in_thread t ~name f =
 ;;
 
 let syscall_in_thread_exn t ~name f =
-  syscall_in_thread t ~name f
-  >>| function
+  match%map syscall_in_thread t ~name f with
   | `Ok x -> x
   | `Error exn -> raise exn
   | `Already_closed ->
@@ -280,9 +287,8 @@ let replace t kind info =
   if is_closed t
   then failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
          [%sexp_of: t * Kind.t * Scheduler.t]
-  else begin
+  else (
     t.kind <- kind;
     t.info <- Info.create "replaced" (info, `previously_was t.info)
-                [%sexp_of: Info.t * [ `previously_was of Info.t ]];
-  end
+                [%sexp_of: Info.t * [ `previously_was of Info.t ]]);
 ;;

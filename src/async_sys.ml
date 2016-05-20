@@ -30,18 +30,18 @@ let when_file_changes ?(poll_delay = sec 0.5) file =
   let rec loop () =
     Monitor.try_with (fun () -> Unix.stat file)
     >>> fun stat_result ->
-    if not (Pipe.is_closed writer) then begin
+    if not (Pipe.is_closed writer)
+    then (
       begin match stat_result with
       | Error _ -> ()
       | Ok st ->
         let mtime = st.mtime in
-        if mtime <> !last_reported_mtime then begin
+        if mtime <> !last_reported_mtime
+        then (
           last_reported_mtime := mtime;
-          Pipe.write_without_pushback writer mtime;
-        end
+          Pipe.write_without_pushback writer mtime);
       end;
-      Clock.after poll_delay >>> loop
-    end
+      Clock.after poll_delay >>> loop);
   in
   loop ();
   reader
