@@ -1,3 +1,120 @@
+## 113.43.00
+
+- Switched if-then-else style from:
+
+    if test then begin
+      E1;
+      E2;
+    end else begin
+      E3;
+      E4;
+    end
+
+  to:
+
+    if test
+    then (
+      E1;
+      E2)
+    else (
+      E3;
+      E4);
+
+  This style puts keywords at the start of lines and closing delimiters
+  at the end.  And makes it lighter-weight to be more consistent about
+  using the delimiters.
+
+- Switched `Async_unix` from `>>=` and `>>|` to `let%bind` and
+  `let%map`, where appropriate.
+
+- Fixed a race in `Thread_safe.block_on_async` that allowed Async code
+  to run without the scheduler starting.  There is important
+  initialization that happens when the scheduler starts, like handling
+  SIGPIPE.
+
+- Added `Scheduler.make_async_unusable`.
+
+- Fixed a bug in `Thread_safe.block_on_async_exn`.
+
+  The bug was that the execution context wasn't restored to the main
+  execution context in the main thread after returning from the call to
+  `Thread_safe.block_on_async`.  This leads to main-thread code running
+  in some random execution context.  If that code then raises, all hell
+  can break loose due to exceptions being sent to random monitors.
+
+- Make the Check_buffer_age edge-triggered; the exception is send to
+  the writer's monitor only when the state changes from not-backed-up to
+  backed-up.
+
+- Currently whether `phys_equal Writer.stdout Writer.stderr` when
+  running inline tests depends on a few factors:
+
+  - whether the  test is run by jenga or from the terminal
+  - when was Writer.{stdout,stderr} first forced: inside a test or not
+
+  This makes tests flaky and is confusing for users. This feature makes
+  sure that we always have the equality of writers when running inline
+  tests.
+
+- Changed `Async.Process.collect_output_and_wait` to *not* force close
+  on the process' stdin.  Maybe the process is just slow to consume its
+  input.  An external process working for 5s is not uncommon or
+  unreasonable at all and should be allowed.
+
+- Added convenience functions for reading and writing bin_prot via
+  Reader/Writer:
+
+    Writer.save_bin_prot
+    Reader.load_bin_prot
+    Reader.load_bin_prot_exn
+
+- Fixed a bug in Async's `Shutdown.shutdown`, which did not run
+  at-shutdown handlers in a try-with, and behaved badly (did not
+  shutdown) if an at-shutdown handler raised.
+
+- Moves the `Time_source` unit tests from
+  `async_unix/src/time_source_tests.ml` to
+  `async/test/test_time_source.ml` converting them to expect tests.
+
+- Make `write_gen` fail "gracefully" when `~length` or `~blit_to_bigstring` raise.
+
+- Make `write_gen` fail "gracefully" when `~length` or `~blit_to_bigstring` raise.
+
+- Fix a problem with `Writer.write_gen`.
+
+  Context: The `write_gen` function creates generic writing functions based on a
+  `blit_to_bigstring` function.  The blit function writes arbitrary portions of the input's
+  binary representation into a bigstring.
+
+  Problem: The current documentation claims that "If it is difficult to write only part of a
+  value, one can choose to not support `?pos` and `?len`."  However, even if `~pos` and
+  `~len` are never supplied, the implementation may choose to split the given value between
+  two write buffers, thus requiring the user of `write_gen` to provide a blit function that
+  writes only part of a value.
+
+  Solution: Add a function `write_gen_whole` that never splits a value, at the cost of
+  potentially wasting write buffer space.  Correct the documentation to refer users to the
+  new function, instead of the suggestion "to not support `?pos` and `?len`."
+
+- Reordered labeled arguments in some `Writer` code.
+
+- We occasionally need to pass stdin to a process, and right now it's
+  verbose to do because all of a sudden you can't use `run_lines_exn`
+  and friends.  Passing all of stdin upfront is oftentimes enough.
+
+- writer0 allocates a large chunk of memory at top level as a buffer for `write_sexp_internal`.
+  Make this lazy for callers that don't writer sexps, and reduce the initial size of the buffer.
+
+- Added module `Async.Std.Require_explicit_time_source`, so that one can
+  require code to be explicit about what time source is used and not
+  unintentionally use the wall clock.  The idiom is to do:
+
+    open! Require_explicit_time_source
+
+  or, in an import.ml:
+
+    include Require_explicit_time_source
+
 ## 113.33.00
 
 - expose a function to get the number of jobs that async has run since Scheduler.go
@@ -1038,4 +1155,3 @@
   - grow internal buffer of the reader when needed
 - Added `Shutdown.exit`, removed `Shutdown.shutdown_and_raise`.
 - Added `Scheduler.force_current_cycle_to_end`.
-
