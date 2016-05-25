@@ -848,6 +848,24 @@ let write_gen_internal
     maybe_start_writer t)
 ;;
 
+let write_direct t ~f =
+  if is_stopped_permanently t
+  then None
+  else (
+    let pos = t.back in
+    let len = Bigstring.length t.buf - pos in
+    let x, written = f t.buf ~pos ~len in
+    if written < 0 || written > len
+    then raise_s [%message "[write_direct]'s [~f] argument returned invalid [written]"
+                             (written : int)
+                             (len : int)
+                             ~writer:(t : t)];
+    t.back <- pos + written;
+    got_bytes t written;
+    maybe_start_writer t;
+    Some x)
+;;
+
 let write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length =
   let src_pos, src_len =
     Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(length src)

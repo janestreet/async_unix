@@ -190,6 +190,10 @@ val set_fd : t -> Fd.t -> unit Deferred.t
             writer b
       end
     ]}
+
+    Note: [write_gen] and [write_gen_whole] give you access to the writer's internal
+    buffer.  You should not capture it; doing so might lead to errors of the segfault
+    kind.
 *)
 val write_gen
   :  ?pos              : int
@@ -205,6 +209,19 @@ val write_gen_whole
   -> blit_to_bigstring : ('a -> Bigstring.t -> pos:int -> unit)
   -> length            : ('a -> int)
   -> unit
+
+(** [write_direct t ~f] gives [t]'s internal buffer to [f].  [pos] and [len] define the
+    portion of the buffer that can be filled.  [f] must return a pair [(x, written)] where
+    [written] is the number of bytes written to the buffer at [pos].  [write_direct]
+    raises if [written < 0 || written > len].  [write_direct] returns [Some x], or [None]
+    if the writer is stopped.  By using [write_direct] only, one can ensure that the
+    writer's internal buffer never grows.  Look at the [write_direct] expect tests for an
+    example of how this can be used to construct a [write_string] like function that never
+    grows the internal buffer. *)
+val write_direct
+  :  t
+  -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int)
+  -> 'a option
 
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
     contents of the string are copied to an internal buffer before [write] returns, so
