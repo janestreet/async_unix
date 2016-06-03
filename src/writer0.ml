@@ -1276,7 +1276,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
      [?max_num_values_per_read]. *)
   let rec iter () =
     if Ivar.is_full t.consumer_left
-    || Ivar.is_full t.close_finished
+    || Ivar.is_full t.close_started
     || Deferred.is_determined stop
     then
       (* The [choose] in [doit] will become determined and [doit] will do the right
@@ -1304,7 +1304,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
     match%map
       choose [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
              ; choice stop                      (fun () -> `Stop         )
-             ; choice (close_finished t)        (fun () -> `Writer_closed)
+             ; choice (close_started t)         (fun () -> `Writer_closed)
              ; choice (consumer_left  t)        (fun () -> `Consumer_left)
              ]
     with
