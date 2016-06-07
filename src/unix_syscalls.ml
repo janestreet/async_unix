@@ -423,6 +423,8 @@ let utimes name ~access ~modif =
 
 (* environment *)
 
+type env = Unix.env [@@deriving sexp]
+
 let environment = Unix.environment
 let getenv = Sys.getenv
 let getenv_exn = Sys.getenv_exn

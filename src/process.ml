@@ -3,7 +3,7 @@ open Import
 
 module Unix = Unix_syscalls
 
-type env = Core.Std.Unix.env [@@deriving sexp]
+type env = Unix.env [@@deriving sexp]
 
 type t =
   { pid         : Pid.t

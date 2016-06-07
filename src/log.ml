@@ -256,7 +256,7 @@ end = struct
       && t1.message = t2.message
       (* The same key can appear more than once in tags, and order shouldn't matter
          when comparing *)
-      && List.Assoc.compare String.compare String.compare
+      && List.compare [%compare: String.t * String.t]
            (List.sort ~cmp:compare_tags t1.tags) (List.sort ~cmp:compare_tags t2.tags)
          = 0
     ;;

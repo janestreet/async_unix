@@ -12,7 +12,7 @@ val stdin  : t -> Writer.t
 val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
-type env = Core.Std.Unix.env [@@deriving sexp]
+type env = Unix.env [@@deriving sexp]
 
 (** [create ~prog ~args ?working_dir ?env ()] uses [fork] and [exec] to create a child
     process that runs the executable [prog] with [args] as arguments.  It creates pipes to

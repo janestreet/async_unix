@@ -258,6 +258,7 @@ val localtime : float -> tm
 val mktime : tm -> float * tm
 val utimes : string -> access:float -> modif:float -> unit Deferred.t
 
+type env = Unix.env [@@deriving sexp]
 
 val environment : unit -> string array
 val getenv : string -> string option
@@ -277,7 +278,7 @@ val fork_exec
   :  prog      : string
   -> args      : string list
   -> ?use_path : bool  (** default is [true] *)
-  -> ?env      : [ Unix.env | `Replace_raw of string list ]
+  -> ?env      : [ env | `Replace_raw of string list ]
   -> unit
   -> Pid.t Deferred.t
 
