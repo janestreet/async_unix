@@ -24,6 +24,8 @@ module Level : sig
   include Stringable with type t := t
 
   val arg : t Command.Spec.Arg_type.t
+
+  val as_or_more_verbose_than : log_level:t -> msg_level:t option -> bool
 end
 
 module Message : sig

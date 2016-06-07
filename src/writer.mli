@@ -391,6 +391,11 @@ val is_closed : t -> bool
 val is_open   : t -> bool
 val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
 
+(** [can_write t] returns [true] if calls to [write*] functions on [t] are allowed.  If
+    [is_open t] then [can_write t].  But one can have [is_closed t] and [can_write t],
+    during the time after [close t] before closing has finished. *)
+val can_write : t -> bool
+
 (* In addition to flushing its internal buffer prior to closing, a writer keeps track of
    producers that are feeding it data, so that when [Writer.close] is called, it does the
    following:

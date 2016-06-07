@@ -297,7 +297,7 @@ val wait_nohang_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) option
 (** [waitpid pid] returns a deferred that becomes determined with the child's exit
     status, when the child process with process id [pid] exits.  [waitpid_exn] is like
     [waitpid], except the result only becomes determined if the child exits with status
-    zero; it raises if the child terminates win any other way. *)
+    zero; it raises if the child terminates in any other way. *)
 val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
 val waitpid_exn : Pid.t -> unit             Deferred.t
 

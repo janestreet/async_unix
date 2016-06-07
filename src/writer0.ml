@@ -553,11 +553,16 @@ let set_buffer_age_limit t maximum_age =
 
 let of_out_channel oc kind = create (Fd.of_out_channel oc kind)
 
-let ensure_can_write t =
+let can_write t =
   match t.close_state with
-  | `Open | `Closed_and_flushing -> ()
-  | `Closed ->
-    failwiths "attempt to use closed writer" t [%sexp_of: t]
+  | `Open | `Closed_and_flushing -> true
+  | `Closed -> false
+;;
+
+let ensure_can_write t =
+  if not (can_write t)
+  then (
+    failwiths "attempt to use closed writer" t [%sexp_of: t])
 ;;
 
 let open_file ?(append = false) ?(close_on_exec = true) ?(perm = 0o666) file =
@@ -1276,7 +1281,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
      [?max_num_values_per_read]. *)
   let rec iter () =
     if Ivar.is_full t.consumer_left
-    || Ivar.is_full t.close_started
+    || not (can_write t)
     || Deferred.is_determined stop
     then
       (* The [choose] in [doit] will become determined and [doit] will do the right
@@ -1304,7 +1309,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
     match%map
       choose [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
              ; choice stop                      (fun () -> `Stop         )
-             ; choice (close_started t)         (fun () -> `Writer_closed)
+             ; choice (close_finished t)        (fun () -> `Writer_closed)
              ; choice (consumer_left  t)        (fun () -> `Consumer_left)
              ]
     with
