@@ -54,7 +54,7 @@ type 'a with_options
   -> ?priority : Priority.t
   -> 'a
 
-(* val current_execution_context : unit -> Execution_context.t *)
+val current_execution_context : unit -> Execution_context.t
 
 (** [within_context context f] runs [f ()] right now with the specified execution
     context.  If [f] raises, then the exception is sent to the monitor of [context], and

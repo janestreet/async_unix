@@ -28,3 +28,5 @@ let set_min_inter_cycle_timeout min_inter_cycle_timeout =
 ;;
 
 let max_num_threads () = max_num_threads (t ())
+
+let current_execution_context () = current_execution_context (t ())
