@@ -241,7 +241,8 @@ end
 let fstat fd = Fd.syscall_in_thread_exn fd ~name:"fstat" Unix.fstat >>| Stats.of_unix
 
 let stat filename =
-  In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
+  In_thread.syscall_exn ~name:"stat" (fun () ->
+    Unix.stat filename) >>| Stats.of_unix
 ;;
 
 let lstat filename =
