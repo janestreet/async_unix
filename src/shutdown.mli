@@ -42,6 +42,9 @@ val shutdown_on_unhandled_exn : unit -> unit
     reasoning guarantees that Async gives about concurrent jobs. *)
 val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 
+(** [default_force] returns the default [force] value used by [shutdown] and [exit]. *)
+val default_force : unit -> (unit -> unit Deferred.t)
+
 (** [set_default_force f] sets to [f] the default [force] value used by [shutdown] and
     [exit].  Initially, the default value is [fun () -> after (sec 10.)].  A subsequent
     call to [shutdown] or [exit] that doesn't supply [~force] will call [f] and will force

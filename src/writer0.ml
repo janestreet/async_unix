@@ -410,7 +410,8 @@ let final_flush ?force t =
          [after (sec 5.)]  makes sense. *)
       match Fd.kind t.fd with
       | File -> Deferred.never ()
-      | Char | Fifo | Socket _ -> Clock.after (sec 5.)
+      | Char | Fifo | Socket _ ->
+        Clock.after (sec 5.)
   in
   Deferred.any_unit
     [ (* If the consumer leaves, there's no more writing we can do. *)

@@ -17,11 +17,12 @@ let shutting_down_ref = ref `No
 
 let default_force_ref = ref (fun () -> Clock.after (sec 10.))
 
+let default_force () = !default_force_ref
 let set_default_force force = default_force_ref := force
 
 let shutting_down () = !shutting_down_ref
 
-let shutdown ?(force = !default_force_ref ()) status =
+let shutdown ?force status =
   if debug then Debug.log "shutdown" status [%sexp_of: int];
   match !shutting_down_ref with
   | `Yes status' ->
@@ -54,7 +55,13 @@ let shutdown ?(force = !default_force_ref ()) status =
              | Ok () -> status
              | Error _ -> if status = 0 then 1 else status
            in
-           exit status);
+           exit status
+      );
+    let force =
+      match force with
+      | None -> !default_force_ref ()
+      | Some f -> f
+    in
     upon force (fun () ->
       Debug.log_string "Shutdown forced.";
       exit 1);
