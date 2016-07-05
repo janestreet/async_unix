@@ -96,6 +96,13 @@ module Lines_or_sexp = struct
     | Sexp of Sexp.t
   [@@deriving sexp_of]
 
+  let sexp_of_t t =
+    match t with
+    | Lines ([] | [""]) -> [%sexp ""]
+    | Lines lines -> [%sexp (lines : string list)]
+    | Sexp sexp -> sexp
+  ;;
+
   let create string =
     try Sexp (Sexp.of_string (String.strip string))
     with _ -> Lines (String.split ~on:'\n' string)
@@ -103,11 +110,17 @@ module Lines_or_sexp = struct
 end
 
 module Failure = struct
+
+  let should_drop_env = function
+    | `Extend [] -> true
+    | `Extend (_ :: _) | `Replace _ | `Replace_raw _ -> false
+  ;;
+
   type t =
     { prog        : string
     ; args        : string list
-    ; working_dir : string option
-    ; env         : env
+    ; working_dir : string sexp_option
+    ; env         : env [@sexp_drop_if should_drop_env]
     ; exit_status : Unix.Exit_or_signal.error
     ; stdout      : Lines_or_sexp.t
     ; stderr      : Lines_or_sexp.t
