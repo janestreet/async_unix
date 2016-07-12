@@ -402,7 +402,7 @@ module Socket : sig
                      | ---connect--> Active
       v}
   *)
-  type ('a, 'b) t
+  type (+'a, 'b) t
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
     constraint 'b = [< Address.t ]
   [@@deriving sexp_of]

@@ -566,12 +566,12 @@ let ensure_can_write t =
     failwiths "attempt to use closed writer" t [%sexp_of: t])
 ;;
 
-let open_file ?(append = false) ?(close_on_exec = true) ?(perm = 0o666) file =
+let open_file ?(append = false) ?buf_len ?(close_on_exec = true) ?(perm = 0o666) file =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm ~close_on_exec >>| create
+  Unix.openfile file ~mode ~perm ~close_on_exec >>| create ?buf_len
 ;;
 
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)

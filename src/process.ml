@@ -18,7 +18,8 @@ type t =
 [@@deriving fields, sexp_of]
 
 type 'a create
-  =  ?env         : env
+  =  ?buf_len     : int
+  -> ?env         : env
   -> ?stdin       : string
   -> ?working_dir : string
   -> prog         : string
@@ -26,7 +27,15 @@ type 'a create
   -> unit
   -> 'a Deferred.t
 
-let create ?(env = `Extend []) ?stdin:write_to_stdin ?working_dir ~prog ~args () =
+let create
+      ?buf_len
+      ?(env = `Extend [])
+      ?stdin:write_to_stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
       Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
@@ -43,9 +52,9 @@ let create ?(env = `Extend []) ?stdin:write_to_stdin ?working_dir ~prog ~args ()
     in
     let t =
       { pid
-      ; stdin  = Writer.create (create_fd "stdin"  stdin )
-      ; stdout = Reader.create (create_fd "stdout" stdout)
-      ; stderr = Reader.create (create_fd "stderr" stderr)
+      ; stdin  = Writer.create ?buf_len (create_fd "stdin"  stdin )
+      ; stdout = Reader.create ?buf_len (create_fd "stdout" stdout)
+      ; stderr = Reader.create ?buf_len (create_fd "stderr" stderr)
       ; prog
       ; args
       ; working_dir
@@ -59,8 +68,8 @@ let create ?(env = `Extend []) ?stdin:write_to_stdin ?working_dir ~prog ~args ()
     Ok t
 ;;
 
-let create_exn ?env ?stdin ?working_dir ~prog ~args () =
-  create ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
+let create_exn ?buf_len ?env ?stdin ?working_dir ~prog ~args () =
+  create ?buf_len ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
 ;;
 
 module Output = struct

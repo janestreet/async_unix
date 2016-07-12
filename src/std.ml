@@ -61,10 +61,9 @@ include struct
 
   module Overwrite_ = struct
     let overwrite1 (`This_is_async__Think_about_blocking as x) = x
-    let wrap f `This_is_async__Think_about_blocking = f
-    let overwrite2 = wrap overwrite1
-    let overwrite3 = wrap overwrite2
-    let overwrite4 = wrap overwrite3
+    let overwrite2 `This_is_async__Think_about_blocking = overwrite1
+    let overwrite3 `This_is_async__Think_about_blocking = overwrite2
+    let overwrite4 `This_is_async__Think_about_blocking = overwrite3
     let overwritef f = ksprintf (fun _ -> `This_is_async__Think_about_blocking) f
   end
   open Overwrite_

@@ -597,7 +597,7 @@ let have_lock_do_cycle t =
 
 let sync_changed_fds_to_file_descr_watcher t =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-  let make_file_descr_watcher_agree_with (fd : Fd.t) =
+  let[@inline always] make_file_descr_watcher_agree_with (fd : Fd.t)  =
     fd.watching_has_changed <- false;
     let desired =
       Read_write.mapi fd.watching ~f:(fun read_or_write watching ->

@@ -69,6 +69,7 @@ let c_int_size     = Sys.c_int_size
 let execution_mode = Sys.execution_mode
 let getenv         = Sys.getenv
 let getenv_exn     = Sys.getenv_exn
+let int_size       = Sys.int_size
 let interactive    = Sys.interactive
 let ocaml_version  = Sys.ocaml_version
 let os_type        = Sys.os_type

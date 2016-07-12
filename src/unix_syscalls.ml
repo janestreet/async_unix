@@ -645,7 +645,7 @@ module Socket = struct
     }
   [@@deriving sexp_of]
 
-  type ('a, 'b) t = 'b t_
+  type (+'a, 'b) t = 'b t_
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
   [@@deriving sexp_of]
 

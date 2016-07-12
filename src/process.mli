@@ -14,11 +14,14 @@ val stderr : t -> Reader.t
 
 type env = Unix.env [@@deriving sexp]
 
-(** [create ~prog ~args ?working_dir ?env ()] uses [fork] and [exec] to create a child
-    process that runs the executable [prog] with [args] as arguments.  It creates pipes to
-    communicate with the child process's [stdin], [stdout], and [stderr].
+(** [create ~prog ~args ()] uses [fork] and [exec] to create a child process that runs the
+    executable [prog] with [args] as arguments.  It creates pipes to communicate with the
+    child process's [stdin], [stdout], and [stderr].
 
     Unlike [exec], [args] should not include [prog] as the first argument.
+
+    If [buf_len] is supplied, it determines the size of the reader and writer buffers used
+    to communicate with the child process's [stdin], [stdout], and [stderr].
 
     [env] specifies the environment of the child process.
 
@@ -30,7 +33,8 @@ type env = Unix.env [@@deriving sexp]
     to [working_dir], etc.).  [create] does not return [error] if [exec] fails; instead,
     it returns [OK t], where [wait t] returns an [Error]. *)
 type 'a create
-  =  ?env         : env  (** default is [`Extend []] *)
+  =  ?buf_len     : int
+  -> ?env         : env  (** default is [`Extend []] *)
   -> ?stdin       : string
   -> ?working_dir : string
   -> prog         : string

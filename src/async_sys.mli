@@ -44,6 +44,7 @@ val ls_dir : string -> string list Deferred.t
 val interactive : bool ref
 val os_type : string
 val word_size : int
+val int_size : int
 
 val ocaml_version : string
 
