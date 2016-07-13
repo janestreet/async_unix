@@ -103,7 +103,6 @@ module Lines_or_sexp = struct
   type t =
     | Lines of string list
     | Sexp of Sexp.t
-  [@@deriving sexp_of]
 
   let sexp_of_t t =
     match t with
