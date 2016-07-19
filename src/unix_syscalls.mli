@@ -303,7 +303,7 @@ val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
 val waitpid_exn : Pid.t -> unit             Deferred.t
 
 module Inet_addr : sig
-  type t = Unix.Inet_addr.t [@@deriving bin_io, compare, sexp_of]
+  type t = Unix.Inet_addr.t [@@deriving bin_io, compare, hash, sexp_of]
 
   val t_of_sexp : Sexp.t -> t
     [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]

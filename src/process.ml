@@ -14,6 +14,7 @@ type t =
   ; args        : string list
   ; working_dir : string option
   ; env         : env
+  ; wait        : Unix.Exit_or_signal.t Deferred.t Lazy.t
   }
 [@@deriving fields, sexp_of]
 
@@ -52,13 +53,14 @@ let create
     in
     let t =
       { pid
-      ; stdin  = Writer.create ?buf_len (create_fd "stdin"  stdin )
-      ; stdout = Reader.create ?buf_len (create_fd "stdout" stdout)
-      ; stderr = Reader.create ?buf_len (create_fd "stderr" stderr)
+      ; stdin       = Writer.create ?buf_len (create_fd "stdin"  stdin )
+      ; stdout      = Reader.create ?buf_len (create_fd "stdout" stdout)
+      ; stderr      = Reader.create ?buf_len (create_fd "stderr" stderr)
       ; prog
       ; args
       ; working_dir
       ; env
+      ; wait        = lazy (Unix.waitpid pid)
       }
     in
     begin match write_to_stdin with
@@ -87,7 +89,7 @@ module Output = struct
   include Stable.V1
 end
 
-let wait t = Unix.waitpid t.pid
+let wait t = force t.wait
 
 let collect_output_and_wait t =
   let stdout = Reader.contents t.stdout in
