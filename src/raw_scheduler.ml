@@ -55,9 +55,8 @@ let cycle_start () = Time_ns.to_time (cycle_start_ns ())
 let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
 let cycle_times    () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span
 
-let event_precision () =
-  Time_ns.Span.to_span Kernel_scheduler.(event_precision (t ()))
-;;
+let event_precision_ns () = Kernel_scheduler.(event_precision (t ()))
+let event_precision () = Time_ns.Span.to_span (event_precision_ns ())
 
 let set_max_num_jobs_per_priority_per_cycle i =
   Kernel_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
