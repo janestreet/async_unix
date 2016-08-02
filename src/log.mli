@@ -218,6 +218,23 @@ module Blocking : sig
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
+
+(** [sexp] logging of sexps. *)
+  val sexp
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> Sexp.t
+    -> unit
+
+  (** [surround] logs before and after.  See more detailed comment for async surround. *)
+  val surround
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> Sexp.t
+    -> (unit -> 'a)
+    -> 'a
 end
 
 type t [@@deriving sexp_of]
@@ -285,6 +302,14 @@ module type Global_intf = sig
     -> unit
 
   val message : Message.t -> unit
+
+  val surround
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> Sexp.t
+    -> (unit -> 'a Deferred.t)
+    -> 'a Deferred.t
 end
 
 (** This functor can be called to generate "singleton" logging modules *)
@@ -396,6 +421,19 @@ val string
 
 (** [message] log a preexisting message *)
 val message : t -> Message.t -> unit
+
+(* [surround t message f] logs [message] and a UUID once before calling [f] and again
+   after [f] returns or raises. If [f] raises, the second message will include the
+   exception, and [surround] itself will re-raise the exception tagged with [message]. As
+   usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
+val surround
+  :  ?level : Level.t
+  -> ?time : Time.t
+  -> ?tags : (string * string) list
+  -> t
+  -> Sexp.t
+  -> (unit -> 'a Deferred.t)
+  -> 'a Deferred.t
 
 (** [would_log] returns true if a message at the given log level would be logged if sent
     immediately. *)

@@ -1075,6 +1075,26 @@ let printf ?level ?time ?tags t fmt =
   ksprintf (fun msg -> string ?level ?time ?tags t msg) fmt
 ;;
 
+let surround_gen msg try_with f map sexp =
+  let uuid =
+    if Ppx_inline_test_lib.Runtime.testing
+    then Uuid.Stable.V1.for_testing
+    else (Uuid.create ())
+  in
+  sexp [%message "Log.surround" ~_:(uuid : Uuid.t) "Enter" ~_:(msg : Sexp.t) ];
+  map (try_with f) ~f:(function
+    | Ok x ->
+      sexp [%message "Log.surround" ~_:(uuid : Uuid.t) "Exit" ~_:(msg : Sexp.t) ];
+      x
+    | Error exn ->
+      sexp [%message "Log.surround" ~_:(uuid : Uuid.t) "Raised" ~_:(msg : Sexp.t) (exn : exn)];
+      Exn.reraise exn (sprintf !"%{sexp:Sexp.t}" msg))
+;;
+
+let surround ?level ?time ?tags t msg f =
+  surround_gen msg Monitor.try_with f Deferred.map (sexp ?level ?time ?tags t)
+;;
+
 let raw   ?time ?tags t fmt = printf ?time ?tags t fmt
 let debug ?time ?tags t fmt = printf ~level:`Debug ?time ?tags t fmt
 let info  ?time ?tags t fmt = printf ~level:`Info  ?time ?tags t fmt
@@ -1129,6 +1149,14 @@ module type Global_intf = sig
     -> unit
 
   val message : Message.t -> unit
+
+  val surround
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> Sexp.t
+    -> (unit -> 'a Deferred.t)
+    -> 'a Deferred.t
 end
 
 module Make_global() : Global_intf = struct
@@ -1163,6 +1191,8 @@ module Make_global() : Global_intf = struct
   let sexp     ?level ?time ?tags s         = sexp ?level ?time ?tags (Lazy.force log) s
   let string   ?level ?time ?tags s         = string ?level ?time ?tags (Lazy.force log) s
   let message msg = message (Lazy.force log) msg
+  let surround ?level ?time ?tags msg f =
+    surround ?level ?time ?tags (Lazy.force log) msg f
 end
 
 module Blocking : sig
@@ -1181,6 +1211,19 @@ module Blocking : sig
   val info       : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
   val error      : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
   val debug      : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
+  val sexp
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> Sexp.t
+    -> unit
+  val surround
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> Sexp.t
+    -> (unit -> 'a)
+    -> 'a
 end = struct
   module Output = struct
     type t = Message.t -> unit
@@ -1219,6 +1262,14 @@ end = struct
   let debug ?time ?tags k = gen ~level:`Debug ?time ?tags k
   let info  ?time ?tags k = gen ~level:`Info  ?time ?tags k
   let error ?time ?tags k = gen ~level:`Error ?time ?tags k
+  let sexp  ?level:msg_level ?time ?tags sexp =
+    if Level.as_or_more_verbose_than ~log_level:(level ()) ~msg_level
+    then (write (Message.create ?level:msg_level ?time ?tags (`Sexp sexp)))
+
+  let surround ?level ?time ?tags msg f =
+    surround_gen msg Result.try_with f (fun x ~f -> f x) (sexp ?level ?time ?tags)
+  ;;
+
 end
 
 (* Programs that want simplistic single-channel logging can open this module.  It provides
