@@ -35,7 +35,7 @@ let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 let system_exn s =
   let%map status = system s in
   if not (Result.is_ok status)
-  then failwiths "system failed" (s, status) [%sexp_of: string * Exit_or_signal.t]
+  then (failwiths "system failed" (s, status) [%sexp_of: string * Exit_or_signal.t])
 ;;
 
 let getpid      () = Unix.getpid      ()
@@ -45,7 +45,7 @@ let getppid_exn () = Unix.getppid_exn ()
 let this_process_became_child_of_init ?(poll_delay = sec 1.) () =
   Deferred.create (fun i ->
     Clock.every poll_delay ~stop:(Ivar.read i) (fun () ->
-      if getppid_exn () = Pid.init then Ivar.fill i ()))
+      if getppid_exn () = Pid.init then (Ivar.fill i ())))
 ;;
 
 let nice i = Unix.nice i
@@ -94,7 +94,7 @@ let openfile ?perm ?(close_on_exec = false) file ~mode =
   let%bind file_descr =
     In_thread.syscall_exn ~name:"openfile" (fun () ->
       let file_descr = Unix.openfile ?perm file ~mode in
-      if close_on_exec then Unix.set_close_on_exec file_descr;
+      if close_on_exec then (Unix.set_close_on_exec file_descr);
       file_descr)
   in
   let%map kind = Fd.Kind.infer_using_stat file_descr in
@@ -484,9 +484,10 @@ let waitpid pid =
 let waitpid_exn pid =
   let%map exit_or_signal = waitpid pid in
   if Result.is_error exit_or_signal
-  then failwiths "child process didn't exit with status zero"
-         (`Child_pid pid, exit_or_signal)
-         [%sexp_of: [ `Child_pid of Pid.t ] * Exit_or_signal.t]
+  then (
+    failwiths "child process didn't exit with status zero"
+      (`Child_pid pid, exit_or_signal)
+      [%sexp_of: [ `Child_pid of Pid.t ] * Exit_or_signal.t])
 ;;
 
 module Inet_addr = struct
@@ -861,8 +862,8 @@ module Socket = struct
           | `Error exn -> raise exn
           | `Ok err ->
             if err = 0
-            then success ()
-            else Unix.unix_error err "connect" (Address.to_string address)
+            then (success ())
+            else (Unix.unix_error err "connect" (Address.to_string address))
       end
     | `Error e -> raise e
   ;;

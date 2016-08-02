@@ -12,9 +12,9 @@ let%test_module "Fd" =
     let wait_until_cell_is_equal_to cell expected =
       let rec loop tries =
         if tries = 0
-        then return false
+        then (return false)
         else if String.equal !cell expected
-        then return true
+        then (return true)
         else (
           let%bind () = Clock.after (sec 0.1) in
           loop (tries - 1))

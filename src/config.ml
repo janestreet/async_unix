@@ -18,7 +18,7 @@ let max_num_open_file_descrs =
     if Max_num_open_file_descrs.equal
          max_num_open_file_descrs
          Max_num_open_file_descrs.default
-    then Max_num_open_file_descrs.create_exn 1024
+    then (Max_num_open_file_descrs.create_exn 1024)
     else max_num_open_file_descrs
 ;;
 

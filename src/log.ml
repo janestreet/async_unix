@@ -154,7 +154,7 @@ module Rotation = struct
     let candidate = first_at_or_after time in
     (* we take care not to return the same time we were given *)
     if Time.equal time candidate
-    then first_at_or_after (Time.add time Time.Span.robust_comparison_tolerance)
+    then (first_at_or_after (Time.add time Time.Span.robust_comparison_tolerance))
     else candidate
   ;;
 
@@ -305,8 +305,9 @@ end = struct
 
       let t_of_versioned_serializable (version, t) =
         if Version.(<>) version T.version
-        then failwithf !"version mismatch %{Version} <> to expected version %{Version}"
-               version T.version ()
+        then (
+          failwithf !"version mismatch %{Version} <> to expected version %{Version}"
+            version T.version ())
         else t
       ;;
 
@@ -618,7 +619,7 @@ end = struct
 
       let parse_filename_id ~basename filename =
         if Filename.basename filename = basename ^ ".log"
-        then Id.of_string_opt None
+        then (Id.of_string_opt None)
         else begin
           let open Option.Monad_infix in
           String.chop_prefix (Filename.basename filename) ~prefix:(basename ^ ".")
@@ -686,9 +687,9 @@ end = struct
         |> Deferred.List.iter ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
           let dst = make_filename ~dirname ~basename id' in
-          if src = t.filename then Tail.extend t.log_files dst;
+          if src = t.filename then (Tail.extend t.log_files dst);
           if Id.cmp_newest_first id id' <> 0
-          then Unix.rename ~src ~dst
+          then (Unix.rename ~src ~dst)
           else Deferred.unit)
         >>= fun () ->
         maybe_delete_old_logs ~dirname ~basename t.rotation.keep
@@ -708,7 +709,7 @@ end = struct
                ~last_size:(Byte_units.create `Bytes (Float.of_int t.last_size))
                ~last_time:t.last_time
                ~current_time
-          then rotate t
+          then (rotate t)
           else Deferred.unit)
         (* rotation errors are not worth potentially crashing the process. *)
         >>= fun (_ : unit Or_error.t) ->
@@ -755,7 +756,7 @@ end = struct
               >>= fun () ->
               write t msgs
             end else
-              write t msgs), log_files
+              (write t msgs)), log_files
       ;;
     end
 
@@ -859,9 +860,10 @@ let sexp_of_t _t = Sexp.Atom "<opaque>"
 
 let push_update t update =
   if not (Pipe.is_closed t.updates)
-  then Pipe.write_without_pushback t.updates update
-  else failwithf "Log: can't process %s because this log has been closed"
-         (Update.to_string update) ()
+  then (Pipe.write_without_pushback t.updates update)
+  else (
+    failwithf "Log: can't process %s because this log has been closed"
+      (Update.to_string update) ())
 ;;
 
 let flushed t = Deferred.create (fun i -> push_update t (Flush i))
@@ -933,7 +935,7 @@ let create_log_processor ~output =
   let msgs                   = Queue.create () in
   let output_message_queue f =
     if Queue.length msgs = 0
-    then f ()
+    then (f ())
     else begin
       (Output.write !output) msgs
       >>= fun () ->
@@ -1057,16 +1059,16 @@ let would_log t msg_level =
 
 let message t msg =
   if would_log t (Message.level msg)
-  then push_update t (Msg msg)
+  then (push_update t (Msg msg))
 
 let sexp ?level ?time ?tags t sexp =
   if would_log t level
-  then push_update t (Msg (Message.create ?level ?time ?tags (`Sexp sexp)))
+  then (push_update t (Msg (Message.create ?level ?time ?tags (`Sexp sexp))))
 ;;
 
 let string ?level ?time ?tags t s =
   if would_log t level
-  then push_update t (Msg (Message.create ?level ?time ?tags (`String s)))
+  then (push_update t (Msg (Message.create ?level ?time ?tags (`String s))))
 ;;
 
 let printf ?level ?time ?tags t fmt =
@@ -1200,7 +1202,7 @@ end = struct
 
   let write msg =
     if Scheduler.is_running ()
-    then failwith "Log.Global.Blocking function called after scheduler started";
+    then (failwith "Log.Global.Blocking function called after scheduler started");
     !write msg
   ;;
 

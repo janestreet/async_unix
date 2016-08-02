@@ -15,11 +15,11 @@ let syscall =
   let rec loop f n =
     if n >= max_tries
     then too_many_tries_error
-    else
+    else (
       match f () with
       | x -> Ok x
       | exception (Unix.Unix_error (EINTR, _, _)) -> loop f (n + 1)
-      | exception exn -> Error exn
+      | exception exn -> Error exn)
   in
   fun f ->
     loop f 0
@@ -30,12 +30,12 @@ let is_eintr r = Syscall_result.is_error r && Syscall_result.error_exn r = EINTR
 let syscall_result =
   let rec loop a f n =
     if n >= max_tries
-    then raise too_many_tries
-    else
+    then (raise too_many_tries)
+    else (
       let r = f a in
       if not (is_eintr r)
       then r
-      else loop a f (n + 1)
+      else (loop a f (n + 1)))
   in
   fun a f ->
     loop a f 0
@@ -44,12 +44,12 @@ let syscall_result =
 let syscall_result2 =
   let rec loop a b f n =
     if n >= max_tries
-    then raise too_many_tries
-    else
+    then (raise too_many_tries)
+    else (
       let r = f a b in
       if not (is_eintr r)
       then r
-      else loop a b f (n + 1)
+      else (loop a b f (n + 1)))
   in
   fun a b f ->
     loop a b f 0
@@ -82,7 +82,7 @@ let%test_module "syscall_result" = (module struct
         do_syscall (fun () ->
           if !first_call
           then (first_call := false; Syscall_result.Unit.create_error EINTR)
-          else Syscall_result.Unit.create_ok ())
+          else (Syscall_result.Unit.create_ok ()))
       in
       r |> Syscall_result.Unit.ok_exn)
   ;;
@@ -94,7 +94,7 @@ let%test_module "syscall_result" = (module struct
         do_syscall (fun () ->
           if !first_call
           then (first_call := false; Syscall_result.Unit.create_error EINTR)
-          else Syscall_result.Unit.create_error ENOSYS)
+          else (Syscall_result.Unit.create_error ENOSYS))
       in
       assert (Syscall_result.Unit.error_exn r = ENOSYS))
   ;;

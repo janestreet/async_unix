@@ -178,7 +178,7 @@ module Internal = struct
          call [setpriority], and thus prevent problems due to the user's "ulimit -e" being
          too restrictive. *)
       if not (Priority.equal (getpriority ()) t.priority)
-      then setpriority t.priority;
+      then (setpriority t.priority);
     ;;
 
     let set_name t name =
@@ -297,9 +297,10 @@ module Internal = struct
 
   let create ~max_num_threads =
     if max_num_threads < 1
-    then error "Thread_pool.create max_num_threads was < 1" max_num_threads
-           [%sexp_of: int]
-    else
+    then (
+      error "Thread_pool.create max_num_threads was < 1" max_num_threads
+        [%sexp_of: int])
+    else (
       let t =
         { id                                      = Pool_id.create ()
         ; state                                   = `In_use
@@ -316,7 +317,7 @@ module Internal = struct
         ; num_work_completed                      = 0
         }
       in
-      Ok t
+      Ok t)
   ;;
 
   let maybe_finish t =
@@ -345,7 +346,7 @@ module Internal = struct
   ;;
 
   let finished_with t =
-    if debug then Debug.log "Thread_pool.finished_with" t [%sexp_of: t];
+    if debug then (Debug.log "Thread_pool.finished_with" t [%sexp_of: t]);
     match t.state with
     | `Finishing | `Finished -> ()
     | `In_use ->
@@ -360,7 +361,7 @@ module Internal = struct
 
   let make_thread_available t thread =
     if debug
-    then Debug.log "make_thread_available" (thread, t) [%sexp_of: Thread.t * t];
+    then (Debug.log "make_thread_available" (thread, t) [%sexp_of: Thread.t * t]);
     match Queue.dequeue t.work_queue with
     | Some work -> assign_work_to_thread thread work
     | None ->
@@ -381,7 +382,7 @@ module Internal = struct
   ;;
 
   let create_thread t =
-    if debug then Debug.log "create_thread" t [%sexp_of: t];
+    if debug then (Debug.log "create_thread" t [%sexp_of: t]);
     let thread = Thread.create t.default_priority in
     let ocaml_thread =
       Or_error.try_with (fun () ->
@@ -392,8 +393,9 @@ module Internal = struct
             | Stop -> ()
             | Work work ->
               if debug
-              then Debug.log "thread got work" (work, thread, t)
-                     [%sexp_of: Work.t * Thread.t * t];
+              then (
+                Debug.log "thread got work" (work, thread, t)
+                  [%sexp_of: Work.t * Thread.t * t]);
               Thread.set_name thread work.name;
               Thread.set_priority thread work.priority;
               (try
@@ -401,8 +403,8 @@ module Internal = struct
                with _ -> ());
               t.num_work_completed <- t.num_work_completed + 1;
               if debug
-              then Debug.log "thread finished with work" (work, thread, t)
-                     [%sexp_of: Work.t * Thread.t * t];
+              then (Debug.log "thread finished with work" (work, thread, t)
+                     [%sexp_of: Work.t * Thread.t * t]);
               Mutex.critical_section t.mutex ~f:(fun () ->
                 t.unfinished_work <- t.unfinished_work - 1;
                 thread.unfinished_work <- thread.unfinished_work - 1;
@@ -426,23 +428,23 @@ module Internal = struct
   ;;
 
   let get_available_thread t =
-    if debug then Debug.log "get_available_thread" t [%sexp_of: t];
+    if debug then (Debug.log "get_available_thread" t [%sexp_of: t]);
     match t.available_threads with
     | thread :: rest -> t.available_threads <- rest; `Ok thread
     | [] ->
       if t.num_threads = t.max_num_threads
       then `None_available
-      else
+      else (
         let now = Time.now () in
         if Time.Span.( < ) (Time.diff now t.last_thread_creation_failure)
              t.thread_creation_failure_lockout
         then `None_available
-        else
+        else (
           match create_thread t with
           | Ok thread -> `Ok thread
           | Error _ ->
             t.last_thread_creation_failure <- now;
-            `None_available
+            `None_available))
   ;;
 
   let inc_unfinished_work t = t.unfinished_work <- t.unfinished_work + 1
@@ -450,9 +452,9 @@ module Internal = struct
   let default_thread_name = "thread-pool thread"
 
   let add_work ?priority ?name t doit =
-    if debug then Debug.log "add_work" t [%sexp_of: t];
+    if debug then (Debug.log "add_work" t [%sexp_of: t]);
     if not (is_in_use t)
-    then error "add_work called on finished thread pool" t [%sexp_of: t]
+    then (error "add_work called on finished thread pool" t [%sexp_of: t])
     else (
       let work =
         { Work.
@@ -472,11 +474,12 @@ module Internal = struct
   let become_helper_thread_internal
         ?priority ?name t
         ~(get_thread : t -> Thread.t Or_error.t) =
-    if debug then Debug.log "become_helper_thread_internal" t [%sexp_of: t];
+    if debug then (Debug.log "become_helper_thread_internal" t [%sexp_of: t]);
     if not (is_in_use t)
-    then error "become_helper_thread_internal called on finished thread pool" t
-           [%sexp_of: t]
-    else
+    then (
+      error "become_helper_thread_internal called on finished thread pool" t
+        [%sexp_of: t])
+    else (
       match get_thread t with
       | Error _ as e -> e
       | Ok thread ->
@@ -490,7 +493,7 @@ module Internal = struct
           }
         in
         thread.state <- `Helper helper_thread;
-        Ok helper_thread;
+        Ok helper_thread)
   ;;
 
   let create_helper_thread ?priority ?name t =
@@ -514,13 +517,16 @@ module Internal = struct
 
   let add_work_for_helper_thread ?priority ?name t helper_thread doit =
     if debug
-    then Debug.log "add_work_for_helper_thread" (helper_thread, t)
-           [%sexp_of: Thread.t Helper_thread.t * t];
+    then (
+      Debug.log "add_work_for_helper_thread" (helper_thread, t)
+        [%sexp_of: Thread.t Helper_thread.t * t]);
     if not (Pool_id.equal t.id helper_thread.in_pool)
-    then error "add_work_for_helper_thread called on helper thread not in pool"
-           (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t]
+    then (
+      error "add_work_for_helper_thread called on helper thread not in pool"
+        (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t])
     else if not (is_in_use t)
-    then error "add_work_for_helper_thread called on finished thread pool" t [%sexp_of: t]
+    then (
+      error "add_work_for_helper_thread called on finished thread pool" t [%sexp_of: t])
     else (
       match helper_thread.state with
       | `Finishing | `Finished ->
@@ -543,17 +549,19 @@ module Internal = struct
 
   let finished_with_helper_thread t helper_thread =
     if debug
-    then Debug.log "finished_with_helper_thread" (helper_thread, t)
-           [%sexp_of: Thread.t Helper_thread.t * t];
+    then (
+      Debug.log "finished_with_helper_thread" (helper_thread, t)
+        [%sexp_of: Thread.t Helper_thread.t * t]);
     if not (Pool_id.equal t.id helper_thread.in_pool)
-    then failwiths "finished_with_helper_thread called on helper thread not in pool"
-           (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t]
-    else
+    then (
+      failwiths "finished_with_helper_thread called on helper thread not in pool"
+        (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t])
+    else (
       match helper_thread.state with
       | `Finishing | `Finished -> ()
       | `In_use ->
         helper_thread.state <- `Finishing;
-        maybe_finish_helper_thread t helper_thread;
+        maybe_finish_helper_thread t helper_thread;)
   ;;
 end
 
@@ -565,14 +573,14 @@ type t = Internal.t [@@deriving sexp_of]
 
 let critical_section t ~f =
   Mutex.critical_section t.mutex ~f:(fun () ->
-    protect ~f ~finally:(fun () -> if !check_invariant then invariant t));
+    protect ~f ~finally:(fun () -> if !check_invariant then (invariant t)));
 ;;
 
 let invariant t = critical_section t ~f:(fun () -> invariant t)
 
 let create ~max_num_threads =
   Result.map (create ~max_num_threads) ~f:(fun t ->
-    if !check_invariant then invariant t;
+    if !check_invariant then (invariant t);
     t)
 ;;
 
@@ -667,8 +675,9 @@ let%test_module _ =
       List.iter [ 1; 2; 5; 10; 100; 1000 ] ~f:(fun num_jobs ->
         List.iter [ 1; 2; 5; 10; 100 ] ~f:(fun max_num_threads ->
           if debug
-          then eprintf "num_jobs = %d  max_num_threads = %d\n%!"
-                 num_jobs max_num_threads;
+          then (
+            eprintf "num_jobs = %d  max_num_threads = %d\n%!"
+              num_jobs max_num_threads);
           let expected_max_concurrent_jobs = min num_jobs max_num_threads in
           let max_observed_concurrent_jobs = ref 0 in
           let num_concurrent_jobs = ref 0 in
@@ -703,7 +712,7 @@ let%test_module _ =
               ok_exn (add_work t (fun () ->
                 job_starts := i :: !job_starts;
                 if List.length !job_starts = expected_max_concurrent_jobs
-                then Thread_safe_ivar.fill worker_threads_have_fully_started ();
+                then (Thread_safe_ivar.fill worker_threads_have_fully_started ());
                 incr num_concurrent_jobs;
                 max_observed_concurrent_jobs :=
                   max !max_observed_concurrent_jobs !num_concurrent_jobs;
@@ -717,12 +726,12 @@ let%test_module _ =
           assert (!num_concurrent_jobs = expected_max_concurrent_jobs);
           assert (List.length !job_starts = expected_max_concurrent_jobs);
           if max_num_threads = 1
-          then assert (!job_starts = List.init expected_max_concurrent_jobs ~f:Fn.id);
+          then (assert (!job_starts = List.init expected_max_concurrent_jobs ~f:Fn.id));
           Thread_safe_ivar.fill worker_threads_should_continue ();
           wait_until_no_unfinished_work t;
           assert (!max_observed_concurrent_jobs = expected_max_concurrent_jobs);
           if max_num_threads = 1
-          then assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id);
+          then (assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id));
           assert (t.num_threads <= max_num_threads);
           finished_with t;
         ))
@@ -798,7 +807,7 @@ let%test_module _ =
           | Limit max ->
             if Int64.( < ) max (Int64.of_int 2)
             then `Cannot_test
-            else `Test ({ nice_limit with cur = Limit max }, (Int64.to_int_exn max))
+            else (`Test ({ nice_limit with cur = Limit max }, (Int64.to_int_exn max)))
         in
         match test_parameters with
         | `Cannot_test -> ()

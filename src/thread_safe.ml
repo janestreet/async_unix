@@ -9,10 +9,10 @@ let run_holding_async_lock
       (type a) (type b)
       ?(wakeup_scheduler = true)
       t (f : unit -> a) ~(finish : (a, exn) Result.t -> b) : b =
-  if debug then Debug.log "run_holding_async_lock" t [%sexp_of: t];
-  if not (am_holding_lock t) then lock t;
+  if debug then (Debug.log "run_holding_async_lock" t [%sexp_of: t]);
+  if not (am_holding_lock t) then (lock t);
   protect ~finally:(fun () ->
-    if wakeup_scheduler then thread_safe_wakeup_scheduler t;
+    if wakeup_scheduler then (thread_safe_wakeup_scheduler t);
     unlock t)
     ~f:(fun () ->
       (* We run [f] within the [main_execution_context] so that any errors are sent to its
@@ -23,12 +23,12 @@ let run_holding_async_lock
 ;;
 
 let ensure_in_a_thread t name =
-  if is_main_thread () then failwithf "called %s from the main thread" name ();
-  if am_holding_lock t then failwithf "called %s while holding the async lock" name ();
+  if is_main_thread () then (failwithf "called %s from the main thread" name ());
+  if am_holding_lock t then (failwithf "called %s while holding the async lock" name ());
 ;;
 
 let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
-  if debug then Debug.log "run_in_async_with_optional_cycle" t [%sexp_of: t];
+  if debug then (Debug.log "run_in_async_with_optional_cycle" t [%sexp_of: t]);
   ensure_in_a_thread t "run_in_async_with_optional_cycle";
   run_holding_async_lock ?wakeup_scheduler t f
     ~finish:(function
@@ -42,14 +42,14 @@ let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
 ;;
 
 let block_on_async t f =
-  if debug then Debug.log "block_on_async" t [%sexp_of: t];
+  if debug then (Debug.log "block_on_async" t [%sexp_of: t]);
   (* We disallow calling [block_on_async] if the caller is running inside async.  This can
      happen if one is the scheduler, or if one is in some other thread that has used, e.g.
      [run_in_async] to call into async and run a cycle.  We do however, want to allow the
      main thread to call [block_on_async], in which case it should release the lock and
      allow the scheduler, which is running in another thread, to run. *)
   if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
-  then failwith "called [block_on_async] from within async";
+  then (failwith "called [block_on_async] from within async");
   (* While [block_on_async] is blocked, the Async scheduler may run and set the execution
      context.  So we save and restore the execution context, if we're in the main thread.
      The restoration is necessary because subsequent code in the main thread can do
@@ -60,7 +60,7 @@ let block_on_async t f =
   then (
     t.is_running <- true;
     (* Release the Async lock if necessary, so that the scheduler can acquire it. *)
-    if am_holding_lock t then unlock t;
+    if am_holding_lock t then (unlock t);
     let scheduler_ran_a_job = Thread_safe_ivar.create () in
     upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
     ignore (Core.Std.Thread.create
@@ -121,7 +121,7 @@ let block_on_async t f =
 let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
 
 let run_in_async ?wakeup_scheduler t f =
-  if debug then Debug.log "run_in_async" t [%sexp_of: t];
+  if debug then (Debug.log "run_in_async" t [%sexp_of: t]);
   ensure_in_a_thread t "run_in_async";
   run_holding_async_lock ?wakeup_scheduler t f ~finish:Fn.id;
 ;;
@@ -131,7 +131,7 @@ let run_in_async_exn ?wakeup_scheduler t f =
 ;;
 
 let run_in_async_wait t f =
-  if debug then Debug.log "run_in_async_wait" t [%sexp_of: t];
+  if debug then (Debug.log "run_in_async_wait" t [%sexp_of: t]);
   ensure_in_a_thread t "run_in_async_wait";
   block_on_async t f;
 ;;
@@ -141,8 +141,8 @@ let run_in_async_wait_exn t f = Result.ok_exn (run_in_async_wait t f)
 let deferred t =
   let ivar =
     if am_holding_lock t
-    then Ivar.create ()
-    else run_holding_async_lock t Ivar.create ~finish:Result.ok_exn
+    then (Ivar.create ())
+    else (run_holding_async_lock t Ivar.create ~finish:Result.ok_exn)
   in
   let fill x = run_in_async_exn t (fun () -> Ivar.fill ivar x) in
   (Ivar.read ivar, fill)

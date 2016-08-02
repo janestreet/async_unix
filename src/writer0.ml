@@ -167,7 +167,7 @@ let invariant t : unit =
       ~bytes_received:ignore
       ~scheduled:(check (fun (scheduled : Scheduled.t) ->
         Deque.iter scheduled ~f:(fun (iovec, kind) ->
-          if phys_equal t.buf iovec.buf then assert (kind = `Keep))))
+          if phys_equal t.buf iovec.buf then (assert (kind = `Keep)))))
       ~scheduled_bytes:(check (fun scheduled_bytes ->
         assert (scheduled_bytes = Scheduled.length t.scheduled)))
       ~scheduled_back:(check (fun scheduled_back ->
@@ -191,7 +191,7 @@ let invariant t : unit =
         Option.iter o ~f:(fun elt -> assert (phys_equal t (Bag.Elt.value elt)))))
       ~check_buffer_age:ignore
       ~consumer_left:(check (fun consumer_left ->
-        if Ivar.is_full consumer_left then assert (is_stopped_permanently t)))
+        if Ivar.is_full consumer_left then (assert (is_stopped_permanently t))))
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
   with exn -> failwiths "writer invariant failed" (exn, t) [%sexp_of: exn * t]
@@ -262,7 +262,7 @@ end = struct
         Time_ns.Span.( > ) (Time_ns.diff now time_received) e.maximum_age
       in
       if bytes_are_too_old
-      then e.bytes_received_at_now_minus_maximum_age <- bytes_received;
+      then (e.bytes_received_at_now_minus_maximum_age <- bytes_received);
       if bytes_are_written || bytes_are_too_old
       then (
         ignore (Queue.dequeue_exn e.bytes_received_queue : Int63.t);
@@ -352,20 +352,20 @@ end
 
 let flushed_time t =
   if t.bytes_written = t.bytes_received
-  then return (Time.now ())
+  then (return (Time.now ()))
   else if Ivar.is_full t.close_finished
-  then Deferred.never ()
-  else
+  then (Deferred.never ())
+  else (
     Deferred.create (fun ivar ->
-      Queue.enqueue t.flushes (ivar, t.bytes_received))
+      Queue.enqueue t.flushes (ivar, t.bytes_received)))
 ;;
 
 let flushed t =
   if t.bytes_written = t.bytes_received
   then Deferred.unit
   else if Ivar.is_full t.close_finished
-  then Deferred.never ()
-  else Deferred.ignore (flushed_time t)
+  then (Deferred.never ())
+  else (Deferred.ignore (flushed_time t))
 ;;
 
 let set_fd t fd =
@@ -424,7 +424,7 @@ let final_flush ?force t =
 ;;
 
 let close ?force_close t =
-  if debug then Debug.log "Writer.close" t [%sexp_of: t];
+  if debug then (Debug.log "Writer.close" t [%sexp_of: t]);
   begin match t.close_state with
   | `Closed_and_flushing | `Closed -> ()
   | `Open ->
@@ -447,7 +447,7 @@ let close ?force_close t =
 
 let () =
   Shutdown.at_shutdown (fun () ->
-    if debug then Debug.log_string "Writer.at_shutdown";
+    if debug then (Debug.log_string "Writer.at_shutdown");
     Deferred.List.iter ~how:`Parallel (Bag.to_list writers_to_flush_at_shutdown)
       ~f:(fun t ->
         Deferred.any_unit [ final_flush t;
@@ -505,7 +505,7 @@ let create
     | None -> 65 * 1024 * 2 (* largest observed single write call * 2 *)
     | Some buf_len ->
       if buf_len <= 0
-      then invalid_arg "Writer.create: buf_len <= 0"
+      then (invalid_arg "Writer.create: buf_len <= 0")
       else buf_len
   in
   let id = Id.create () in
@@ -588,15 +588,15 @@ let with_file ?perm ?append ?(exclusive = false) file ~f =
   let%bind t = open_file ?perm ?append file in
   with_close t ~f:(fun () ->
     if exclusive
-    then with_writer_exclusive t (fun () -> f t)
-    else f t)
+    then (with_writer_exclusive t (fun () -> f t))
+    else (f t))
 ;;
 
 let got_bytes t n = t.bytes_received <- Int63.(t.bytes_received + of_int n)
 
 let add_iovec t kind (iovec : _ IOVec.t) ~count_bytes_as_received =
   assert (t.scheduled_back = t.back);
-  if count_bytes_as_received then got_bytes t iovec.len;
+  if count_bytes_as_received then (got_bytes t iovec.len);
   if not (is_stopped_permanently t)
   then (
     t.scheduled_bytes <- t.scheduled_bytes + iovec.len;
@@ -626,10 +626,10 @@ let mk_iovecs t =
   with_return (fun r ->
     let i = ref 0 in
     Deque.iter t.scheduled ~f:(fun (iovec, _) ->
-      if !i >= n_iovecs then r.return ();
+      if !i >= n_iovecs then (r.return ());
       if not !contains_mmapped_ref
       && Bigstring.is_mmapped iovec.buf
-      then contains_mmapped_ref := true;
+      then (contains_mmapped_ref := true);
       iovecs_len := !iovecs_len + iovec.len;
       iovecs.(!i) <- iovec;
       incr i;));
@@ -644,20 +644,21 @@ let thread_io_cutoff = 262_144
 (* If whe writer was closed, we should be quiet.  But if it wasn't, then someone was
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
-  if not (is_closed t) then failwiths "writer fd unexpectedly closed " t [%sexp_of: t]
+  if not (is_closed t) then (failwiths "writer fd unexpectedly closed " t [%sexp_of: t])
 ;;
 
 let rec start_write t =
-  if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
+  if debug then (Debug.log "Writer.start_write" t [%sexp_of: t]);
   assert (t.background_writer_state = `Running);
   let iovecs, contains_mmapped, iovecs_len = mk_iovecs t in
   let handle_write_result = function
     | `Already_closed -> fd_closed t
     | `Ok n ->
       if n >= 0
-      then write_finished t n
-      else die t (Error.create "write system call returned negative result" (t, n)
-                    [%sexp_of: t * int])
+      then (write_finished t n)
+      else (
+        die t (Error.create "write system call returned negative result" (t, n)
+                 [%sexp_of: t * int]))
     | `Error (Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _)) ->
       write_when_ready t
     | `Error (Unix.Unix_error (EBADF, _, _)) ->
@@ -675,7 +676,7 @@ let rec start_write t =
       assert (Ivar.is_empty t.consumer_left);
       Ivar.fill t.consumer_left ();
       stop_permanently t;
-      if t.raise_when_consumer_leaves then raise exn;
+      if t.raise_when_consumer_leaves then (raise exn);
     | `Error exn -> die t (Error.of_exn exn)
   in
   let should_write_in_thread =
@@ -699,7 +700,7 @@ let rec start_write t =
             Bigstring.writev_assume_fd_is_nonblocking file_descr iovecs)))
 
 and write_when_ready t =
-  if debug then Debug.log "Writer.write_when_ready" t [%sexp_of: t];
+  if debug then (Debug.log "Writer.write_when_ready" t [%sexp_of: t]);
   assert (t.background_writer_state = `Running);
   Fd.ready_to t.fd `Write
   >>> function
@@ -709,13 +710,13 @@ and write_when_ready t =
 
 and write_finished t bytes_written =
   if debug
-  then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
+  then (Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t]);
   assert (t.background_writer_state = `Running);
   let int63_bytes_written = Int63.of_int bytes_written in
   Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:int63_bytes_written;
   t.bytes_written <- Int63.(int63_bytes_written + t.bytes_written);
   if Int63.(t.bytes_written > t.bytes_received)
-  then die t (Error.create "writer wrote more bytes than it received" t [%sexp_of: t]);
+  then (die t (Error.create "writer wrote more bytes than it received" t [%sexp_of: t]));
   fill_flushes t;
   t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
   (* Remove processed iovecs from t.scheduled. *)
@@ -724,8 +725,9 @@ and write_finished t bytes_written =
     match Deque.dequeue_front t.scheduled with
     | None ->
       if bytes_written > 0
-      then die t (Error.create "writer wrote nonzero amount but IO_queue is empty" t
-                    [%sexp_of: t])
+      then (
+        die t (Error.create "writer wrote nonzero amount but IO_queue is empty" t
+                 [%sexp_of: t]))
     | Some ({ buf; pos; len }, kind) ->
       if bytes_written >= len
       then (
@@ -779,8 +781,9 @@ let maybe_start_writer t =
         | Ok flags -> Unix.Open_flags.can_write flags
       in
       if not can_write_fd
-      then failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
-             [%sexp_of: open_flags * t];
+      then (
+        failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
+          [%sexp_of: open_flags * t]);
       start_write t);
 ;;
 
@@ -830,7 +833,7 @@ let write_gen_internal
       ~allow_partial_write
       ~(blit_to_bigstring : (a, Bigstring.t) Blit.blit) =
   if is_stopped_permanently t
-  then got_bytes t src_len
+  then (got_bytes t src_len)
   else (
     let available = Bigstring.length t.buf - t.back in
     if available >= src_len
@@ -862,10 +865,11 @@ let write_direct t ~f =
     let len = Bigstring.length t.buf - pos in
     let x, written = f t.buf ~pos ~len in
     if written < 0 || written > len
-    then raise_s [%message "[write_direct]'s [~f] argument returned invalid [written]"
-                             (written : int)
-                             (len : int)
-                             ~writer:(t : t)];
+    then (
+      raise_s [%message "[write_direct]'s [~f] argument returned invalid [written]"
+                          (written : int)
+                          (len : int)
+                          ~writer:(t : t)]);
     t.back <- pos + written;
     got_bytes t written;
     maybe_start_writer t;
@@ -950,7 +954,7 @@ let to_formatter t =
 
 let write_char t c =
   if is_stopped_permanently t
-  then got_bytes t 1
+  then (got_bytes t 1)
   else (
     (* Check for the common case that the char can simply be put in the buffer. *)
     if Bigstring.length t.buf - t.back >= 1
@@ -985,12 +989,12 @@ let write_sexp_internal =
     let buffer = Lazy.force buffer in
     Buffer.clear buffer;
     if hum
-    then Sexp.to_buffer_hum ~buf:buffer ~indent:!Sexp.default_indent sexp
-    else Sexp.to_buffer ~buf:buffer sexp;
+    then (Sexp.to_buffer_hum ~buf:buffer ~indent:!Sexp.default_indent sexp)
+    else (Sexp.to_buffer ~buf:buffer sexp);
     let len = Buffer.length buffer in
     let blit_str_len = String.length !blit_str in
     if len > blit_str_len
-    then blit_str := String.create (max len (max initial_size (2 * blit_str_len)));
+    then (blit_str := String.create (max len (max initial_size (2 * blit_str_len))));
     Buffer.blit buffer 0 !blit_str 0 len;
     write t !blit_str ~len;
     match terminate_with with
@@ -1000,7 +1004,7 @@ let write_sexp_internal =
          a space after it to ensure that the parser can recognize the end of the sexp. *)
       let c = !blit_str.[0] in
       if not (c = '(' || c = '"')
-      then write_char t ' '
+      then (write_char t ' ')
 ;;
 
 let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =
@@ -1012,7 +1016,7 @@ let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
   assert (len > 0);
   let tot_len = len + Bin_prot.Utils.size_header_length in
   if is_stopped_permanently t
-  then got_bytes t tot_len
+  then (got_bytes t tot_len)
   else (
     let buf, start_pos = give_buf t tot_len in
     ignore (Bigstring.write_bin_prot buf ~pos:start_pos writer v : int);
@@ -1021,15 +1025,16 @@ let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
 
 let write_bin_prot_no_size_header t ~size write v =
   if is_stopped_permanently t
-  then got_bytes t size
+  then (got_bytes t size)
   else (
     let buf, start_pos = give_buf t size in
     let end_pos = write buf ~pos:start_pos v in
     let written = end_pos - start_pos in
     if written <> size
-    then failwiths "Writer.write_bin_prot_no_size_header bug!"
-           (`written written, `size size)
-           [%sexp_of: [ `written of int ] * [ `size of int ]];
+    then (
+      failwiths "Writer.write_bin_prot_no_size_header bug!"
+        (`written written, `size size)
+        [%sexp_of: [ `written of int ] * [ `size of int ]]);
     maybe_start_writer t)
 ;;
 
@@ -1216,7 +1221,7 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
           Option.value perm ~default:p
       in
       let%bind () = Unix.fchmod fd ~perm:new_permissions in
-      let%map () = if do_fsync then fsync t else Deferred.unit in
+      let%map () = if do_fsync then (fsync t) else Deferred.unit in
       result)
   in
   match%bind Monitor.try_with (fun () -> Unix.rename ~src:temp_file ~dst:file) with

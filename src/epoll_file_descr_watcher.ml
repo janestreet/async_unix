@@ -73,7 +73,7 @@ let create
       if Flags.do_intersect flags bit
       || (Flags.do_intersect flags err_or_hup
           && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
-      then handle_fd file_descr
+      then (handle_fd file_descr)
   in
   Epoll.set epoll (Timerfd.to_file_descr timerfd) Flags.for_timerfd;
   { timerfd
@@ -89,8 +89,8 @@ let iter t ~f =
   Epoll.iter t.epoll ~f:(fun file_descr flags ->
     if not (is_timerfd t file_descr)
     then (
-      if Flags.do_intersect flags Flags.in_ then f file_descr `Read;
-      if Flags.do_intersect flags Flags.out then f file_descr `Write));
+      if Flags.do_intersect flags Flags.in_ then (f file_descr `Read);
+      if Flags.do_intersect flags Flags.out then (f file_descr `Write)));
 ;;
 
 let set t file_descr desired =
@@ -106,7 +106,7 @@ let set t file_descr desired =
   | None  , None   -> ()
   | None  , Some d -> Epoll.set t.epoll file_descr d
   | Some _, None   -> Epoll.remove t.epoll file_descr
-  | Some a, Some d -> if not (Flags.equal a d) then Epoll.set t.epoll file_descr d
+  | Some a, Some d -> if not (Flags.equal a d) then (Epoll.set t.epoll file_descr d)
 ;;
 
 module Pre = struct

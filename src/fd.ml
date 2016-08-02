@@ -87,7 +87,7 @@ module Close = struct
     | Do_not_close_file_descriptor
 
   let close ?(file_descriptor_handling = Close_file_descriptor Shutdown_socket) t =
-    if debug then Debug.log "Fd.close" t [%sexp_of: t];
+    if debug then (Debug.log "Fd.close" t [%sexp_of: t]);
     begin match t.state with
     | Close_requested _ | Closed -> ()
     | Open close_started ->
@@ -158,8 +158,9 @@ let with_file_descr_deferred_exn t f =
 
 let start_watching t read_or_write watching =
   if debug
-  then Debug.log "Fd.start_watching" (t, read_or_write)
-         [%sexp_of: t * Read_write.Key.t];
+  then (
+    Debug.log "Fd.start_watching" (t, read_or_write)
+      [%sexp_of: t * Read_write.Key.t]);
   let r = the_one_and_only () in
   match Scheduler.request_start_watching r t read_or_write watching with
   | `Unsupported | `Already_closed | `Watching as x -> x
@@ -178,14 +179,16 @@ let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
       | `Not_interrupted -> ()
       | `Interrupted ->
         if Ivar.is_empty ivar
-        then Scheduler.request_stop_watching (the_one_and_only ())
-               t read_or_write `Interrupted);
+        then (
+          Scheduler.request_stop_watching (the_one_and_only ())
+            t read_or_write `Interrupted));
 ;;
 
 let interruptible_ready_to t read_or_write ~interrupt =
   if debug
-  then Debug.log "Fd.interruptible_ready_to" (t, read_or_write)
-         [%sexp_of: t * Read_write.Key.t];
+  then (
+    Debug.log "Fd.interruptible_ready_to" (t, read_or_write)
+      [%sexp_of: t * Read_write.Key.t]);
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -197,7 +200,7 @@ let interruptible_ready_to t read_or_write ~interrupt =
 
 let ready_to t read_or_write =
   if debug
-  then Debug.log "Fd.ready_to" (t, read_or_write) [%sexp_of: t * Read_write.Key.t];
+  then (Debug.log "Fd.ready_to" (t, read_or_write) [%sexp_of: t * Read_write.Key.t]);
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -210,8 +213,9 @@ let ready_to t read_or_write =
 
 let interruptible_every_ready_to t read_or_write ~interrupt f x =
   if debug
-  then Debug.log "Fd.interruptible_every_ready_to" (t, read_or_write)
-         [%sexp_of: t * Read_write.Key.t];
+  then (
+    Debug.log "Fd.interruptible_every_ready_to" (t, read_or_write)
+      [%sexp_of: t * Read_write.Key.t]);
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
@@ -224,8 +228,9 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
 
 let every_ready_to t read_or_write f x =
   if debug
-  then Debug.log "Fd.every_ready_to" (t, read_or_write)
-         [%sexp_of: t * Read_write.Key.t];
+  then (
+    Debug.log "Fd.every_ready_to" (t, read_or_write)
+      [%sexp_of: t * Read_write.Key.t]);
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
@@ -277,7 +282,7 @@ let of_out_channel_auto oc =
 
 let file_descr_exn t =
   if is_closed t
-  then failwiths "Fd.file_descr_exn on already closed fd" t [%sexp_of: t]
+  then (failwiths "Fd.file_descr_exn on already closed fd" t [%sexp_of: t])
   else t.file_descr
 ;;
 
@@ -285,8 +290,9 @@ let to_int_exn t = File_descr.to_int (file_descr_exn t)
 
 let replace t kind info =
   if is_closed t
-  then failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
-         [%sexp_of: t * Kind.t * Scheduler.t]
+  then (
+    failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
+      [%sexp_of: t * Kind.t * Scheduler.t])
   else (
     t.kind <- kind;
     t.info <- Info.create "replaced" (info, `previously_was t.info)

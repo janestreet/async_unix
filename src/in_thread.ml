@@ -40,14 +40,14 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
     >>| Result.ok_exn
   in
   if t.is_running
-  then doit ()
-  else
+  then (doit ())
+  else (
     (* We use [bind unit ...] to force calls to [run_no_exn] to wait until after the
        scheduler is started.  We do this because [run_no_exn] will cause things to run in
        other threads, and when a job is finished in another thread, it will try to acquire
        the async lock and manipulate async datastructures.  This seems hard to think about
        if async hasn't even started yet. *)
-    Deferred.bind Deferred.unit doit
+    Deferred.bind Deferred.unit doit)
 ;;
 
 module Helper_thread = struct

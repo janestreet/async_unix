@@ -83,7 +83,7 @@ let poll t =
       killed_some := true);
   done;
   if !killed_some
-  then t.pollers <- Array.filter t.pollers ~f:Poller.is_alive;
+  then (t.pollers <- Array.filter t.pollers ~f:Poller.is_alive);
 ;;
 
 let add t poll =

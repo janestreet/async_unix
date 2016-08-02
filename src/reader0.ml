@@ -106,8 +106,9 @@ module Internal = struct
       | Some buf_len ->
         if buf_len > 0
         then buf_len
-        else failwiths "Reader.create got non positive buf_len" (buf_len, fd)
-               [%sexp_of: int * Fd.t]
+        else (
+          failwiths "Reader.create got non positive buf_len" (buf_len, fd)
+            [%sexp_of: int * Fd.t])
     in
     let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
     { fd
@@ -175,7 +176,7 @@ module Internal = struct
   let with_reader_exclusive t f =
     let%bind () = Unix.lockf t.fd `Read in
     Monitor.protect f ~finally:(fun () ->
-      if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
+      if not (Fd.is_closed t.fd) then (Unix.unlockf t.fd);
       Deferred.unit)
   ;;
 
@@ -183,8 +184,8 @@ module Internal = struct
     let%bind t = open_file ?buf_len file in
     with_close t ~f:(fun () ->
       if exclusive
-      then with_reader_exclusive t (fun () -> f t)
-      else f t)
+      then (with_reader_exclusive t (fun () -> f t))
+      else (f t))
   ;;
 
   (* [get_data t] attempts to read data into [t.buf].  If the read gets data, [get_data]
@@ -204,8 +205,8 @@ module Internal = struct
           | Ok open_flags -> Unix.Open_flags.can_read open_flags
         in
         if not can_read_fd
-        then failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
-               [%sexp_of: open_flags * t];
+        then (failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
+               [%sexp_of: open_flags * t]);
         let ebadf () =
           (* If the file descriptior has been closed, we will get EBADF from a syscall.
              If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
@@ -237,7 +238,7 @@ module Internal = struct
             Io_stats.update io_stats ~kind:(Fd.kind t.fd)
               ~bytes:(Int63.of_int bytes_read);
             if bytes_read = 0
-            then eof ()
+            then (eof ())
             else (
               t.pos <- 0;
               t.available <- t.available + bytes_read;
@@ -319,7 +320,7 @@ module Internal = struct
     | `Closed -> return (f `Eof)
     | `In_use ->
       if t.available > 0
-      then return (f `Ok)
+      then (return (f `Ok))
       else (
         let%map ok_or_eof = get_data t in
         match t.state with
@@ -340,14 +341,14 @@ module Internal = struct
     | `Closed -> f `Eof
     | `In_use ->
       if not force_refill && t.available > 0
-      then f `Ok
-      else
+      then (f `Ok)
+      else (
         get_data t
         >>> fun ok_or_eof ->
         match t.state with
         | `Not_in_use -> assert false
         | `Closed -> f `Eof
-        | `In_use -> f ok_or_eof
+        | `In_use -> f ok_or_eof)
   ;;
 
   let consume t amount =
@@ -383,8 +384,9 @@ module Internal = struct
           | `Eof ->
             let result =
               if t.available > 0
-              then `Eof_with_unconsumed_data
-                     (Bigstring.to_string t.buf ~pos:t.pos ~len:t.available)
+              then (
+                `Eof_with_unconsumed_data
+                  (Bigstring.to_string t.buf ~pos:t.pos ~len:t.available))
               else `Eof
             in
             Ivar.fill final_result result
@@ -405,9 +407,9 @@ module Internal = struct
                      || (match need with
                        | `Need_unknown -> false
                        | `Need need -> need < 0 || consumed + need <= len)
-                  then
+                  then (
                     failwiths "handle_chunk returned invalid `Consumed" (c, `len len, t)
-                      [%sexp_of: consumed * [ `len of int ] * t];
+                      [%sexp_of: consumed * [ `len of int ] * t]);
                   consume t consumed;
                   let buf_len = Bigstring.length t.buf in
                   let new_len =
@@ -416,23 +418,25 @@ module Internal = struct
                       if t.available = buf_len
                       (* The buffer is full and the client doesn't know how much to
                          expect: double the buffer size. *)
-                      then buf_len * 2
+                      then (buf_len * 2)
                       else buf_len
                     | `Need need ->
                       if need > buf_len
-                      then Int.max need (buf_len * 2)
+                      then (Int.max need (buf_len * 2))
                       else buf_len
                   in
                   if new_len < 0
-                  then failwiths "read_one_chunk_at_a_time got overflow in buffer len" t
-                         [%sexp_of: t];
+                  then (
+                    failwiths "read_one_chunk_at_a_time got overflow in buffer len" t
+                      [%sexp_of: t]);
                   (* Grow the internal buffer if needed. *)
                   if new_len > buf_len
                   then (
                     let new_buf = Bigstring.create new_len in
                     if t.available > 0
-                    then Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
-                           ~dst:new_buf ~dst_pos:0;
+                    then (
+                      Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
+                        ~dst:new_buf ~dst_pos:0);
                     t.buf <- new_buf;
                     t.pos <- 0);
                   loop ~force_refill:true
@@ -455,7 +459,7 @@ module Internal = struct
     let iobuf = ref (Iobuf.of_bigstring t.buf) in
     read_one_chunk_at_a_time t ~handle_chunk:(fun bstr ~pos ~len ->
       if not (phys_equal bstr (Iobuf.Expert.buf !iobuf))
-      then iobuf := Iobuf.of_bigstring bstr;
+      then (iobuf := Iobuf.of_bigstring bstr);
       let iobuf = !iobuf in
       Iobuf.reset iobuf;
       Iobuf.advance iobuf pos;
@@ -481,7 +485,7 @@ module Internal = struct
 
     let read t s =
       if S.length s = 0
-      then invalid_argf "Reader.read_%s with empty string" Name.name ();
+      then (invalid_argf "Reader.read_%s with empty string" Name.name ());
       with_nonempty_buffer t (function
         | `Ok -> read_available t s
         | `Eof -> `Eof)
@@ -491,7 +495,7 @@ module Internal = struct
       Deferred.create (fun result ->
         let rec loop s amount_read =
           if S.length s = 0
-          then Ivar.fill result `Ok
+          then (Ivar.fill result `Ok)
           else (
             read t s
             >>> function
@@ -538,8 +542,8 @@ module Internal = struct
         if pos = limit
         then None
         else if p buf.{ pos }
-        then Some pos
-        else loop (pos + 1)
+        then (Some pos)
+        else (loop (pos + 1))
       in
       (* [p] is supplied by the user and may raise, so we wrap [loop] in a [try_with].  We
          put the [try_with] here rather than around the call to [p] to avoid per-character
@@ -550,8 +554,8 @@ module Internal = struct
         if pos = limit
         then None
         else if ch = buf.{ pos }
-        then Some pos
-        else loop (pos + 1)
+        then (Some pos)
+        else (loop (pos + 1))
       in
       Ok (loop t.pos)
   ;;
@@ -562,7 +566,7 @@ module Internal = struct
         | `Eof ->
           k (Ok (if ac = []
                  then `Eof
-                 else `Eof_without_delim (Bigsubstring.concat_string (List.rev ac))))
+                 else (`Eof_without_delim (Bigsubstring.concat_string (List.rev ac)))))
         | `Ok ->
           let concat_helper ss lst =
             Bigsubstring.concat_string (List.rev_append lst [ss])
@@ -584,7 +588,7 @@ module Internal = struct
             end
           | Ok (Some pos) ->
             let amount_consumed = pos + 1 - t.pos in
-            let len = if keep_delim then amount_consumed else amount_consumed - 1 in
+            let len = if keep_delim then amount_consumed else (amount_consumed - 1) in
             let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
             consume t amount_consumed;
             let res = concat_helper ss ac in
@@ -612,7 +616,7 @@ module Internal = struct
       | Ok (`Ok line) ->
         k (`Ok (let len = String.length line in
                 if len >= 1 && line.[len - 1] = '\r'
-                then String.sub line ~pos:0 ~len:(len - 1)
+                then (String.sub line ~pos:0 ~len:(len - 1))
                 else
                   line)))
   ;;
@@ -716,7 +720,7 @@ module Internal = struct
             | Ok `Eof -> Ivar.fill result ()
             | Ok `Ok (sexp, parse_pos) ->
               if Pipe.is_closed pipe_w
-              then Ivar.fill result ()
+              then (Ivar.fill result ())
               else (
                 Pipe.write pipe_w sexp
                 >>> fun () ->
@@ -749,8 +753,8 @@ module Internal = struct
     in
     let handle_eof n =
       if n = 0
-      then k (Ok `Eof)
-      else error "got Eof with %d bytes left over" n ()
+      then (k (Ok `Eof))
+      else (error "got Eof with %d bytes left over" n ())
     in
     really_read_bigstring t t.bin_prot_len_buf
     >>> function
@@ -769,16 +773,16 @@ module Internal = struct
         | Error _ as e -> k e
         | Ok len ->
           if !pos_ref <> expected_len
-          then error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+          then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
           if len > max_len
-          then error "max read length exceeded: %d > %d" len max_len ();
+          then (error "max read length exceeded: %d > %d" len max_len ());
           if len < 0
-          then error "negative length %d" len ();
+          then (error "negative length %d" len ());
           let prev_len = Bigstring.length t.bin_prot_buf in
           if len > prev_len
-          then
+          then (
             t.bin_prot_buf <-
-              Bigstring.create (Int.min max_len (Int.max len (prev_len * 2)));
+              Bigstring.create (Int.min max_len (Int.max len (prev_len * 2))));
           let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
           really_read_bigsubstring t ss
           >>> function
@@ -795,7 +799,7 @@ module Internal = struct
               | Error _ as e -> k e
               | Ok v ->
                 if !pos_ref <> len
-                then error "pos_ref <> len, (%d <> %d)" !pos_ref len ();
+                then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
                 k (Ok (`Ok v))
   ;;
 
@@ -803,7 +807,8 @@ module Internal = struct
     let eofn n =
       if n = 0
       then `Eof
-      else failwiths "Reader.read_marshal got EOF with bytes remaining" n [%sexp_of: int]
+      else (
+        failwiths "Reader.read_marshal got EOF with bytes remaining" n [%sexp_of: int])
     in
     let header = String.create Marshal.header_size in
     match%bind really_read t header with
@@ -833,7 +838,7 @@ module Internal = struct
         | `Eof -> return (`Finished ())
         | `Ok one ->
           if Pipe.is_closed pipe_w
-          then return (`Finished ())
+          then (return (`Finished ()))
           else (
             let%map () = Pipe.write pipe_w one in
             `Repeat ()))
@@ -886,7 +891,7 @@ module Internal = struct
              | `Eof -> Ivar.fill finished ()
              | `Ok ->
                if Pipe.is_closed pipe_w
-               then Ivar.fill finished ()
+               then (Ivar.fill finished ())
                else (
                  let pos = t.pos in
                  let len = t.available in
@@ -1132,12 +1137,12 @@ let gen_load_exn
   with
   | Of_sexp_error (exn, _bad_subsexp) ->
     if !may_load_file_multiple_times
-    then
+    then (
       let%bind sexps = load ~sexp_kind:Annotated in
-      Error.raise (get_error sexps)
-    else
+      Error.raise (get_error sexps))
+    else (
       failwiths "invalid sexp (failed to determine location information)"
-        (file, exn) [%sexp_of: string * exn]
+        (file, exn) [%sexp_of: string * exn])
   | exn -> failwiths "Reader.load_sexp(s) error" (file, exn) [%sexp_of: string * exn]
 ;;
 
@@ -1190,12 +1195,12 @@ let gen_load_sexp_exn (type a) (type sexp)
       ~file
       ~(a_of_sexp : sexp -> a) =
   if expand_macros
-  then
+  then (
     match sexp_kind with
     | Plain -> Macro_loader.load_sexp_conv file a_of_sexp >>| get_load_result_exn
     | Annotated ->
-      failwith "Reader.load_annotated_sexp doesn't support ~expand_macros:true"
-  else
+      failwith "Reader.load_annotated_sexp doesn't support ~expand_macros:true")
+  else (
     let multiple sexps =
       Error.create "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
         [%sexp_of: int * string]
@@ -1214,7 +1219,7 @@ let gen_load_sexp_exn (type a) (type sexp)
              Error.create "conversion of annotated sexp unexpectedly succeeded"
                (Sexp.Annotated.get_sexp annot_sexp) [%sexp_of: Sexp.t]
            end
-         | _ -> multiple annot_sexps)
+         | _ -> multiple annot_sexps))
 ;;
 
 let load_sexp_exn ?exclusive ?expand_macros file a_of_sexp =
@@ -1255,13 +1260,13 @@ let gen_load_sexps_exn (type a) (type sexp)
       ~file
       ~(a_of_sexp : sexp -> a) =
   if expand_macros
-  then
+  then (
     match sexp_kind with
     | Plain ->
       Macro_loader.load_sexps_conv file a_of_sexp >>| List.map ~f:get_load_result_exn
     | Annotated ->
-      failwith "Reader.load_annotated_sexps doesn't support ~expand_macros:true"
-  else
+      failwith "Reader.load_annotated_sexps doesn't support ~expand_macros:true")
+  else (
     gen_load_exn ?exclusive ~file ~sexp_kind
       (fun sexps -> List.map sexps ~f:a_of_sexp)
       (fun annot_sexps ->
@@ -1269,7 +1274,7 @@ let gen_load_sexps_exn (type a) (type sexp)
            (List.filter_map annot_sexps ~f:(fun annot_sexp ->
               match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
               | Ok _ -> None
-              | Error error -> Some error)))
+              | Error error -> Some error))))
 ;;
 
 let load_sexps_exn ?exclusive ?expand_macros file a_of_sexp =

@@ -15,8 +15,9 @@ let of_pipe info pipe_r =
       writer_fd
   in
   if false
-  then Debug.log "Reader.of_pipe" (pipe_r, reader, writer)
-         [%sexp_of: string Pipe.Reader.t * t * Writer.t];
+  then (
+    Debug.log "Reader.of_pipe" (pipe_r, reader, writer)
+      [%sexp_of: string Pipe.Reader.t * t * Writer.t]);
   don't_wait_for (
     let%bind () =
       Writer.transfer writer pipe_r ~stop:(close_finished reader)

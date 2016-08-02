@@ -142,7 +142,7 @@ let invariant t : unit =
       ~kind:ignore
       ~supports_nonblock:ignore
       ~have_set_nonblock:(check (fun have_set_nonblock ->
-        if not t.supports_nonblock then assert (not have_set_nonblock)))
+        if not t.supports_nonblock then (assert (not have_set_nonblock))))
       ~state:ignore
       ~watching:(check (fun watching ->
         Read_write.iter watching ~f:Watching.invariant))
@@ -213,7 +213,7 @@ let create ?(avoid_nonblock_if_possible = false) (kind : Kind.t) file_descr info
     ; close_finished       = Ivar.create ()
     }
   in
-  if debug then Debug.log "Fd.create" t [%sexp_of: t];
+  if debug then (Debug.log "Fd.create" t [%sexp_of: t]);
   t
 ;;
 
@@ -224,12 +224,12 @@ let inc_num_active_syscalls t =
 ;;
 
 let set_state t new_state =
-  if debug then Debug.log "Fd.set_state" (new_state, t) [%sexp_of: State.t * t];
+  if debug then (Debug.log "Fd.set_state" (new_state, t) [%sexp_of: State.t * t]);
   if State.transition_is_allowed t.state new_state
-  then t.state <- new_state
-  else
+  then (t.state <- new_state)
+  else (
     failwiths "Fd.set_state attempted disallowed state transition" (t, new_state)
-      ([%sexp_of: t * State.t])
+      ([%sexp_of: t * State.t]))
 ;;
 
 let is_open t = State.is_open t.state
@@ -240,9 +240,10 @@ let set_nonblock_if_necessary ?(nonblocking = false) t =
   if nonblocking
   then (
     if not t.supports_nonblock
-    then failwiths
-           "Fd.set_nonblock_if_necessary called on fd that does not support nonblock" t
-           [%sexp_of: t];
+    then (
+      failwiths
+        "Fd.set_nonblock_if_necessary called on fd that does not support nonblock" t
+        [%sexp_of: t]);
     if not t.have_set_nonblock
     then (
       Unix.set_nonblock t.file_descr;
@@ -251,7 +252,7 @@ let set_nonblock_if_necessary ?(nonblocking = false) t =
 
 let with_file_descr_exn ?nonblocking t f =
   if is_closed t
-  then failwiths "Fd.with_file_descr_exn got closed fd" t [%sexp_of: t]
+  then (failwiths "Fd.with_file_descr_exn got closed fd" t [%sexp_of: t])
   else (
     set_nonblock_if_necessary t ?nonblocking;
     f t.file_descr);
@@ -282,7 +283,7 @@ let syscall_exn ?nonblocking t f =
 
 let syscall_result_exn ?nonblocking t a f =
   if is_closed t
-  then failwiths "Fd.syscall_result_exn got closed fd" t [%sexp_of : t]
+  then (failwiths "Fd.syscall_result_exn got closed fd" t [%sexp_of : t])
   else (
     set_nonblock_if_necessary t ?nonblocking;
     Syscall.syscall_result2 t.file_descr a f)

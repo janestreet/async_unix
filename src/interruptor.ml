@@ -43,13 +43,13 @@ let create ~create_fd =
    OCaml's compilation, the test-and-set of [t.already_interrupted] is atomic, so
    we will only ever write one byte to the pipe before it is cleared. *)
 let thread_safe_interrupt t =
-  if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
+  if debug then (Debug.log_string "Interruptor.thread_safe_interrupt");
   (* BEGIN ATOMIC *)
   if not t.already_interrupted
   then (
     t.already_interrupted <- true;
     (* END ATOMIC *)
-    if debug then Debug.log_string "writing to interrupt_pipe_write";
+    if debug then (Debug.log_string "writing to interrupt_pipe_write");
     Fd.syscall_exn (Read_write.get t.pipe `Write) ~nonblocking:true
       (fun file_descr ->
          try
@@ -59,7 +59,7 @@ let thread_safe_interrupt t =
 ;;
 
 let clear t =
-  if debug then Debug.log_string "Interruptor.clear";
+  if debug then (Debug.log_string "Interruptor.clear");
   (* We only need to clear the pipe if it was written to.  This saves a system call in the
      common case. *)
   if t.already_interrupted
@@ -78,7 +78,7 @@ let clear t =
              with
              | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> false
            in
-           if read_again then loop ()
+           if read_again then (loop ())
          in
          loop ()));
   (* We must clear [already_interrupted] after emptying the pipe.  If we did it before,

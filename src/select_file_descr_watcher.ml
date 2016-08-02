@@ -65,8 +65,8 @@ end
 let set t file_descr desired =
   Read_write.iteri t.descr_tables ~f:(fun read_or_write table ->
     if Read_write.get desired read_or_write
-    then Table.set table ~key:file_descr ~data:()
-    else Table.remove table file_descr)
+    then (Table.set table ~key:file_descr ~data:())
+    else (Table.remove table file_descr))
 ;;
 
 let pre_check t = Read_write.map t.descr_tables ~f:Table.keys

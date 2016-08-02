@@ -20,9 +20,10 @@ let try_with_log_exn =
                       "This error was captured by a default handler in [Async.Log]."
                       (exn : exn)];
       if !current_unflushed_errors = max_unflushed_errors
-      then log [%message "\
+      then (
+        log [%message "\
 Stopped logging exceptions raised to [Monitor.try_with] that already returned \
-until error log can be flushed."];
+until error log can be flushed."]);
       upon (Log.Global.flushed ()) (fun () ->
         decr current_unflushed_errors));
 ;;

@@ -245,3 +245,8 @@ val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit
 (** [num_jobs_run ()] returns the number of jobs that have been run since starting.  The
     returned value includes the currently running job. *)
 val num_jobs_run : unit -> int
+
+module Expert : sig
+  val set_on_start_of_cycle : (unit -> unit) -> unit
+  val set_on_end_of_cycle   : (unit -> unit) -> unit
+end
