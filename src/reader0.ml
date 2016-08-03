@@ -10,7 +10,7 @@ module Read_result = struct
   module Z = struct
     type 'a t = [ `Ok of 'a | `Eof ] [@@deriving bin_io, sexp]
 
-    let bind a f =
+    let bind a ~f =
       match a with
       | `Ok a -> f a
       | `Eof -> `Eof
