@@ -1,0 +1,7 @@
+(library
+ ((name async_unix)
+  (public_name async_unix)
+  (libraries (async_kernel
+              core))
+  (c_names (dump_core_on_job_delay_stubs))
+  (preprocess (((pps (JANE -annotated-ignores -ite-check pa_macro)) All)))))
