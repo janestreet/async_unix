@@ -48,7 +48,7 @@ module Message : sig
 
   module Stable : sig
     module V0 : sig
-      (* [V0.bin_t] is the [Message.bin_t] in jane-111.18 and before *)
+      (** [V0.bin_t] is the [Message.bin_t] in jane-111.18 and before *)
       type nonrec t = t [@@deriving bin_io, sexp]
     end
 
@@ -96,8 +96,8 @@ module Rotation : sig
 
     val create : Time.Zone.t -> t
 
-    (* For any rotation scheme that renames logs on rotation, this defines how to do
-       the renaming. *)
+    (** For any rotation scheme that renames logs on rotation, this defines how to do
+        the renaming. *)
     val rotate_one : t -> t
 
     val to_string_opt    : t -> string option
@@ -161,6 +161,7 @@ module Output : sig
   val writer        : format -> Writer.t -> t
   val file          : format -> filename:string -> t
   val rotating_file : format -> basename:string -> Rotation.t -> t
+
   (** returns a tail of the filenames. When rotate is called, the previous filename is put
       on the tail *)
   val rotating_file_with_tail : format -> basename:string -> Rotation.t -> t * string Tail.t
@@ -422,10 +423,10 @@ val string
 (** [message] log a preexisting message *)
 val message : t -> Message.t -> unit
 
-(* [surround t message f] logs [message] and a UUID once before calling [f] and again
-   after [f] returns or raises. If [f] raises, the second message will include the
-   exception, and [surround] itself will re-raise the exception tagged with [message]. As
-   usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
+(** [surround t message f] logs [message] and a UUID once before calling [f] and again
+    after [f] returns or raises. If [f] raises, the second message will include the
+    exception, and [surround] itself will re-raise the exception tagged with [message]. As
+    usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
 val surround
   :  ?level : Level.t
   -> ?time : Time.t

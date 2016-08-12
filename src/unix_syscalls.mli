@@ -317,7 +317,9 @@ module Inet_addr : sig
   val bind_any       : t
   val bind_any_inet6 : t
   val localhost       : t  (** [127.0.0.1] *)
+
   val localhost_inet6 : t  (** ([::1]) *)
+
   val inet4_addr_of_int32 : Int32.t -> t
   val inet4_addr_to_int32_exn : t -> Int32.t
 
@@ -643,7 +645,7 @@ exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
   type t = Caml.Unix.terminal_io =
-    { (* Input modes: *)
+    { (*_ Input modes: *)
       mutable c_ignbrk : bool  (** Ignore the break condition. *)
     ; mutable c_brkint : bool  (** Signal interrupt on break condition. *)
     ; mutable c_ignpar : bool  (** Ignore characters with parity errors. *)
@@ -655,9 +657,9 @@ module Terminal_io : sig
     ; mutable c_icrnl  : bool  (** Map CR to NL on input. *)
     ; mutable c_ixon   : bool  (** Recognize XON/XOFF characters on input. *)
     ; mutable c_ixoff  : bool  (** Emit XON/XOFF chars to control input flow. *)
-    (* Output modes: *)
+    (*_ Output modes: *)
     ; mutable c_opost  : bool  (** Enable output processing. *)
-    (* Control modes: *)
+    (*_ Control modes: *)
     ; mutable c_obaud  : int   (** Output baud rate (0 means close connection).*)
     ; mutable c_ibaud  : int   (** Input baud rate. *)
     ; mutable c_csize  : int   (** Number of bits per character (5-8). *)
@@ -667,7 +669,7 @@ module Terminal_io : sig
     ; mutable c_parodd : bool  (** Specify odd parity instead of even. *)
     ; mutable c_hupcl  : bool  (** Hang up on last close. *)
     ; mutable c_clocal : bool  (** Ignore modem status lines. *)
-    (* Local modes: *)
+    (*_ Local modes: *)
     ; mutable c_isig   : bool  (** Generate signal on INTR, QUIT, SUSP. *)
     ; mutable c_icanon : bool  (** Enable canonical processing
                                    (line buffering and editing) *)
@@ -676,7 +678,7 @@ module Terminal_io : sig
     ; mutable c_echoe  : bool  (** Echo ERASE (to erase previous character). *)
     ; mutable c_echok  : bool  (** Echo KILL (to erase the current line). *)
     ; mutable c_echonl : bool  (** Echo NL even if c_echo is not set. *)
-    (* Control characters: *)
+    (*_ Control characters: *)
     ; mutable c_vintr  : char  (** Interrupt character (usually ctrl-C). *)
     ; mutable c_vquit  : char  (** Quit character (usually ctrl-\ ). *)
     ; mutable c_verase : char  (** Erase character (usually DEL or ctrl-H). *)
@@ -735,8 +737,8 @@ end
 
 module Ifaddr = Core.Std.Unix.Ifaddr
 
-(* [getifaddrs] gets the information using the socket-based netlink interface, which
-   can block, see: https://www.infradead.org/~tgr/libnl/doc/core.html. *)
+(** [getifaddrs] gets the information using the socket-based netlink interface, which
+    can block, see: https://www.infradead.org/~tgr/libnl/doc/core.html. *)
 val getifaddrs : unit -> Ifaddr.t list Deferred.t
 
 (** Return the login name of the user executing the process.

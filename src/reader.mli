@@ -151,21 +151,21 @@ type 'a read_one_chunk_at_a_time_result =
 [@@deriving sexp_of]
 
 type 'a handle_chunk_result =
-  [ (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
+  [ `Stop of 'a
+    (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
         [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
-    `Stop of 'a
-  (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
-      [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Stop_consumed of 'a * int
-  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
+    (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
+        [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Continue
-  (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
-      bytes are needed (including the data remaining in the buffer after the [c] were
-      already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
-      error if [n < 0 || c + n <= len]. *)
+    (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
   | `Consumed of int * [ `Need of int
                        | `Need_unknown
                        ]
+    (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
+        bytes are needed (including the data remaining in the buffer after the [c] were
+        already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
+        error if [n < 0 || c + n <= len]. *)
   ]
 [@@deriving sexp_of]
 
@@ -221,14 +221,14 @@ val really_read_substring
   :  t
   -> Substring.t
   -> [ `Ok
-     | `Eof of int (* 0 <= i < Substring.length ss *)
+     | `Eof of int (** [0 <= i < Substring.length ss] *)
      ] Deferred.t
 
 val really_read_bigsubstring
   :  t
   -> Bigsubstring.t
   -> [ `Ok
-     | `Eof of int (* 0 <= i < Substring.length ss *)
+     | `Eof of int (** [0 <= i < Substring.length ss] *)
      ] Deferred.t
 
 (** [read_until t pred ~keep_delim] reads until it hits a delimiter [c] such that:

@@ -397,16 +397,16 @@ val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
     during the time after [close t] before closing has finished. *)
 val can_write : t -> bool
 
-(* In addition to flushing its internal buffer prior to closing, a writer keeps track of
-   producers that are feeding it data, so that when [Writer.close] is called, it does the
-   following:
-
-   + requests that the writer's producers flush their data to it
-   + flushes the writer's internal buffer
-   + calls [Unix.close] on the writer's underlying file descriptor
-
-   [with_flushed_at_close t ~flushed ~f] calls [f] and adds [flushed] to the set of
-   producers that should be flushed-at-close, for the duration of [f]. *)
+(** In addition to flushing its internal buffer prior to closing, a writer keeps track of
+    producers that are feeding it data, so that when [Writer.close] is called, it does the
+    following:
+ 
+    + requests that the writer's producers flush their data to it
+    + flushes the writer's internal buffer
+    + calls [Unix.close] on the writer's underlying file descriptor
+ 
+    [with_flushed_at_close t ~flushed ~f] calls [f] and adds [flushed] to the set of
+    producers that should be flushed-at-close, for the duration of [f]. *)
 val with_flushed_at_close
   :  t
   -> flushed : (unit -> unit Deferred.t)

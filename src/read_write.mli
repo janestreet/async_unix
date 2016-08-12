@@ -28,7 +28,8 @@ end
 
 type 'a t = 'a Immutable.t [@@deriving sexp]
 
-(* creation *)
+(** {6 creation} *)
+
 val create      : read:'a -> write:'a -> ('a, [< _ perms]) any
 val createi     : (Key.t -> 'a) -> ('a, [< _ perms]) any
 val create_both :                  'a -> ('a, [< _ perms]) any
@@ -37,7 +38,8 @@ val create_with : Key.t -> 'a -> zero:'a -> ('a, [< _ perms]) any
 
 val copy : ('a, [> read]) any -> ('a, [< _ perms]) any
 
-(* map-like functions *)
+(** {6 map-like functions} *)
+
 val exists  : ('a, [> read]) any -> f:( 'a -> bool ) -> bool
 val for_all : ('a, [> read]) any -> f:( 'a -> bool ) -> bool
 
@@ -55,7 +57,8 @@ val get : ('a, [> read]) any -> Key.t -> 'a
 val replace     : 'a Mutable.t -> Key.t -> f:(         'a -> 'a) -> unit
 val replace_all : 'a Mutable.t ->          f:(Key.t -> 'a -> 'a) -> unit
 
-(* mutation *)
+(** {6 mutation} *)
+
 val set : 'a Mutable.t -> Key.t -> 'a -> unit
 
 module Export : sig

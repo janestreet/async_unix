@@ -16,7 +16,7 @@ open Core.Std
 open Import
 
 module Timeout = struct
-  type 'a t =                     (* performance hack: avoid allocation *)
+  type 'a t =                     (*_ performance hack: avoid allocation *)
     | Never       : unit           t
     | Immediately : unit           t
     | After       : Time_ns.Span.t t

@@ -102,7 +102,7 @@ module Close : sig
     | Do_not_close_file_descriptor
 
   (** [close t] prevents further use of [t], and makes [shutdown()] and [close()] system
-      calls on [t]'s underlying file descriptor] according to the
+      calls on [t]'s underlying file descriptor according to the
       [file_descriptor_handling] argument and whether or not [t] is a socket, i.e. [kind t
       = Socket `Active]:
 
