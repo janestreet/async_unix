@@ -67,7 +67,7 @@ module Internal = struct
     ; mutable pos                   : int
       (* [available] is how many bytes in [buf] are available to be read by user code. *)
     ; mutable available             : int
-      (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_Perot]. *)
+      (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_prot]. *)
     ; mutable bin_prot_len_buf      : Bigstring.t sexp_opaque
     ; mutable bin_prot_buf          : Bigstring.t sexp_opaque
       (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
