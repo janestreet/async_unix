@@ -117,7 +117,7 @@ module Internal = struct
     ; close_may_destroy_buf = `Yes
     ; pos                   = 0
     ; available             = 0
-    ; bin_prot_len_buf      = Bigstring.create 8
+    ; bin_prot_len_buf      = Bigstring.create Bin_prot.Utils.size_header_length
     ; bin_prot_buf          = Bigstring.create 4096
     ; state                 = `Not_in_use
     ; close_finished        = Ivar.create ()
@@ -768,7 +768,7 @@ module Internal = struct
         let expected_len = Bigstring.length t.bin_prot_len_buf in
         match
           Or_error.try_with (fun () ->
-            Bin_prot.Read.bin_read_int_64bit t.bin_prot_len_buf ~pos_ref)
+            Bin_prot.Utils.bin_read_size_header t.bin_prot_len_buf ~pos_ref)
         with
         | Error _ as e -> k e
         | Ok len ->
