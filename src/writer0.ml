@@ -768,23 +768,25 @@ let maybe_start_writer t =
   match t.background_writer_state with
   | `Stopped_permanently | `Running -> ()
   | `Not_running ->
-    t.background_writer_state <- `Running;
-    (* We schedule the background writer thread to run with low priority, so that it runs
-       at the end of the cycle and that all of the calls to Writer.write will usually be
-       batched into a single system call. *)
-    schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
-      t.open_flags
-      >>> fun open_flags ->
-      let can_write_fd =
-        match open_flags with
-        | Error _ -> false
-        | Ok flags -> Unix.Open_flags.can_write flags
-      in
-      if not can_write_fd
-      then (
-        failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
-          [%sexp_of: open_flags * t]);
-      start_write t);
+    if bytes_to_write t > 0
+    then (
+      t.background_writer_state <- `Running;
+      (* We schedule the background writer thread to run with low priority, so that it runs
+         at the end of the cycle and that all of the calls to Writer.write will usually be
+         batched into a single system call. *)
+      schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
+        t.open_flags
+        >>> fun open_flags ->
+        let can_write_fd =
+          match open_flags with
+          | Error _ -> false
+          | Ok flags -> Unix.Open_flags.can_write flags
+        in
+        if not can_write_fd
+        then (
+          failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
+            [%sexp_of: open_flags * t]);
+        start_write t));
 ;;
 
 let give_buf t desired =
