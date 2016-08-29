@@ -459,6 +459,39 @@ module Socket : sig
        | `Interrupted
        ] Deferred.t
 
+  (** [accept_at_most] is like [accept], but will return up to [limit] connections before
+      yielding, where [limit >= 1].  [accept_at_most] first waits for one connection and
+      then attempts to retrieve up to [limit] connections through non-blocking
+      {!Unix.accept} calls.  If a call to {!Unix.accept} would block before [limit] is
+      reached, [accept_at_most] returns the connections retrieved thus far.
+
+      Servers that must service a large number of connections tend to observe a stall in
+      connection accept rates when under heavy load.  Increasing [limit] will ameliorate
+      this effect, and increase accept rates and overall throughput of the server at the
+      cost of increased contention for resources amongst connections.
+
+      For details, see:
+
+      {v
+         Acceptable strategies for improving web server performance
+         Brecht, Pariag, and Gammo.  USENIX ATEC '04
+      v} *)
+  val accept_at_most
+    :  ([ `Passive ], 'addr) t
+    -> limit : int
+    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list
+       | `Socket_closed
+       ] Deferred.t
+
+  val accept_at_most_interruptible
+    :  ([ `Passive ], 'addr) t
+    -> limit : int
+    -> interrupt : (unit Deferred.t)
+    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list
+       | `Socket_closed
+       | `Interrupted
+       ] Deferred.t
+
   val shutdown : ('a, 'addr) t -> [ `Receive | `Send | `Both ] -> unit
 
   val fd : ('a, 'addr) t -> Fd.t

@@ -42,7 +42,12 @@ module Internal = struct
 
   module Open_flags = Unix.Open_flags
 
-  type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
+  type open_flags =
+    [ `Already_closed
+    | `Ok of Open_flags.t
+    | `Error of exn
+    ]
+  [@@deriving sexp_of]
 
   type t =
     { fd                            : Fd.t
@@ -110,7 +115,10 @@ module Internal = struct
           failwiths "Reader.create got non positive buf_len" (buf_len, fd)
             [%sexp_of: int * Fd.t])
     in
-    let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
+    let open_flags =
+      Fd.syscall_in_thread fd ~name:"fcntl_getfl" (fun file_descr ->
+        Core.Std.Unix.fcntl_getfl file_descr)
+    in
     { fd
     ; id                    = Id.create ()
     ; buf                   = Bigstring.create buf_len
@@ -195,20 +203,20 @@ module Internal = struct
       t.open_flags
       >>> fun open_flags ->
       let eof () = Ivar.fill result `Eof in
-      match t.state with
-      | `Not_in_use -> assert false
-      | `Closed -> eof ()
-      | `In_use ->
+      match t.state, open_flags with
+      | `Not_in_use, _ -> assert false
+      | `Closed, _ | _, `Already_closed -> eof ()
+      | `In_use, (`Error _ | `Ok _ as open_flags) ->
         let can_read_fd =
           match open_flags with
-          | Error _ -> false
-          | Ok open_flags -> Unix.Open_flags.can_read open_flags
+          | `Error _ -> false
+          | `Ok open_flags -> Unix.Open_flags.can_read open_flags
         in
         if not can_read_fd
         then (failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
-               [%sexp_of: open_flags * t]);
+                [%sexp_of: open_flags * t]);
         let ebadf () =
-          (* If the file descriptior has been closed, we will get EBADF from a syscall.
+          (* If the file descriptor has been closed, we will get EBADF from a syscall.
              If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
              underlying file descriptor got closed in some other way, then something is
              likely wrong, so we raise. *)
@@ -308,7 +316,7 @@ module Internal = struct
                     | exn -> raise exn)
           in
           loop ()))
-  ;;
+;;
 
   (* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok].
      If no data can be read, then [with_nonempty_buffer] returns [f `Eof].

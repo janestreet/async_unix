@@ -126,6 +126,10 @@ type t =
 
   ; kernel_scheduler                       : Kernel_scheduler.t
 
+  (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
+     E.g. in Ecaml it is set to something that causes Emacs to run a cycle. *)
+  ; mutable have_lock_do_cycle             : (unit -> unit) option
+
   (* configuration*)
   ; mutable max_inter_cycle_timeout        : Max_inter_cycle_timeout.t
   ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t
@@ -248,6 +252,7 @@ let invariant t : unit =
     let check invariant field = invariant (Field.get field t) in
     Fields.iter
       ~mutex:ignore
+      ~have_lock_do_cycle:ignore
       ~is_running:ignore
       ~have_called_go:ignore
       ~fds_whose_watching_has_changed:(check (fun fds_whose_watching_has_changed ->
@@ -546,6 +551,7 @@ Async will be unable to timeout with sub-millisecond precision."
     ; busy_poll_thread_is_running    = false
     ; next_tsc_calibration           = Time_stamp_counter.now ()
     ; kernel_scheduler
+    ; have_lock_do_cycle             = None
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
     ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout
     }
@@ -588,10 +594,13 @@ let thread_safe_enqueue_external_job t f =
 
 let have_lock_do_cycle t =
   if debug then (Debug.log "have_lock_do_cycle" t [%sexp_of: t]);
-  Kernel_scheduler.run_cycle t.kernel_scheduler;
-  (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
-     events, or an unhandled exception. *)
-  if not (i_am_the_scheduler t) then (thread_safe_wakeup_scheduler t);
+  match t.have_lock_do_cycle with
+  | Some f -> f ()
+  | None ->
+    Kernel_scheduler.run_cycle t.kernel_scheduler;
+    (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
+       events, or an unhandled exception. *)
+    if not (i_am_the_scheduler t) then (thread_safe_wakeup_scheduler t);
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
@@ -934,6 +943,7 @@ let fold_fields (type a) ~init folder : a =
     ~busy_pollers:f
     ~next_tsc_calibration:f
     ~kernel_scheduler:f
+    ~have_lock_do_cycle:f
     ~max_inter_cycle_timeout:f
     ~min_inter_cycle_timeout:f
 ;;

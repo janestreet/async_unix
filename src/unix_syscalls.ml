@@ -771,58 +771,98 @@ module Socket = struct
     | (ADDR_UNIX _ | ADDR_INET _), _ -> ()
   ;;
 
+  let accept_nonblocking t =
+    match
+      (* We call [accept] with [~nonblocking:true] because there is no way to use
+         [select] to guarantee that an [accept] will not block (see Stevens' book on
+         Unix Network Programming, p422). *)
+      Fd.with_file_descr t.fd ~nonblocking:true
+        (fun file_descr ->
+            Unix.accept file_descr)
+    with
+    | `Already_closed -> `Socket_closed
+    | `Ok (file_descr, sockaddr) ->
+      let address = Family.address_of_sockaddr_exn t.type_.family sockaddr in
+      let fd =
+        Fd.create (Fd.Kind.Socket `Active) file_descr
+          (Info.create "socket"
+              (`listening_on t, `client address)
+              (let sexp_of_address = sexp_of_address t in
+              [%sexp_of:
+                ([ `listening_on of (_, _) t ]
+                  * [ `client of address ])]))
+      in
+      let s = { fd; type_ = t.type_ } in
+      set_close_on_exec s.fd;
+      turn_off_nagle sockaddr s;
+      `Ok (s, address)
+    | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
+      (* If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
+         (EINTR), then we return [`Would_block].
+
+         If the kernel returns ECONNABORTED, this means that we first got a connection
+         and therefore woke up in "select" (ready to read).  But due to slowness
+         (e.g. other long async jobs getting to run first) we could not call accept
+         quickly enough, and the other side terminated the connection in the meanwhile.
+         Though one could imagine weird client/server applications that absolutely need
+         to know that some client aborted the connection before we could accept it, this
+         seems quite contrived and unlikely.  In virtually all cases people just want to
+         continue waiting for a new connection.
+
+         [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
+         standard OCaml I/O-function (e.g. for reading from channels).  *)
+      `Would_block
+    | `Error exn -> raise exn
+  ;;
+
   let accept_interruptible t ~interrupt =
     Deferred.repeat_until_finished () (fun () ->
-      match
-        (* We call [accept] with [~nonblocking:true] because there is no way to use
-           [select] to guarantee that an [accept] will not block (see Stevens' book on
-           Unix Network Programming, p422). *)
-        Fd.with_file_descr t.fd ~nonblocking:true
-          (fun file_descr ->
-             Unix.accept file_descr)
-      with
-      | `Already_closed -> return (`Finished `Socket_closed)
-      | `Ok (file_descr, sockaddr) ->
-        let address = Family.address_of_sockaddr_exn t.type_.family sockaddr in
-        let fd =
-          Fd.create (Fd.Kind.Socket `Active) file_descr
-            (Info.create "socket"
-               (`listening_on t, `client address)
-               (let sexp_of_address = sexp_of_address t in
-                [%sexp_of:
-                  ([ `listening_on of (_, _) t ]
-                   * [ `client of address ])]))
-        in
-        let s = { fd; type_ = t.type_ } in
-        set_close_on_exec s.fd;
-        turn_off_nagle sockaddr s;
-        return (`Finished (`Ok (s, address)))
-      | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
-        (* If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
-           (EINTR), we want to wait for select to tell us when to try again.
-
-           If the kernel returns ECONNABORTED, this means that we first got a connection
-           and therefore woke up in "select" (ready to read).  But due to slowness
-           (e.g. other long async jobs getting to run first) we could not call accept
-           quickly enough, and the other side terminated the connection in the meanwhile.
-           Though one could imagine weird client/server applications that absolutely need
-           to know that some client aborted the connection before we could accept it, this
-           seems quite contrived and unlikely.  In virtually all cases people just want to
-           continue waiting for a new connection.
-
-           [Sys_blocked_io] cannot be raised here.  This is a Unix-function, not a
-           standard OCaml I/O-function (e.g. for reading from channels).  *)
-        begin match%map Fd.interruptible_ready_to t.fd `Read ~interrupt with
+      match accept_nonblocking t with
+      | `Socket_closed | `Ok _ as x -> return (`Finished x)
+      | `Would_block ->
+        match%map Fd.interruptible_ready_to t.fd `Read ~interrupt with
         | `Ready -> `Repeat ()
         | `Interrupted as x -> `Finished x
         | `Closed -> `Finished `Socket_closed
-        | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t]
-        end
-      | `Error exn -> raise exn)
+        | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t])
   ;;
 
   let accept t =
     match%map accept_interruptible t ~interrupt:(Fd.close_started t.fd) with
+    | `Interrupted -> `Socket_closed
+    | `Socket_closed | `Ok _ as x -> x
+  ;;
+
+  let accept_at_most_interruptible t ~limit ~interrupt =
+    if limit < 1
+    then (
+      raise_s
+        [%message "[Socket.accept_at_most_interruptible] got [limit] < 1" (limit : int)]);
+    match%map accept_interruptible t ~interrupt with
+    | `Socket_closed | `Interrupted as x -> x
+    | `Ok connection ->
+      (* Now that we have a connection, accept without blocking as many other connections
+         as we can, up to [limit] total connections. *)
+      let rec loop limit connections =
+        if limit = 0
+        then connections
+        else (
+          match accept_nonblocking t with
+          | `Ok connection -> loop (limit - 1) (connection :: connections)
+          | `Socket_closed | `Would_block -> connections
+          | exception exn ->
+            don't_wait_for (
+              Deferred.List.iter connections ~f:(fun (conn, _) ->
+                Fd.close conn.fd));
+            raise exn)
+      in
+      `Ok (List.rev (loop (limit - 1) [ connection ]));
+  ;;
+
+  let accept_at_most t ~limit =
+    match%map
+      accept_at_most_interruptible t ~limit ~interrupt:(Fd.close_started t.fd)
+    with
     | `Interrupted -> `Socket_closed
     | `Socket_closed | `Ok _ as x -> x
   ;;
