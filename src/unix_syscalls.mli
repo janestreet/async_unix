@@ -197,7 +197,10 @@ type dir_handle = Unix.dir_handle
 
 val opendir : string -> dir_handle Deferred.t
 
+val readdir_opt : dir_handle -> string option Deferred.t
+
 val readdir : dir_handle -> string Deferred.t
+  [@@deprecated "[since 2016-08] use readdir_opt instead"]
 
 val rewinddir : dir_handle -> unit Deferred.t
 

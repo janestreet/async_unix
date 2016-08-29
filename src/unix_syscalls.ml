@@ -344,8 +344,12 @@ let opendir dirname =
   In_thread.syscall_exn ~name:"opendir" (fun () -> Unix.opendir dirname)
 ;;
 
+let readdir_opt handle =
+  In_thread.syscall_exn ~name:"readdir" (fun () -> Unix.readdir_opt handle)
+;;
+
 let readdir handle =
-  In_thread.syscall_exn ~name:"readdir" (fun () -> Unix.readdir handle)
+  In_thread.syscall_exn ~name:"readdir" (fun () -> Unix.readdir handle [@warning "-3"])
 ;;
 
 let rewinddir handle =
