@@ -12,8 +12,7 @@ include Invariant.S with type t := t
 
 val create : num_file_descrs:int -> t
 
-(** [add_exn t fd] fails if the file descriptor for [fd] is already in [t].  *)
-val add_exn : t -> Raw_fd.t -> unit
+val add : t -> Raw_fd.t -> unit Or_error.t
 
 val mem : t -> File_descr.t -> bool
 

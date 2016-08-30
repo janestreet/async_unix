@@ -148,10 +148,21 @@ let with_execution_context t context ~f =
 
 let create_fd ?avoid_nonblock_if_possible t kind file_descr info =
   let fd = Fd.create ?avoid_nonblock_if_possible kind file_descr info in
-  (* Async is confused if the OS returns a file descriptor that async thinks is still
-     in use.  The [add_exn] raises in this case. *)
-  Fd_by_descr.add_exn t.fd_by_descr fd;
-  fd
+  match Fd_by_descr.add t.fd_by_descr fd with
+  | Ok () -> fd
+  | Error error ->
+    let backtrace =
+      if am_running_inline_test
+      then None
+      else (Some (Backtrace.get ()))
+    in
+    raise_s [%message
+       "\
+Async was unable to add a file descriptor to its table of open file descriptors"
+         (file_descr : File_descr.t)
+         (error : Error.t)
+         (backtrace : Backtrace.t sexp_option)
+         ~scheduler:(if am_running_inline_test then None else (Some t) : t sexp_option)]
 ;;
 
 let lock t =
@@ -480,7 +491,7 @@ let create
   let fd_by_descr = Fd_by_descr.create ~num_file_descrs in
   let create_fd kind file_descr info =
     let fd = Fd.create kind file_descr info in
-    Fd_by_descr.add_exn fd_by_descr fd;
+    ok_exn (Fd_by_descr.add fd_by_descr fd);
     fd
   in
   let interruptor = Interruptor.create ~create_fd in

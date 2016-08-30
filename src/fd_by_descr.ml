@@ -30,18 +30,24 @@ let find_exn t file_descr = Table.find_exn t file_descr
 
 let remove t (fd : Fd.t) = Table.remove t fd.file_descr
 
-let add_exn t (fd : Fd.t) =
-  match Table.add t ~key:fd.file_descr ~data:fd with
-  | `Ok -> ()
+let add t (fd : Fd.t) =
+  let file_descr = fd.file_descr in
+  match Table.add t ~key:file_descr ~data:fd with
+  | `Ok -> Ok ()
   | `Duplicate _ ->
-    failwiths "\
-Error in Async.Fd_by_descr.add_exn: attempt to register a file descriptor with async
-that async believes it is already managing.  This likely indicates either:
-
-  * a bug in async
-  * code outside of async manipulating a file descriptor that async is managing
-"
-      (fd, t) [%sexp_of: Fd.t * t]
+    error_s [%message "\
+Attempt to register a file descriptor with Async that Async believes it is already \
+managing.  This likely indicates either a bug in Async or code outside of Async
+manipulating a file descriptor that Async is managing."]
+  | exception _ ->
+    error_s [%message
+      "\
+The file descriptor number is larger than the maximum Async allows, which probably means \
+that the program has created too many file descriptors without closing them.  \
+You can cause Async to allow more file descriptors via the [ASYNC_CONFIG] environment \
+variable, like this: \
+ASYNC_CONFIG='((max_num_open_file_descrs <NUMBER>))' foo.exe arg1 arg2 ..."
+        ~max_file_descriptor_number:(Table.num_keys t - 1 : int)]
 ;;
 
 let fold t ~init ~f = Table.fold t ~init ~f:(fun ~key:_ ~data:fd a -> f a fd)
