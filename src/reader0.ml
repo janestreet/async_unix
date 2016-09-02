@@ -1068,6 +1068,12 @@ let lseek t offset ~mode =
     Unix_syscalls.lseek t.fd offset ~mode)
 ;;
 
+let ltell t =
+  do_read t (fun () ->
+    let%map fd_offset = Unix_syscalls.lseek t.fd Int64.zero ~mode:`Cur in
+    Int64.( - ) fd_offset (Int64.of_int t.available))
+;;
+
 let get_error (type a) (type sexp)
       ~file
       ~(sexp_kind : sexp sexp_kind)

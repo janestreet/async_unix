@@ -322,6 +322,12 @@ val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
     position of the reader. *)
 val lseek : t -> int64 -> mode:[< `Set | `End ] -> int64 Deferred.t
 
+(** [ltell t] returns the file position of [t] from the perspective of a consumer of [t].
+    It uses [Unix.lseek] to find the file position of [t]'s underlying file descriptor,
+    and then subtracts the number of bytes in [t]'s buffer, which have been read from the
+    OS but not from [t]. *)
+val ltell : t -> int64 Deferred.t
+
 (** [lines t] reads all the lines from [t] and puts them in the pipe, one line per pipe
     element.  The lines do not contain the trailing newline.  When the reader reaches EOF
     or the pipe is closed, [lines] closes the the reader, and then after the reader close
