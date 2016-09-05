@@ -844,7 +844,8 @@ let write_gen_internal
       let dst_pos = t.back in
       t.back <- dst_pos + src_len;
       blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
-    else if allow_partial_write then (
+    else if allow_partial_write
+    then (
       got_bytes t available;
       let dst_pos = t.back in
       t.back <- dst_pos + available;
