@@ -448,4 +448,13 @@ module Reader : sig
     :  [< Output.machine_readable_format ]
     -> string
     -> Message.t Pipe.Reader.t
+
+  module Expert : sig
+    (** [read_one format reader] reads a single log message from the reader, advancing the
+        position of the reader to the next log entry. *)
+    val read_one
+      :  [< Output.machine_readable_format ]
+      -> Reader.t
+      -> Message.t Reader.Read_result.t Deferred.t
+  end
 end

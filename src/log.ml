@@ -1300,4 +1300,14 @@ module Reader = struct
         loop ()));
     pipe_r
   ;;
+
+  module Expert = struct
+    let read_one format reader =
+      match format with
+      | `Sexp | `Sexp_hum ->
+        let%map sexp = Reader.read_sexp reader in
+        Reader.Read_result.map sexp ~f:Message.t_of_sexp
+      | `Bin_prot ->
+        Reader.read_bin_prot reader Message.bin_reader_t
+  end
 end
