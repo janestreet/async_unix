@@ -49,8 +49,7 @@ val stdin : t Lazy.t
 
 (** [open_file file] opens [file] for reading and returns a reader reading from it. *)
 val open_file
-  :  ?close_on_exec : bool  (** default is [true] *)
-  -> ?buf_len       : int
+  :  ?buf_len       : int
   -> string
   -> t Deferred.t
 

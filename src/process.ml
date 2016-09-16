@@ -51,9 +51,19 @@ let create
                       * [ `prog of string ]
                       * [ `args of string list ]])
     in
+    let stdin =
+      let fd = create_fd "stdin" stdin in
+      match write_to_stdin with
+      | None ->
+        Writer.create ?buf_len fd
+      | Some _ ->
+        Writer.create ?buf_len fd
+          ~buffer_age_limit:`Unlimited
+          ~raise_when_consumer_leaves:false
+    in
     let t =
       { pid
-      ; stdin       = Writer.create ?buf_len (create_fd "stdin"  stdin )
+      ; stdin
       ; stdout      = Reader.create ?buf_len (create_fd "stdout" stdout)
       ; stderr      = Reader.create ?buf_len (create_fd "stderr" stderr)
       ; prog

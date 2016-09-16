@@ -22,9 +22,11 @@ let run_holding_async_lock
            ~f:(fun () -> Result.try_with f)));
 ;;
 
-let ensure_in_a_thread t name =
-  if is_main_thread () then (failwithf "called %s from the main thread" name ());
-  if am_holding_lock t then (failwithf "called %s while holding the async lock" name ());
+let ensure_in_a_thread t function_ =
+  if is_main_thread ()
+  then (raise_s [%message "cannot call from the main thread" (function_ : string)]);
+  if am_holding_lock t
+  then (raise_s [%message "cannot call while holding the async lock" (function_ : string)]);
 ;;
 
 let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
@@ -49,7 +51,7 @@ let block_on_async t f =
      main thread to call [block_on_async], in which case it should release the lock and
      allow the scheduler, which is running in another thread, to run. *)
   if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
-  then (failwith "called [block_on_async] from within async");
+  then (raise_s [%message "called [block_on_async] from within async"]);
   (* While [block_on_async] is blocked, the Async scheduler may run and set the execution
      context.  So we save and restore the execution context, if we're in the main thread.
      The restoration is necessary because subsequent code in the main thread can do

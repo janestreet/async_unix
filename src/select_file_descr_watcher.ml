@@ -20,8 +20,9 @@ let invariant t : unit =
   try
     Read_write.iter t.descr_tables ~f:(Table.invariant ignore ignore);
   with exn ->
-    failwiths "Select_file_descr_watcher.invariant failed" (exn, t)
-      [%sexp_of: exn * t]
+    raise_s [%message
+      "Select_file_descr_watcher.invariant failed"
+        (exn : exn) ~select_file_descr_watcher:(t : t)]
 ;;
 
 type 'a additional_create_args
@@ -117,13 +118,14 @@ let post_check t ({ Check_result. pre; select_result } as check_result) =
           | Ok () -> ac
           | Error (Unix.Unix_error (EBADF, _, _)) -> file_descr :: ac
           | Error exn ->
-            failwiths "fstat raised unexpected exn" (file_descr, exn)
-              [%sexp_of: File_descr.t * exn])
+            raise_s [%message
+              "fstat raised unexpected exn" (file_descr : File_descr.t) (exn : exn)])
       in
       List.iter (bad `Write) ~f:t.handle_fd_write_bad;
       List.iter (bad `Read ) ~f:t.handle_fd_read_bad;
-    | Error exn -> failwiths "select raised unexpected exn" exn [%sexp_of: exn]
+    | Error exn -> raise_s [%message "select raised unexpected exn" ~_:(exn :exn)]
   with exn ->
-    failwiths "File_descr_watcher.post_check bug" (exn, check_result, t)
-      [%sexp_of: exn * Check_result.t * t]
+    raise_s [%message
+      "File_descr_watcher.post_check bug"
+        (exn : exn) (check_result : Check_result.t) ~select_file_descr_watcher:(t : t)]
 ;;

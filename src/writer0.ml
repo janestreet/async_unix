@@ -194,7 +194,7 @@ let invariant t : unit =
         if Ivar.is_full consumer_left then (assert (is_stopped_permanently t))))
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
-  with exn -> failwiths "writer invariant failed" (exn, t) [%sexp_of: exn * t]
+  with exn -> raise_s [%message "writer invariant failed" (exn : exn) ~writer:(t : t)]
 ;;
 
 module Check_buffer_age : sig
@@ -562,16 +562,15 @@ let can_write t =
 
 let ensure_can_write t =
   if not (can_write t)
-  then (
-    failwiths "attempt to use closed writer" t [%sexp_of: t])
+  then (raise_s [%message "attempt to use closed writer" ~_:(t : t)]);
 ;;
 
-let open_file ?(append = false) ?buf_len ?(close_on_exec = true) ?(perm = 0o666) file =
+let open_file ?(append = false) ?buf_len ?(perm = 0o666) file =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm ~close_on_exec >>| create ?buf_len
+  Unix.openfile file ~mode ~perm >>| create ?buf_len
 ;;
 
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
@@ -644,7 +643,8 @@ let thread_io_cutoff = 262_144
 (* If whe writer was closed, we should be quiet.  But if it wasn't, then someone was
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
-  if not (is_closed t) then (failwiths "writer fd unexpectedly closed " t [%sexp_of: t])
+  if not (is_closed t)
+  then (raise_s [%message "writer fd unexpectedly closed " ~writer:(t : t)]);
 ;;
 
 let rec start_write t =
@@ -784,8 +784,9 @@ let maybe_start_writer t =
         in
         if not can_write_fd
         then (
-          failwiths "not allowed to write due to file-descriptor flags" (open_flags, t)
-            [%sexp_of: open_flags * t]);
+          raise_s [%message
+            "not allowed to write due to file-descriptor flags"
+              (open_flags : open_flags) ~writer:(t : t)]);
         start_write t));
 ;;
 
@@ -1035,9 +1036,8 @@ let write_bin_prot_no_size_header t ~size write v =
     let written = end_pos - start_pos in
     if written <> size
     then (
-      failwiths "Writer.write_bin_prot_no_size_header bug!"
-        (`written written, `size size)
-        [%sexp_of: [ `written of int ] * [ `size of int ]]);
+      raise_s [%message
+        "Writer.write_bin_prot_no_size_header bug!" (written : int) (size : int)]);
     maybe_start_writer t)
 ;;
 
@@ -1231,8 +1231,8 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
   | Ok () -> return result
   | Error exn ->
     let fail v sexp_of_v =
-      failwiths "Writer.with_file_atomic could not create file"
-        (file, v) [%sexp_of: string * v]
+      raise_s [%message
+        "Writer.with_file_atomic could not create file" (file : string) ~_:(v : v)]
     in
     match%map Monitor.try_with (fun () -> Unix.unlink temp_file) with
     | Ok () -> fail exn [%sexp_of: exn]

@@ -15,9 +15,9 @@ let%test_unit "accept interrupted by Fd.close" =
         let%bind () = Clock.after (sec 0.1) in
         Fd.close (fd t));
       match%map Clock.with_timeout (sec 0.2) (accept t) with
-      | `Result (`Ok _) -> failwith "accepted an unexpected connection"
+      | `Result (`Ok _) -> raise_s [%message "accepted an unexpected connection"]
       | `Result `Socket_closed -> ()
-      | `Timeout -> failwith "timed out despite closure of listening socket"
+      | `Timeout -> raise_s [%message "timed out despite closure of listening socket"]
     in
     test Type.tcp (Address.Inet.create_bind_any ~port:0))
 ;;

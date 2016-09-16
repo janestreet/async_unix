@@ -136,7 +136,7 @@ let%test_module "Fd" =
                 assert (res >= 0 && res <= len))
             with
             | `Already_closed -> assert false
-            | `Error exn      -> failwiths "read error" exn [%sexp_of: exn]
+            | `Error exn      -> raise_s [%message "read error" (exn : exn)]
             | `Ok ()          -> close r
         in
         let len = 1_000_000 in
@@ -147,7 +147,7 @@ let%test_module "Fd" =
               Bigstring.writev fd [| iovec |])
           with
           | `Already_closed -> assert false
-          | `Error exn      -> failwiths "write error" exn [%sexp_of: exn]
+          | `Error exn      -> raise_s [%message "write error" (exn : exn)]
           | `Ok n           ->
             assert (n >= 0 && n <= len);
             match%map ready_to w `Write with
@@ -161,8 +161,8 @@ let%test_module "Fd" =
           syscall_in_thread w ~name:"writev" (fun fd -> Bigstring.writev fd [| iovec |])
         with
         | `Error (Unix.Unix_error (EPIPE, "writev", "")) -> ()
-        | `Error exn      -> failwiths "bad write error" exn [%sexp_of: exn]
-        | `Ok n           -> failwiths "no write error" n [%sexp_of: int]
+        | `Error exn      -> raise_s [%message "bad write error" (exn : exn)]
+        | `Ok n           -> raise_s [%message "no write error" (n : int)]
         | `Already_closed -> assert false)
       |> function
       | `Result () -> ()

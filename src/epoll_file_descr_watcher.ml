@@ -47,7 +47,9 @@ let invariant t : unit =
       ~handle_fd_read_ready:ignore
       ~handle_fd_write_ready:ignore
   with exn ->
-    failwiths "Epoll_file_descr_watcher.invariant failed" (exn, t) [%sexp_of: exn * t]
+    raise_s [%message
+      "Epoll_file_descr_watcher.invariant failed"
+        (exn : exn) ~epoll_file_descr_watcher:(t : t)]
 ;;
 
 type 'a additional_create_args = timerfd:Linux_ext.Timerfd.t -> 'a
@@ -142,12 +144,13 @@ let post_check t check_result =
     match check_result with
     (* We think 514 should be treated like EINTR. *)
     | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> ()
-    | Error exn -> failwiths "epoll raised unexpected exn" exn [%sexp_of: exn]
+    | Error exn -> raise_s [%message "epoll raised unexpected exn" (exn : exn)]
     | Ok `Timeout -> ()
     | Ok `Ok ->
       Epoll.iter_ready t.epoll ~f:t.handle_fd_write_ready;
       Epoll.iter_ready t.epoll ~f:t.handle_fd_read_ready;
   with exn ->
-    failwiths "Epoll.post_check bug" (exn, check_result, t)
-      [%sexp_of: exn * Check_result.t * t]
+    raise_s [%message
+      "Epoll.post_check bug"
+        (exn : exn) (check_result : Check_result.t) ~epoll_file_descr_watcher:(t : t)]
 ;;

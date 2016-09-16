@@ -109,7 +109,6 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 val open_file
   :  ?append        : bool  (** default is [false] *)
   -> ?buf_len       : int
-  -> ?close_on_exec : bool  (** default is [true] *)
   -> ?perm          : int   (** default is [0o666] *)
   -> string
   -> t Deferred.t

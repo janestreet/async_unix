@@ -144,7 +144,7 @@ module Internal = struct
                     || unfinished_work = Squeue.length t.work_queue + 1)))
           ~work_queue:ignore
       with exn ->
-        failwiths "Thread.invariant failed" (exn, t) [%sexp_of: exn * t]
+        raise_s [%message "Thread.invariant failed" (exn : exn) ~thread:(t : t)]
     ;;
 
     let is_available t =
@@ -284,7 +284,7 @@ module Internal = struct
         ~num_work_completed:(check (fun num_work_completed ->
           assert (num_work_completed >= 0)))
     with exn ->
-      failwiths "Thread_pool.invariant failed" (exn, t) [%sexp_of: exn * t]
+      raise_s [%message "Thread_pool.invariant failed" (exn : exn) ~thread_pool:(t : t)]
   ;;
 
   let is_in_use t =
@@ -410,8 +410,8 @@ module Internal = struct
                 thread.unfinished_work <- thread.unfinished_work - 1;
                 begin match thread.state with
                 | `Available ->
-                  failwiths "thread-pool thread unexpectedly available" thread
-                    [%sexp_of: Thread.t];
+                  raise_s [%message
+                    "thread-pool thread unexpectedly available" (thread : Thread.t)];
                 | `Helper helper_thread -> maybe_finish_helper_thread t helper_thread
                 | `Working -> make_thread_available t thread;
                 end);
@@ -554,8 +554,10 @@ module Internal = struct
         [%sexp_of: Thread.t Helper_thread.t * t]);
     if not (Pool_id.equal t.id helper_thread.in_pool)
     then (
-      failwiths "finished_with_helper_thread called on helper thread not in pool"
-        (helper_thread, t) [%sexp_of: Thread.t Helper_thread.t * t])
+      raise_s [%message
+        "finished_with_helper_thread called on helper thread not in pool"
+          (helper_thread : Thread.t Helper_thread.t)
+          ~thread_pool:(t : t)])
     else (
       match helper_thread.state with
       | `Finishing | `Finished -> ()

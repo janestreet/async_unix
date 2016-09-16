@@ -56,7 +56,6 @@ type file_perm = int
 
 val openfile
   :  ?perm          : file_perm
-  -> ?close_on_exec : bool  (** default is [false] *)
   -> string
   -> mode           : open_flag list
   -> Fd.t Deferred.t
@@ -147,6 +146,8 @@ val fstat : Fd.t -> Stats.t Deferred.t
 val stat : string -> Stats.t Deferred.t
 
 val lstat : string -> Stats.t Deferred.t
+
+val isatty : Fd.t -> bool Deferred.t
 
 val unlink : string -> unit Deferred.t
 

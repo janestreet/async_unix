@@ -35,7 +35,7 @@ let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 let system_exn s =
   let%map status = system s in
   if not (Result.is_ok status)
-  then (failwiths "system failed" (s, status) [%sexp_of: string * Exit_or_signal.t])
+  then (raise_s [%message "system failed" ~_:(s : string) (status : Exit_or_signal.t)]);
 ;;
 
 let getpid      () = Unix.getpid      ()
@@ -89,13 +89,10 @@ type open_flag =
 
 type file_perm = int [@@deriving sexp, bin_io, compare]
 
-let openfile ?perm ?(close_on_exec = false) file ~mode =
-  let mode = List.map mode ~f:convert_open_flag in
+let openfile ?perm file ~mode =
+  let mode = List.map mode ~f:convert_open_flag @ [ O_CLOEXEC ] in
   let%bind file_descr =
-    In_thread.syscall_exn ~name:"openfile" (fun () ->
-      let file_descr = Unix.openfile ?perm file ~mode in
-      if close_on_exec then (Unix.set_close_on_exec file_descr);
-      file_descr)
+    In_thread.syscall_exn ~name:"openfile" (fun () -> Unix.openfile ?perm file ~mode)
   in
   let%map kind = Fd.Kind.infer_using_stat file_descr in
   Fd.create kind file_descr (Info.of_string file)
@@ -249,6 +246,9 @@ let lstat filename =
   In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
 ;;
 
+(* We treat [isatty] as a blocking operation, because it acts on a file. *)
+let isatty fd = Fd.syscall_in_thread_exn fd ~name:"isatty" Unix.isatty
+
 (* operations on filenames *)
 
 let unlink filename =
@@ -361,7 +361,12 @@ let closedir handle =
 ;;
 
 let pipe info =
-  let%map reader, writer = In_thread.syscall_exn ~name:"pipe" (fun () -> Unix.pipe ()) in
+  let%map reader, writer =
+    In_thread.syscall_exn ~name:"pipe" (fun () ->
+      let r, w = Unix.pipe () in
+      Unix.set_close_on_exec r;
+      Unix.set_close_on_exec w;
+      r, w) in
   let create file_descr kind = Fd.create Fifo file_descr (Info.tag info ~tag:kind) in
   (`Reader (create reader "reader"), `Writer (create writer "writer"))
 ;;
@@ -489,9 +494,9 @@ let waitpid_exn pid =
   let%map exit_or_signal = waitpid pid in
   if Result.is_error exit_or_signal
   then (
-    failwiths "child process didn't exit with status zero"
-      (`Child_pid pid, exit_or_signal)
-      [%sexp_of: [ `Child_pid of Pid.t ] * Exit_or_signal.t])
+    raise_s [%message
+      "child process didn't exit with status zero"
+        ~child_pid:(pid : Pid.t) (exit_or_signal : Exit_or_signal.t)]);
 ;;
 
 module Inet_addr = struct
@@ -543,7 +548,7 @@ module Socket = struct
 
       let of_sockaddr_exn : Unix.sockaddr -> _ = function
         | ADDR_INET (a, i) -> `Inet (a, i)
-        | u -> failwiths "Socket.Address.inet" u [%sexp_of: Unix.sockaddr]
+        | u -> raise_s [%message "Socket.Address.inet" ~_:(u : Unix.sockaddr)]
       ;;
     end
 
@@ -556,7 +561,7 @@ module Socket = struct
 
       let of_sockaddr_exn : Unix.sockaddr -> t = function
         | ADDR_UNIX s -> `Unix s
-        | u -> failwiths "Socket.Address.unix" u [%sexp_of: Unix.sockaddr]
+        | u -> raise_s [%message "Socket.Address.unix" ~_:(u : Unix.sockaddr)]
       ;;
     end
 
@@ -661,10 +666,13 @@ module Socket = struct
   let sexp_of_address t = Type.sexp_of_address t.type_
 
   let create (type_ : _ Type.t) =
+    let file_descr =
+      Unix.socket ~domain:type_.family.family
+        ~kind:type_.socket_type ~protocol:0
+    in
+    Unix.set_close_on_exec file_descr;
     let fd =
-      Fd.create (Socket `Unconnected)
-        (Unix.socket ~domain:type_.family.family
-           ~kind:type_.socket_type ~protocol:0)
+      Fd.create (Socket `Unconnected) file_descr
         (Info.create "socket" type_ [%sexp_of: _ Type.t])
     in
     { type_; fd }
@@ -786,6 +794,7 @@ module Socket = struct
     with
     | `Already_closed -> `Socket_closed
     | `Ok (file_descr, sockaddr) ->
+      Unix.set_close_on_exec file_descr;
       let address = Family.address_of_sockaddr_exn t.type_.family sockaddr in
       let fd =
         Fd.create (Fd.Kind.Socket `Active) file_descr
@@ -828,7 +837,7 @@ module Socket = struct
         | `Ready -> `Repeat ()
         | `Interrupted as x -> `Finished x
         | `Closed -> `Finished `Socket_closed
-        | `Bad_fd -> failwiths "accept on bad file descriptor" t.fd [%sexp_of: Fd.t])
+        | `Bad_fd -> raise_s [%message "accept on bad file descriptor" ~_:(t.fd : Fd.t)])
   ;;
 
   let accept t =
@@ -880,7 +889,7 @@ module Socket = struct
       Fd.replace t.fd (Fd.Kind.Socket `Active) info;
       `Ok t;
     in
-    let fail_closed () = failwiths "connect on closed fd" t.fd [%sexp_of: Fd.t] in
+    let fail_closed () = raise_s [%message "connect on closed fd" ~_:(t.fd : Fd.t)] in
     match
       (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
          (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
@@ -894,7 +903,7 @@ module Socket = struct
     | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) -> begin
         match%map Fd.interruptible_ready_to t.fd `Write ~interrupt with
         | `Closed -> fail_closed ()
-        | `Bad_fd -> failwiths "connect on bad file descriptor" t.fd [%sexp_of: Fd.t]
+        | `Bad_fd -> raise_s [%message "connect on bad file descriptor" ~_:(t.fd : Fd.t)]
         | `Interrupted as x -> x
         | `Ready ->
           (* We call [getsockopt] to find out whether the connect has succeed or failed. *)
@@ -945,7 +954,9 @@ end
 
 let socketpair () =
   let (s1, s2) = Unix.socketpair ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 in
-  let make_fd s = Fd.create (Fd.Kind.Socket `Active) s (Info.of_string "<socketpair>") in
+  let make_fd s =
+    Unix.set_close_on_exec s;
+    Fd.create (Fd.Kind.Socket `Active) s (Info.of_string "<socketpair>") in
   (make_fd s1, make_fd s2)
 ;;
 

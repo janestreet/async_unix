@@ -213,7 +213,8 @@ let the_one_and_only_uncommon_case ~should_lock =
   Nano_mutex.critical_section mutex_for_initializing_the_one_and_only_ref ~f:(fun () ->
     match !the_one_and_only_ref with
     | Initialized t -> t
-    | Not_ready_to_initialize -> failwith "Async the_one_and_only not ready to initialize"
+    | Not_ready_to_initialize ->
+      raise_s [%message "Async the_one_and_only not ready to initialize"]
     | Ready_to_initialize f ->
       let t = f () in
       (* We supply [~should_lock:true] to lock the scheduler when the user does async
@@ -279,10 +280,10 @@ let invariant t : unit =
         F.iter F.watcher ~f:(fun file_descr _ ->
           try
             match Fd_by_descr.find t.fd_by_descr file_descr with
-            | None -> failwith "missing from fd_by_descr"
+            | None -> raise_s [%message "missing from fd_by_descr"]
             | Some fd -> assert (Fd.num_active_syscalls fd > 0);
           with exn ->
-            failwiths "fd problem" (exn, file_descr) [%sexp_of: exn * File_descr.t])))
+            raise_s [%message "fd problem" (exn : exn) (file_descr : File_descr.t)])))
       ~time_spent_waiting_for_io:ignore
       ~fd_by_descr:(check (fun fd_by_descr ->
         Fd_by_descr.invariant fd_by_descr;
@@ -307,7 +308,7 @@ let invariant t : unit =
                   (Min_inter_cycle_timeout.raw min_inter_cycle_timeout)
                   (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout))))
   with exn ->
-    failwiths "Scheduler.invariant failed" (exn, t) [%sexp_of: exn * t]
+    raise_s [%message "Scheduler.invariant failed" (exn : exn) ~scheduler:(t : t)]
 ;;
 
 let update_check_access t do_check =
@@ -470,12 +471,13 @@ let post_check_handle_fd t file_descr read_or_write value =
            edge-triggered behavior. *)
         ()
       | `Write ->
-        failwiths "File_descr_watcher returned the timerfd as ready to be written to"
-          file_descr [%sexp_of: File_descr.t]
+        raise_s [%message
+          "File_descr_watcher returned the timerfd as ready to be written to"
+            (file_descr : File_descr.t)]
       end
     | _ ->
-      failwiths "File_descr_watcher returned unknown file descr" file_descr
-        [%sexp_of: File_descr.t])
+      raise_s [%message
+        "File_descr_watcher returned unknown file descr" (file_descr : File_descr.t)])
 ;;
 
 let create
@@ -525,9 +527,9 @@ let create
       let timerfd =
         match try_create_timerfd () with
         | None ->
-          failwith "\
+          raise_s [%message "\
 Async refuses to run using epoll on a system that doesn't support timer FDs, since
-Async will be unable to timeout with sub-millisecond precision."
+Async will be unable to timeout with sub-millisecond precision."]
         | Some timerfd -> timerfd
       in
       let watcher =
@@ -635,8 +637,9 @@ let sync_changed_fds_to_file_descr_watcher t =
     try
       F.set F.watcher fd.file_descr desired
     with exn ->
-      failwiths "sync_changed_fds_to_file_descr_watcher unable to set fd"
-        (desired, fd, exn, t) [%sexp_of: bool Read_write.t * Fd.t * exn * t]
+      raise_s [%message
+        "sync_changed_fds_to_file_descr_watcher unable to set fd"
+          (desired : bool Read_write.t) (fd : Fd.t) (exn : exn) ~scheduler:(t : t)]
   in
   let changed = t.fds_whose_watching_has_changed in
   t.fds_whose_watching_has_changed <- [];
@@ -735,7 +738,8 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     let interruptor_finished = Ivar.create () in
     let interruptor_read_fd = Interruptor.read_fd t.interruptor in
     let problem_with_interruptor () =
-      failwiths "can not watch interruptor" (interruptor_read_fd, t) [%sexp_of: Fd.t * t]
+      raise_s [%message
+        "can not watch interruptor" (interruptor_read_fd : Fd.t) ~scheduler:(t : t)]
     in
     begin match
       request_start_watching t interruptor_read_fd `Read
@@ -812,7 +816,7 @@ let go ?raise_unhandled_exn () =
      not already done so implicitly via use of an async operation that uses
      [the_one_and_only]. *)
   if not (am_holding_lock t) then (lock t);
-  if t.have_called_go then (failwith "cannot Scheduler.go more than once");
+  if t.have_called_go then (raise_s [%message "cannot Scheduler.go more than once"]);
   t.have_called_go <- true;
   if not t.is_running
   then (
@@ -834,7 +838,7 @@ let go_main
       ?max_num_threads
       ~main () =
   if not (is_ready_to_initialize ())
-  then (failwith "Async was initialized prior to [Scheduler.go_main]");
+  then (raise_s [%message "Async was initialized prior to [Scheduler.go_main]"]);
   let max_num_open_file_descrs =
     Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
   in

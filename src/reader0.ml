@@ -112,8 +112,8 @@ module Internal = struct
         if buf_len > 0
         then buf_len
         else (
-          failwiths "Reader.create got non positive buf_len" (buf_len, fd)
-            [%sexp_of: int * Fd.t])
+          raise_s [%message
+            "Reader.create got non positive buf_len" (buf_len : int) (fd : Fd.t)])
     in
     let open_flags =
       Fd.syscall_in_thread fd ~name:"fcntl_getfl" (fun file_descr ->
@@ -136,8 +136,8 @@ module Internal = struct
 
   let of_in_channel ic kind = create (Fd.of_in_channel ic kind)
 
-  let open_file ?(close_on_exec = true) ?buf_len file =
-    let%map fd = Unix.openfile file ~mode:[`Rdonly] ~perm:0o000 ~close_on_exec in
+  let open_file ?buf_len file =
+    let%map fd = Unix.openfile file ~mode:[`Rdonly] ~perm:0o000 in
     create fd ?buf_len
   ;;
 
@@ -213,14 +213,16 @@ module Internal = struct
           | `Ok open_flags -> Unix.Open_flags.can_read open_flags
         in
         if not can_read_fd
-        then (failwiths "not allowed to read due to file-descriptor flags" (open_flags, t)
-                [%sexp_of: open_flags * t]);
+        then (
+          raise_s [%message
+            "not allowed to read due to file-descriptor flags"
+              (open_flags : open_flags) ~reader:(t : t)]);
         let ebadf () =
           (* If the file descriptor has been closed, we will get EBADF from a syscall.
              If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
              underlying file descriptor got closed in some other way, then something is
              likely wrong, so we raise. *)
-          failwiths "reader file descriptor was unexpectedly closed" t [%sexp_of: t]
+          raise_s [%message "reader file descriptor was unexpectedly closed" ~reader:(t : t)]
         in
         let finish res handle =
           match res with
@@ -416,8 +418,9 @@ module Internal = struct
                        | `Need_unknown -> false
                        | `Need need -> need < 0 || consumed + need <= len)
                   then (
-                    failwiths "handle_chunk returned invalid `Consumed" (c, `len len, t)
-                      [%sexp_of: consumed * [ `len of int ] * t]);
+                    raise_s [%message
+                      "handle_chunk returned invalid `Consumed"
+                        ~_:(c : consumed) (len : int) ~reader:(t : t)]);
                   consume t consumed;
                   let buf_len = Bigstring.length t.buf in
                   let new_len =
@@ -435,8 +438,9 @@ module Internal = struct
                   in
                   if new_len < 0
                   then (
-                    failwiths "read_one_chunk_at_a_time got overflow in buffer len" t
-                      [%sexp_of: t]);
+                    raise_s [%message
+                      "read_one_chunk_at_a_time got overflow in buffer len"
+                        ~reader:(t : t)]);
                   (* Grow the internal buffer if needed. *)
                   if new_len > buf_len
                   then (
@@ -684,7 +688,7 @@ module Internal = struct
                            | Parsing_nested_whitespace
                            | Parsing_sexp_comment
                            | Parsing_block_comment), _))
-            -> failwiths "Reader.read_sexp got unexpected eof" t [%sexp_of: t]
+            -> raise_s [%message "Reader.read_sexp got unexpected eof" (t : t)]
           end;
         | `Ok ->
           match
@@ -816,7 +820,7 @@ module Internal = struct
       if n = 0
       then `Eof
       else (
-        failwiths "Reader.read_marshal got EOF with bytes remaining" n [%sexp_of: int])
+        raise_s [%message "Reader.read_marshal got EOF with bytes remaining" ~_:(n : int)])
     in
     let header = String.create Marshal.header_size in
     match%bind really_read t header with
@@ -880,15 +884,15 @@ module Internal = struct
       | `Eof -> Ivar.fill i `Eof
       | `Ok length_str ->
         match try Ok (int_of_string length_str) with _ -> Error () with
-          | Error () ->
-            failwiths "Reader.recv got strange length" (length_str, t)
-              [%sexp_of: string * t]
-          | Ok length ->
-            let buf = String.create length in
-            really_read t buf
-            >>> function
-            | `Eof _ -> failwith "Reader.recv got unexpected EOF"
-            | `Ok -> Ivar.fill i (`Ok buf))
+        | Error () ->
+          raise_s [%message
+            "Reader.recv got strange length" (length_str : string) ~reader:(t : t)]
+        | Ok length ->
+          let buf = String.create length in
+          really_read t buf
+          >>> function
+          | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
+          | `Ok -> Ivar.fill i (`Ok buf))
   ;;
 
   let transfer t pipe_w =
@@ -946,7 +950,9 @@ let with_close     = with_close
 let with_file      = with_file
 
 let use t =
-  let error s = failwiths "can not read from reader" (s, t) [%sexp_of: string * t] in
+  let error reason =
+    raise_s [%message "can not read from reader" (reason : string) ~reader:(t: t)]
+  in
   match t.state with
   | `Closed -> error "closed"
   | `In_use -> error "in use"
@@ -1155,9 +1161,11 @@ let gen_load_exn
       let%bind sexps = load ~sexp_kind:Annotated in
       Error.raise (get_error sexps))
     else (
-      failwiths "invalid sexp (failed to determine location information)"
-        (file, exn) [%sexp_of: string * exn])
-  | exn -> failwiths "Reader.load_sexp(s) error" (file, exn) [%sexp_of: string * exn]
+      raise_s [%message
+        "invalid sexp (failed to determine location information)"
+          (file : string) (exn : exn)])
+  | exn ->
+    raise_s [%message "Reader.load_sexp(s) error" (file : string) (exn : exn)]
 ;;
 
 type ('sexp, 'a, 'b) load
@@ -1213,7 +1221,7 @@ let gen_load_sexp_exn (type a) (type sexp)
     match sexp_kind with
     | Plain -> Macro_loader.load_sexp_conv file a_of_sexp >>| get_load_result_exn
     | Annotated ->
-      failwith "Reader.load_annotated_sexp doesn't support ~expand_macros:true")
+      raise_s [%message "Reader.load_annotated_sexp doesn't support ~expand_macros:true"])
   else (
     let multiple sexps =
       Error.create "Reader.load_sexp requires one sexp but got" (List.length sexps, file)
@@ -1279,7 +1287,7 @@ let gen_load_sexps_exn (type a) (type sexp)
     | Plain ->
       Macro_loader.load_sexps_conv file a_of_sexp >>| List.map ~f:get_load_result_exn
     | Annotated ->
-      failwith "Reader.load_annotated_sexps doesn't support ~expand_macros:true")
+      raise_s [%message "Reader.load_annotated_sexps doesn't support ~expand_macros:true"])
   else (
     gen_load_exn ?exclusive ~file ~sexp_kind
       (fun sexps -> List.map sexps ~f:a_of_sexp)

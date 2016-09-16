@@ -27,7 +27,7 @@ let critical_section t ~f = Mutex.critical_section t.mutex ~f
 
 let fill t v =
   critical_section t ~f:(fun () ->
-    if is_some t.value then (failwith "Thread_safe_ivar.fill of full ivar");
+    if is_some t.value then (raise_s [%message "Thread_safe_ivar.fill of full ivar"]);
     t.value <- Some v;
     Condition.broadcast t.full)
 ;;

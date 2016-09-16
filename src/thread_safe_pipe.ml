@@ -19,7 +19,7 @@ module If_closed = struct
     | Return : Written_or_closed.t t
 
   let closed : type a . a t -> a = function
-    | Raise  -> failwith "pipe is closed"
+    | Raise  -> raise_s [%message "pipe is closed"]
     | Return -> Closed
   ;;
 

@@ -153,7 +153,7 @@ let with_file_descr_deferred_exn t f =
   | `Ok x           -> x
   | `Error exn      -> raise exn
   | `Already_closed ->
-    failwiths "Fd.with_file_descr_deferred_exn got closed fd" t [%sexp_of: t]
+    raise_s [%message "Fd.with_file_descr_deferred_exn got closed fd" ~_:(t : t)]
 ;;
 
 let start_watching t read_or_write watching =
@@ -165,8 +165,8 @@ let start_watching t read_or_write watching =
   match Scheduler.request_start_watching r t read_or_write watching with
   | `Unsupported | `Already_closed | `Watching as x -> x
   | `Already_watching ->
-    failwiths "cannot watch an fd already being watched" (t, r)
-      [%sexp_of: t * Scheduler.t]
+    raise_s [%message
+      "cannot watch an fd already being watched" ~fd:(t : t) ~scheduler:(r : Scheduler.t)]
 ;;
 
 let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
@@ -248,7 +248,7 @@ let syscall_in_thread t ~name f =
       In_thread.syscall ~name (fun () -> f file_descr))
   with
   | `Error e ->
-    failwiths "Fd.syscall_in_thread problem -- please report this" e [%sexp_of: exn]
+    raise_s [%message "Fd.syscall_in_thread problem -- please report this" ~_:(e : exn)]
   | `Already_closed -> `Already_closed
   | `Ok x ->
     match x with
@@ -261,7 +261,7 @@ let syscall_in_thread_exn t ~name f =
   | `Ok x -> x
   | `Error exn -> raise exn
   | `Already_closed ->
-    failwiths "Fd.syscall_in_thread_exn of a closed fd" t [%sexp_of: t]
+    raise_s [%message "Fd.syscall_in_thread_exn of a closed fd" ~_:(t : t)]
 ;;
 
 let of_in_channel ic kind =
@@ -282,7 +282,7 @@ let of_out_channel_auto oc =
 
 let file_descr_exn t =
   if is_closed t
-  then (failwiths "Fd.file_descr_exn on already closed fd" t [%sexp_of: t])
+  then (raise_s [%message "Fd.file_descr_exn on already closed fd" ~_:(t : t)])
   else t.file_descr
 ;;
 
@@ -291,8 +291,9 @@ let to_int_exn t = File_descr.to_int (file_descr_exn t)
 let replace t kind info =
   if is_closed t
   then (
-    failwiths "Fd.replace got closed fd" (t, kind, the_one_and_only ())
-      [%sexp_of: t * Kind.t * Scheduler.t])
+    raise_s [%message
+      "Fd.replace got closed fd"
+        ~fd:(t : t) (kind : Kind.t) ~scheduler:(the_one_and_only () : Scheduler.t)])
   else (
     t.kind <- kind;
     t.info <- Info.create "replaced" (info, `previously_was t.info)

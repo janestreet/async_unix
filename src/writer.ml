@@ -33,7 +33,7 @@ let%test_module _ =
       Thread_safe.block_on_async_exn (fun () ->
         match%map Clock.with_timeout (sec 1.) (f ()) with
         | `Result x -> x
-        | `Timeout -> failwith "Timeout.")
+        | `Timeout -> raise_s [%message "Timeout."])
     ;;
 
     let count_errors w =

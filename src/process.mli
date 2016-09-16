@@ -23,6 +23,10 @@ type env = Unix.env [@@deriving sexp]
     If [buf_len] is supplied, it determines the size of the reader and writer buffers used
     to communicate with the child process's [stdin], [stdout], and [stderr].
 
+    If [stdin] is supplied, then the writer to the child's stdin will have
+    [~raise_when_consumer_leaves:false] and [~buffer_age_limit:`Unlimited], which makes it
+    more robust.
+
     [env] specifies the environment of the child process.
 
     If [working_dir] is supplied, then the child process will [chdir()] there before

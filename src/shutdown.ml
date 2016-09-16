@@ -28,8 +28,8 @@ let shutdown ?force status =
   | `Yes status' ->
     if status <> 0 && status' <> 0 && status <> status'
     then (
-      failwiths "shutdown with inconsistent status" (status, status')
-        [%sexp_of: int * int])
+      raise_s [%message
+        "shutdown with inconsistent status" (status : int) (status' : int)])
     else if status' = 0 && status <> 0
     then (shutting_down_ref := `Yes status)
   | `No ->

@@ -83,7 +83,7 @@ module Watching = struct
       | Watch_once ivar            -> assert (Ivar.is_empty ivar)
       | Watch_repeatedly (_, ivar) -> assert (Ivar.is_empty ivar)
     with exn ->
-      failwiths "Watching.invariant failed" (exn, t) [%sexp_of: exn * t]
+      raise_s [%message "Watching.invariant failed" (exn : exn) ~watching:(t : t)]
   ;;
 
 end
@@ -166,7 +166,7 @@ let invariant t : unit =
           assert (Ivar.is_empty close_finished);
           assert (Ivar.is_empty close_started)))
   with exn ->
-    failwiths "Fd.invariant failed" (exn, t) [%sexp_of: exn * t]
+    raise_s [%message "Fd.invariant failed" (exn : exn) ~fd:(t : t)]
 ;;
 
 let to_int t = File_descr.to_int t.file_descr
@@ -228,8 +228,9 @@ let set_state t new_state =
   if State.transition_is_allowed t.state new_state
   then (t.state <- new_state)
   else (
-    failwiths "Fd.set_state attempted disallowed state transition" (t, new_state)
-      ([%sexp_of: t * State.t]))
+    raise_s [%message
+      "Fd.set_state attempted disallowed state transition"
+        ~fd:(t : t) (new_state : State.t)]);
 ;;
 
 let is_open t = State.is_open t.state
@@ -241,9 +242,9 @@ let set_nonblock_if_necessary ?(nonblocking = false) t =
   then (
     if not t.supports_nonblock
     then (
-      failwiths
-        "Fd.set_nonblock_if_necessary called on fd that does not support nonblock" t
-        [%sexp_of: t]);
+      raise_s [%message
+        "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
+          ~fd:(t : t)]);
     if not t.have_set_nonblock
     then (
       Unix.set_nonblock t.file_descr;
@@ -252,7 +253,7 @@ let set_nonblock_if_necessary ?(nonblocking = false) t =
 
 let with_file_descr_exn ?nonblocking t f =
   if is_closed t
-  then (failwiths "Fd.with_file_descr_exn got closed fd" t [%sexp_of: t])
+  then (raise_s [%message "Fd.with_file_descr_exn got closed fd" ~_:(t : t)])
   else (
     set_nonblock_if_necessary t ?nonblocking;
     f t.file_descr);
@@ -277,13 +278,13 @@ let syscall ?nonblocking t f =
 let syscall_exn ?nonblocking t f =
   match syscall t f ?nonblocking with
   | `Ok a -> a
-  | `Already_closed -> failwiths "Fd.syscall_exn got closed fd" t [%sexp_of: t]
+  | `Already_closed -> raise_s [%message "Fd.syscall_exn got closed fd" ~_:(t : t)]
   | `Error exn -> raise exn
 ;;
 
 let syscall_result_exn ?nonblocking t a f =
   if is_closed t
-  then (failwiths "Fd.syscall_result_exn got closed fd" t [%sexp_of : t])
+  then (raise_s [%message "Fd.syscall_result_exn got closed fd" ~_:(t : t)])
   else (
     set_nonblock_if_necessary t ?nonblocking;
     Syscall.syscall_result2 t.file_descr a f)

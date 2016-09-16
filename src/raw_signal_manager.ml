@@ -19,7 +19,7 @@ module Handlers = struct
       try
         handler signal
       with exn ->
-        failwiths "signal handler unexpectedly raised" exn [%sexp_of: exn])
+        raise_s [%message "signal handler unexpectedly raised" (exn : exn)])
   ;;
 end
 

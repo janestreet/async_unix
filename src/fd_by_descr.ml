@@ -12,7 +12,7 @@ let invariant t =
     Table.iteri t ~f:(fun ~key:file_descr ~data:fd ->
       assert (file_descr = Fd.file_descr fd));
   with exn ->
-    failwiths "Fd_by_descr.invariant failure" (exn, t) [%sexp_of: exn * t]
+    raise_s [%message "Fd_by_descr.invariant failure" (exn : exn) ~fd:(t : t)]
 ;;
 
 let create ~num_file_descrs =

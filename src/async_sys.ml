@@ -19,7 +19,7 @@ let when_file_exists ?(poll_delay = sec 0.5) file =
       | `Yes -> Ivar.fill i ()
       | `No -> upon (Clock.after poll_delay) loop
       | `Unknown ->
-        failwiths "when_file_exists can not check file" file [%sexp_of: string]
+        raise_s [%message "when_file_exists can not check file" (file : string)]
     in
     loop ())
 ;;
