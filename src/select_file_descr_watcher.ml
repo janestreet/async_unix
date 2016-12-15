@@ -10,8 +10,7 @@ type t =
   ; handle_fd_read_ready  : File_descr.t -> unit
   ; handle_fd_read_bad    : File_descr.t -> unit
   ; handle_fd_write_ready : File_descr.t -> unit
-  ; handle_fd_write_bad   : File_descr.t -> unit
-  }
+  ; handle_fd_write_bad   : File_descr.t -> unit }
 [@@deriving sexp_of]
 
 let backend = Config.File_descr_watcher.Select
@@ -47,8 +46,7 @@ let create
   ; handle_fd_read_ready
   ; handle_fd_read_bad
   ; handle_fd_write_ready
-  ; handle_fd_write_bad
-  }
+  ; handle_fd_write_bad }
 ;;
 
 let reset_in_forked_process _ = ()
@@ -75,8 +73,7 @@ let pre_check t = Read_write.map t.descr_tables ~f:Table.keys
 module Check_result = struct
   type t =
     { pre           : Pre.t
-    ; select_result : (Unix.Select_fds.t, exn) Result.t
-    }
+    ; select_result : (Unix.Select_fds.t, exn) Result.t }
   [@@deriving sexp_of]
 end
 
@@ -93,8 +90,7 @@ let thread_safe_check (type a) (_ : t) (pre : Pre.t) (timeout : a Timeout.t) (sp
     pre
   ; select_result =
       Result.try_with (fun () ->
-        Unix.select ~read:pre.read ~write:pre.write ~except:[] ~timeout ())
-  }
+        Unix.select ~read:pre.read ~write:pre.write ~except:[] ~timeout ()) }
 ;;
 
 let post_check t ({ Check_result. pre; select_result } as check_result) =

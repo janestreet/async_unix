@@ -5,8 +5,7 @@ type t =
   ; mutable char   : Int63.t
   ; mutable fifo   : Int63.t
   ; mutable file   : Int63.t
-  ; mutable socket : Int63.t
-  }
+  ; mutable socket : Int63.t }
 [@@deriving sexp]
 
 let create () =
@@ -14,8 +13,7 @@ let create () =
   ; char   = Int63.zero
   ; fifo   = Int63.zero
   ; file   = Int63.zero
-  ; socket = Int63.zero
-  }
+  ; socket = Int63.zero }
 ;;
 
 let update t ~(kind : Fd.Kind.t) ~bytes =

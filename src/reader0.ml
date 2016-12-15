@@ -45,38 +45,37 @@ module Internal = struct
   type open_flags =
     [ `Already_closed
     | `Ok of Open_flags.t
-    | `Error of exn
-    ]
+    | `Error of exn ]
   [@@deriving sexp_of]
 
   type t =
     { fd                            : Fd.t
     ; id                            : Id.t
-      (* [buf] holds data read by the reader from the OS, but not yet read by user code.
-         When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
-         any code that accesses [buf] that [t] has not been closed.  In particular, after
-         any deferred operation, we must check whether [t] has been closed while we were
-         waiting. *)
+    (* [buf] holds data read by the reader from the OS, but not yet read by user code.
+       When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
+       any code that accesses [buf] that [t] has not been closed.  In particular, after
+       any deferred operation, we must check whether [t] has been closed while we were
+       waiting. *)
     ; mutable buf                   : Bigstring.t sexp_opaque
-      (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
-         destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
-         the middle of a system call in another thread that refers to [buf], in which case
-         it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
-         system call finishes before doing so.
+    (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
+       destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
+       the middle of a system call in another thread that refers to [buf], in which case
+       it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
+       system call finishes before doing so.
 
-         [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
-         to client code, which may in turn hold on to it (e.g. via
-         [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
+       [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
+       to client code, which may in turn hold on to it (e.g. via
+       [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
     ; mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
-      (* [pos] is the first byte of data in [buf] to b be read by user code. *)
+    (* [pos] is the first byte of data in [buf] to b be read by user code. *)
     ; mutable pos                   : int
-      (* [available] is how many bytes in [buf] are available to be read by user code. *)
+    (* [available] is how many bytes in [buf] are available to be read by user code. *)
     ; mutable available             : int
-      (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_prot]. *)
+    (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_prot]. *)
     ; mutable bin_prot_len_buf      : Bigstring.t sexp_opaque
     ; mutable bin_prot_buf          : Bigstring.t sexp_opaque
-      (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
-         user call extant that is waiting for data from the reader. *)
+    (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
+       user call extant that is waiting for data from the reader. *)
     ; mutable state                 : State.t
     ; close_finished                : unit Ivar.t
     ; mutable last_read_time        : Time.t
@@ -86,8 +85,7 @@ module Internal = struct
        call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
        completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
        leak even though client code doesn't explicitly wait on [open_flags]. *)
-    ; open_flags                    : open_flags Deferred.t
-    }
+    ; open_flags                    : open_flags Deferred.t }
   [@@deriving fields, sexp_of]
 
   let io_stats = Io_stats.create ()
@@ -130,8 +128,7 @@ module Internal = struct
     ; state                 = `Not_in_use
     ; close_finished        = Ivar.create ()
     ; last_read_time        = Scheduler.cycle_start ()
-    ; open_flags
-    };
+    ; open_flags };
   ;;
 
   let of_in_channel ic kind = create (Fd.of_in_channel ic kind)
@@ -185,7 +182,7 @@ module Internal = struct
     let%bind () = Unix.lockf t.fd `Read in
     Monitor.protect f ~finally:(fun () ->
       if not (Fd.is_closed t.fd) then (Unix.unlockf t.fd);
-      Deferred.unit)
+      return ())
   ;;
 
   let with_file ?buf_len ?(exclusive = false) file ~f =
@@ -232,6 +229,7 @@ module Internal = struct
             | Bigstring.IOError (0, End_of_file)
             | Unix.Unix_error
                 (( ECONNRESET
+                 | EHOSTUNREACH
                  | ENETDOWN
                  | ENETRESET
                  | ENETUNREACH
@@ -318,7 +316,7 @@ module Internal = struct
                     | exn -> raise exn)
           in
           loop ()))
-;;
+  ;;
 
   (* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok].
      If no data can be read, then [with_nonempty_buffer] returns [f `Eof].
@@ -372,16 +370,13 @@ module Internal = struct
     | `Stop_consumed of 'a * int
     | `Continue
     | `Consumed of int * [ `Need of int
-                         | `Need_unknown
-                         ]
-    ]
+                         | `Need_unknown ] ]
   [@@deriving sexp_of]
 
   type 'a read_one_chunk_at_a_time_result =
     [ `Eof
     | `Stopped of 'a
-    | `Eof_with_unconsumed_data of string
-    ]
+    | `Eof_with_unconsumed_data of string ]
   [@@deriving sexp_of]
 
   type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ] [@@deriving sexp_of]
@@ -463,8 +458,7 @@ module Internal = struct
 
   type 'a handle_iobuf_result =
     [ `Stop of 'a
-    | `Continue
-    ]
+    | `Continue ]
   [@@deriving sexp_of]
 
   let read_one_iobuf_at_a_time t ~handle_chunk =
@@ -658,8 +652,7 @@ module Internal = struct
           | `Eof_without_delim str -> continue (str :: ac)
           | `Ok line -> fill_result (line :: ac))
       in
-      loop []
-    )
+      loop [] )
   ;;
 
   let space = Bigstring.of_string " "
@@ -682,7 +675,8 @@ module Internal = struct
           begin match Or_error.try_with (fun () -> parse_fun ~pos:0 ~len:1 space) with
           | Error _ as e -> k e
           | Ok (Sexp.Done (sexp, parse_pos))       -> k (Ok (`Ok (sexp, parse_pos)))
-          | Ok (Sexp.Cont (Parsing_toplevel_whitespace, _)) -> k (Ok `Eof)
+          | Ok (Sexp.Cont (Parsing_toplevel_whitespace, _)) ->
+            k (Ok `Eof)
           | Ok (Sexp.Cont (( Parsing_atom
                            | Parsing_list
                            | Parsing_nested_whitespace
@@ -1085,32 +1079,32 @@ let get_error (type a) (type sexp)
       ~(sexp_kind : sexp sexp_kind)
       ~(a_of_sexp : sexp -> a)
       (annotated_sexp : Sexp.Annotated.t) =
-    try
-      ignore (
-        a_of_sexp
-          (match sexp_kind with
-           | Plain     -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
-           | Annotated -> (annotated_sexp                         : sexp))
-        : a);
-      Ok ()
-    with exn ->
-      let unexpected_error () =
-        error "Reader.load_sexp error" (file, exn) [%sexp_of: string * exn]
-      in
-      match exn with
-      | Of_sexp_error (exc, bad_sexp) ->
-        begin match Sexp.Annotated.find_sexp annotated_sexp bad_sexp with
-        | None -> unexpected_error ()
-        | Some bad_annotated_sexp ->
-          match Sexp.Annotated.get_conv_exn ~file ~exc bad_annotated_sexp with
-          | Of_sexp_error (Sexp.Annotated.Conv_exn (pos, exn), sexp) ->
-            (* The error produced by [get_conv_exn] already has the file position, so
-               we don't wrap with a redundant error message. *)
-            Or_error.error "invalid sexp" (pos, exn, "in", sexp)
-              [%sexp_of: string * exn * string * Sexp.t]
-          | _ -> unexpected_error ()
-        end
-      | _ -> unexpected_error ()
+  try
+    ignore (
+      a_of_sexp
+        (match sexp_kind with
+         | Plain     -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
+         | Annotated -> (annotated_sexp                         : sexp))
+      : a);
+    Ok ()
+  with exn ->
+    let unexpected_error () =
+      error "Reader.load_sexp error" (file, exn) [%sexp_of: string * exn]
+    in
+    match exn with
+    | Of_sexp_error (exc, bad_sexp) ->
+      begin match Sexp.Annotated.find_sexp annotated_sexp bad_sexp with
+      | None -> unexpected_error ()
+      | Some bad_annotated_sexp ->
+        match Sexp.Annotated.get_conv_exn ~file ~exc bad_annotated_sexp with
+        | Of_sexp_error (Sexp.Annotated.Conv_exn (pos, exn), sexp) ->
+          (* The error produced by [get_conv_exn] already has the file position, so
+             we don't wrap with a redundant error message. *)
+          Or_error.error "invalid sexp" (pos, exn, "in", sexp)
+            [%sexp_of: string * exn * string * Sexp.t]
+        | _ -> unexpected_error ()
+      end
+    | _ -> unexpected_error ()
 ;;
 
 let gen_load_exn
@@ -1177,33 +1171,33 @@ type ('sexp, 'a, 'b) load
 
 module Macro_loader = Sexplib.Macro.Loader (struct
 
-  module Monad = struct
-    type 'a t = 'a Deferred.t
-    let return = return
-    module Monad_infix = Deferred.Monad_infix
-    module List = struct
-      let iter xs ~f = Deferred.List.iter xs ~f
-      let map  xs ~f = Deferred.List.map  xs ~f
+    module Monad = struct
+      type 'a t = 'a Deferred.t
+      let return = return
+      module Monad_infix = Deferred.Monad_infix
+      module List = struct
+        let iter xs ~f = Deferred.List.iter xs ~f
+        let map  xs ~f = Deferred.List.map  xs ~f
+      end
     end
-  end
 
-  let load_sexps file =
-    match%map
-      Monitor.try_with ~extract_exn:true (fun () ->
-        with_file file ~f:(fun t -> Pipe.to_list (read_sexps t)))
-    with
-    | Ok sexps -> sexps
-    | Error e -> raise (Sexplib.Macro.add_error_location file e)
-  ;;
+    let load_sexps file =
+      match%map
+        Monitor.try_with ~extract_exn:true (fun () ->
+          with_file file ~f:(fun t -> Pipe.to_list (read_sexps t)))
+      with
+      | Ok sexps -> sexps
+      | Error e -> raise (Sexplib.Macro.add_error_location file e)
+    ;;
 
-  let load_annotated_sexps file =
-    match%map
-      Monitor.try_with ~extract_exn:true (fun () ->
-        with_file file ~f:(fun t -> Pipe.to_list (read_annotated_sexps t)))
-    with
-    | Ok sexps -> sexps
-    | Error e -> raise (Sexplib.Macro.add_error_location file e)
-  ;;
+    let load_annotated_sexps file =
+      match%map
+        Monitor.try_with ~extract_exn:true (fun () ->
+          with_file file ~f:(fun t -> Pipe.to_list (read_annotated_sexps t)))
+      with
+      | Ok sexps -> sexps
+      | Error e -> raise (Sexplib.Macro.add_error_location file e)
+    ;;
   end)
 
 let get_load_result_exn = function

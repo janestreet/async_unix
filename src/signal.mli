@@ -27,8 +27,7 @@ val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
     | kill   | it's not allowed to be handled                            |
     | pipe   | Async already ignores this signal, since it handles EPIPE |
     | prof   | so that we can profile things with -p                     |
-    | vtalrm | it already has a handler                                  |
-*)
+    | vtalrm | it already has a handler                                  | *)
 val terminating : t list
 
 (** [is_managed_by_async signal] returns true iff [signal] is being managed by Async, and

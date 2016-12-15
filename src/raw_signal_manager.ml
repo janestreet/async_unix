@@ -4,8 +4,7 @@ module Signal = Core.Std.Signal
 
 module Handlers = struct
   type t =
-    { bag : (Signal.t -> unit) sexp_opaque Bag.t
-    }
+    { bag : (Signal.t -> unit) sexp_opaque Bag.t }
   [@@deriving sexp_of]
 
   let create () = { bag = Bag.create () }
@@ -28,8 +27,7 @@ type delivered = (Signal.t * Handlers.t) Thread_safe_queue.t
 type t =
   { handlers_by_signal                  : Handlers.t Signal.Table.t
   ; delivered                           : delivered sexp_opaque
-  ; thread_safe_notify_signal_delivered : unit -> unit
-  }
+  ; thread_safe_notify_signal_delivered : unit -> unit }
 [@@deriving sexp_of]
 
 let invariant _ = ()
@@ -37,8 +35,7 @@ let invariant _ = ()
 let create ~thread_safe_notify_signal_delivered =
   { handlers_by_signal                  = Signal.Table.create ()
   ; delivered                           = Thread_safe_queue.create ()
-  ; thread_safe_notify_signal_delivered
-  }
+  ; thread_safe_notify_signal_delivered }
 ;;
 
 let is_managing t signal = Hashtbl.mem t.handlers_by_signal signal

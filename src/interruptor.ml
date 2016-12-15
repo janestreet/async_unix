@@ -7,14 +7,13 @@ let debug = Debug.interruptor
 
 type t =
   { pipe                        : Fd.t Read_write.t
-    (* [already_interrupted] keeps track of whether we've already interrupted since the
-       most recent call to [clear], and if so, avoid writing to the pipe again.
-       [already_interrupted] does not exactly track the state of [pipe].  It is possible
-       for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
-       property is that if [already_interrupted] is true then [pipe] is nonempty*)
+  (* [already_interrupted] keeps track of whether we've already interrupted since the
+     most recent call to [clear], and if so, avoid writing to the pipe again.
+     [already_interrupted] does not exactly track the state of [pipe].  It is possible
+     for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
+     property is that if [already_interrupted] is true then [pipe] is nonempty*)
   ; mutable already_interrupted : bool
-  ; clearbuffer                 : string sexp_opaque
-  }
+  ; clearbuffer                 : string sexp_opaque }
 [@@deriving sexp_of]
 
 let invariant _ = ()
@@ -33,8 +32,7 @@ let create ~create_fd =
   in
   { pipe                = Read_write.create ~read:pipe_read ~write:pipe_write
   ; already_interrupted = false
-  ; clearbuffer         = String.make 1024 ' '
-  }
+  ; clearbuffer         = String.make 1024 ' ' }
 ;;
 
 (* [thread_safe_interrupt]

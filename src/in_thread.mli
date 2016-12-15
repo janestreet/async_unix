@@ -2,8 +2,7 @@
     (kernel) threads.  The name is to remind us to think about threads and race
     conditions.
 
-    All threads come from the one thread pool used for all Async-managed threads.
-*)
+    All threads come from the one thread pool used for all Async-managed threads. *)
 
 open! Core.Std
 open Async_kernel
@@ -62,8 +61,7 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
       let () =
         run ~thread f1;
         run ~thread f2;
-        run ~thread f3;
-    ]}
+        run ~thread f3; ]}
 
     Then the thread will run [f1 ()] to completion, then [f2 ()] to completion, then
     [f3 ()] to completion.
@@ -77,8 +75,7 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     - with [`Best] it tries to take the lock and run a cycle, but will fallback to
     [`Notify_the_scheduler] method if the Async lock is already held by someone else.
     The default is [`Best], and one shouldn't need to change it -- it is useful only
-    for unit testing.
-*)
+    for unit testing. *)
 val run
   :  ?priority      : Priority.t
   -> ?thread        : Helper_thread.t

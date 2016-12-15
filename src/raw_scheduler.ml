@@ -132,8 +132,7 @@ type t =
 
   (* configuration*)
   ; mutable max_inter_cycle_timeout        : Max_inter_cycle_timeout.t
-  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t
-  }
+  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t }
 [@@deriving fields, sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
@@ -157,12 +156,12 @@ let create_fd ?avoid_nonblock_if_possible t kind file_descr info =
       else (Some (Backtrace.get ()))
     in
     raise_s [%message
-       "\
+      "\
 Async was unable to add a file descriptor to its table of open file descriptors"
-         (file_descr : File_descr.t)
-         (error : Error.t)
-         (backtrace : Backtrace.t sexp_option)
-         ~scheduler:(if am_running_inline_test then None else (Some t) : t sexp_option)]
+        (file_descr : File_descr.t)
+        (error : Error.t)
+        (backtrace : Backtrace.t sexp_option)
+        ~scheduler:(if am_running_inline_test then None else (Some t) : t sexp_option)]
 ;;
 
 let lock t =
@@ -291,7 +290,7 @@ let invariant t : unit =
           if fd.watching_has_changed
           then
             (assert (List.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
-              phys_equal fd fd'))))))
+               phys_equal fd fd'))))))
       ~timerfd:ignore
       ~scheduler_thread_id:ignore
       ~interruptor:(check Interruptor.invariant)
@@ -403,7 +402,7 @@ let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
 let request_start_watching t fd read_or_write watching =
   if Debug.file_descr_watcher
   then (Debug.log "request_start_watching" (read_or_write, fd, t)
-         [%sexp_of: Read_write.Key.t * Fd.t * t]);
+          [%sexp_of: Read_write.Key.t * Fd.t * t]);
   if not fd.supports_nonblock
   (* Some versions of epoll complain if one asks it to monitor a file descriptor that
      doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
@@ -566,8 +565,7 @@ Async will be unable to timeout with sub-millisecond precision."]
     ; kernel_scheduler
     ; have_lock_do_cycle             = None
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
-    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout
-    }
+    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout }
   in
   t_ref := Some t;
   detect_stuck_thread_pool t;
@@ -650,8 +648,7 @@ let maybe_calibrate_tsc t =
   let now = Tsc.now () in
   if Tsc.compare now t.next_tsc_calibration >= 0 then (
     Tsc.Calibrator.calibrate ();
-    t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000));
-  );
+    t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000)); );
 ;;
 
 let create_job ?execution_context t f x =
@@ -852,7 +849,7 @@ let go_main
         ?max_num_open_file_descrs
         ?max_num_threads
         ());
-  Deferred.upon Deferred.unit main;
+  Deferred.upon (return ()) main;
   go ?raise_unhandled_exn ();
 ;;
 

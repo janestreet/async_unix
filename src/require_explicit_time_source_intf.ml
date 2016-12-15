@@ -2,15 +2,12 @@
     what time source is used.  Idiomatic usage is:
 
     {[
-      open! Require_explicit_time_source
-    ]}
+      open! Require_explicit_time_source ]}
 
     or, in an import.ml:
 
     {[
-      include Require_explicit_time_source
-    ]}
-*)
+      include Require_explicit_time_source ]} *)
 
 open! Core.Std
 open! Import
@@ -28,19 +25,19 @@ module type Require_explicit_time_source = sig
     include module type of struct include Scheduler end
 
     val cycle_start : unit -> Time.t
-      [@@deprecated "[since 2016-02] Use [Time_source]"]
+    [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
   module Time : sig
     include module type of struct include Time end
     val now : unit -> t
-      [@@deprecated "[since 2016-02] Use [Time_source]"]
+    [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
   module Time_ns : sig
     include module type of struct include Time_ns end
 
     val now : unit -> t
-      [@@deprecated "[since 2016-02] Use [Time_source]"]
+    [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 end

@@ -22,7 +22,7 @@ let%bench_module "Clock.every" =
           if !n >= 1_000
           then (Ivar.fill iv ())
           else (incr n);
-          Deferred.unit)
+          return ())
         ~continue:Time_source.Continue.immediately;
       run_cycles_until_no_jobs_remain ();
     ;;
@@ -37,9 +37,9 @@ let%bench_module "Clock.every" =
           if !n >= 1_000
           then (Ivar.fill iv ())
           else (incr n);
-          Deferred.unit)
+          return ())
         ~continue:Time_source.Continue.immediately;
-        ();
+      ();
       run_cycles_until_no_jobs_remain ();
     ;;
   end)

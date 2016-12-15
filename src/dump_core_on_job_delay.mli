@@ -3,8 +3,7 @@
 
     It is not normally enabled, but may be enabled for any program by setting the
     appropriate field, [dump_core_on_job_delay], in the [ASYNC_CONFIG] environment
-    variable.
-*)
+    variable. *)
 
 open! Core.Std
 open! Import

@@ -14,8 +14,7 @@ type t =
   ; args        : string list
   ; working_dir : string option
   ; env         : env
-  ; wait        : Unix.Exit_or_signal.t Deferred.t Lazy.t
-  }
+  ; wait        : Unix.Exit_or_signal.t Deferred.t Lazy.t }
 [@@deriving fields, sexp_of]
 
 type 'a create
@@ -70,8 +69,7 @@ let create
       ; args
       ; working_dir
       ; env
-      ; wait        = lazy (Unix.waitpid pid)
-      }
+      ; wait        = lazy (Unix.waitpid pid) }
     in
     begin match write_to_stdin with
     | None -> ()
@@ -90,8 +88,7 @@ module Output = struct
       type t =
         { stdout      : string
         ; stderr      : string
-        ; exit_status : Unix.Exit_or_signal.t
-        }
+        ; exit_status : Unix.Exit_or_signal.t }
       [@@deriving compare, sexp]
     end
   end
@@ -143,8 +140,7 @@ module Failure = struct
     ; env         : env [@sexp_drop_if should_drop_env]
     ; exit_status : Unix.Exit_or_signal.error
     ; stdout      : Lines_or_sexp.t
-    ; stderr      : Lines_or_sexp.t
-    }
+    ; stderr      : Lines_or_sexp.t }
   [@@deriving sexp_of]
 end
 
@@ -163,9 +159,8 @@ let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
     Or_error.error "Process.run failed"
       { Failure.
         prog; args; working_dir; env; exit_status
-      ; stdout = Lines_or_sexp.create stdout
-      ; stderr = Lines_or_sexp.create stderr
-      }
+        ; stdout = Lines_or_sexp.create stdout
+        ; stderr = Lines_or_sexp.create stderr }
       [%sexp_of: Failure.t]
 ;;
 
@@ -228,8 +223,7 @@ let run_expect_no_output ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~ar
       [%sexp
         { prog   = (prog             : string)
         ; args   = (args             : string list)
-        ; output = (non_empty_output : string)
-        }])
+        ; output = (non_empty_output : string) }])
 ;;
 
 let run_expect_no_output_exn = map_run run_expect_no_output ok_exn

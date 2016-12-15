@@ -50,11 +50,11 @@ let at_intervals ?start ?stop span =
 ;;
 
 let every' ?start ?stop ?continue_on_error span f =
-   every' ?start ?stop ?continue_on_error (Time_ns.Span.of_span span) f
+  every' ?start ?stop ?continue_on_error (Time_ns.Span.of_span span) f
 ;;
 
 let every ?start ?stop ?continue_on_error span f =
-   every ?start ?stop ?continue_on_error (Time_ns.Span.of_span span) f
+  every ?start ?stop ?continue_on_error (Time_ns.Span.of_span span) f
 ;;
 
 let run_at_intervals' ?start ?stop ?continue_on_error span f =

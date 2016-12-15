@@ -11,16 +11,14 @@ type 'a t =
   (* Threads that do [read t] when [is_none t.value] block using [Condition.wait t.full].
      When [fill] sets [t.value], it uses [Condition.broadcast] to wake up all the blocked
      threads. *)
-  ; full                : Condition.t sexp_opaque
-  }
+  ; full                : Condition.t sexp_opaque }
 [@@deriving sexp_of]
 
 let create () =
   { value       = None
   ; num_waiting = 0
   ; mutex       = Mutex.create ()
-  ; full        = Condition.create ()
-  }
+  ; full        = Condition.create () }
 ;;
 
 let critical_section t ~f = Mutex.critical_section t.mutex ~f

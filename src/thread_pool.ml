@@ -48,8 +48,7 @@ let set_thread_name =
    protected by the mutex).
 
    (2) Code that is called within threads created in this module.  All such code should
-   acquire the mutex before it affects the thread state.
-*)
+   acquire the mutex before it affects the thread state. *)
 
 module Internal = struct
   module Mutex = Nano_mutex
@@ -67,8 +66,7 @@ module Internal = struct
            [Linux_ext.pr_set_name]) to[name]. *)
         name     : string
       ; doit     : unit -> unit
-      ; priority : Priority.t
-      }
+      ; priority : Priority.t }
     [@@deriving sexp_of]
   end
 
@@ -90,13 +88,12 @@ module Internal = struct
       { in_pool          : Pool_id.t
       ; mutable state    : [ `In_use | `Finishing | `Finished ]
       ; thread           : 'thread
-        (* [default_name] will be used as the name of work run by the helper thread,
-           unless that work is added with an overriding name. *)
+      (* [default_name] will be used as the name of work run by the helper thread,
+         unless that work is added with an overriding name. *)
       ; default_name     : string
-        (* [default_priority] will be used as the priority of work run by the helper
-           thread, unless that work is added with an overriding priority. *)
-      ; default_priority : Priority.t
-      }
+      (* [default_priority] will be used as the priority of work run by the helper
+         thread, unless that work is added with an overriding priority. *)
+      ; default_priority : Priority.t }
     [@@deriving fields, sexp_of]
   end
 
@@ -117,8 +114,7 @@ module Internal = struct
          doing work added to the thread pool, or serving as a helper thread.  *)
       ; mutable state           : [ `Available
                                   | `Working
-                                  | `Helper of t sexp_opaque Helper_thread.t
-                                  ]
+                                  | `Helper of t sexp_opaque Helper_thread.t ]
       (* [unfinished_work] is the amount of work remaining for this thread to do.  It
          includes all the work in [work_queue], plus perhaps an additional work that is
          running. *)
@@ -127,8 +123,7 @@ module Internal = struct
          queue.  If a thread is working for the general pool, then its work queue has at
          most one element.  If a thread is a helper thread, then the work queue has all
          the unfinished work that has been added for the helper thread. *)
-      ; work_queue              : Work_queue.t
-      }
+      ; work_queue              : Work_queue.t }
     [@@deriving fields, sexp_of]
 
     let invariant t : unit =
@@ -159,8 +154,7 @@ module Internal = struct
       ; priority
       ; state           = `Available
       ; unfinished_work = 0
-      ; work_queue      = Work_queue.create ()
-      }
+      ; work_queue      = Work_queue.create () }
     ;;
 
     let enqueue_work t work =
@@ -235,8 +229,7 @@ module Internal = struct
     (* [unfinished_work] holds the amount of work that has been submitted to the pool but
        not yet been completed. *)
     ; mutable unfinished_work                 : int
-    ; mutable num_work_completed              : int
-    }
+    ; mutable num_work_completed              : int }
   [@@deriving fields, sexp_of]
 
   let invariant t : unit =
@@ -271,8 +264,7 @@ module Internal = struct
 
              {[
                has_unstarted_work t
-               && t.num_threads < t.max_num_threads
-             ]}
+               && t.num_threads < t.max_num_threads ]}
 
              This happens when adding work and [Core.Std.Thread.create] raises.  In that
              case, the thread pool enqueues the work and continues with the threads it
@@ -314,8 +306,7 @@ module Internal = struct
         ; available_threads                       = []
         ; work_queue                              = Queue.create ()
         ; unfinished_work                         = 0
-        ; num_work_completed                      = 0
-        }
+        ; num_work_completed                      = 0 }
       in
       Ok t)
   ;;
@@ -404,7 +395,7 @@ module Internal = struct
               t.num_work_completed <- t.num_work_completed + 1;
               if debug
               then (Debug.log "thread finished with work" (work, thread, t)
-                     [%sexp_of: Work.t * Thread.t * t]);
+                      [%sexp_of: Work.t * Thread.t * t]);
               Mutex.critical_section t.mutex ~f:(fun () ->
                 t.unfinished_work <- t.unfinished_work - 1;
                 thread.unfinished_work <- thread.unfinished_work - 1;
@@ -460,8 +451,7 @@ module Internal = struct
         { Work.
           doit
         ; name     = Option.value name     ~default:default_thread_name
-        ; priority = Option.value priority ~default:t.default_priority
-        }
+        ; priority = Option.value priority ~default:t.default_priority }
       in
       inc_unfinished_work t;
       begin match get_available_thread t with
@@ -489,8 +479,7 @@ module Internal = struct
           ; default_priority = Option.value priority ~default:t.default_priority
           ; in_pool          = t.id
           ; state            = `In_use
-          ; thread
-          }
+          ; thread }
         in
         thread.state <- `Helper helper_thread;
         Ok helper_thread)
@@ -499,11 +488,11 @@ module Internal = struct
   let create_helper_thread ?priority ?name t =
     become_helper_thread_internal ?priority ?name t
       ~get_thread:(fun t ->
-         match get_available_thread t with
-         | `Ok thread -> Ok thread
-         | `None_available ->
-           error ~strict:() "create_helper_thread could not get a thread" t
-             [%sexp_of: t])
+        match get_available_thread t with
+        | `Ok thread -> Ok thread
+        | `None_available ->
+          error ~strict:() "create_helper_thread could not get a thread" t
+            [%sexp_of: t])
   ;;
 
   let become_helper_thread ?priority ?name t =
@@ -542,8 +531,7 @@ module Internal = struct
           ; doit
           ; priority =
               Option.value priority
-                ~default:(Helper_thread.default_priority helper_thread)
-          };
+                ~default:(Helper_thread.default_priority helper_thread) };
         Ok ())
   ;;
 
@@ -735,8 +723,7 @@ let%test_module _ =
           if max_num_threads = 1
           then (assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id));
           assert (t.num_threads <= max_num_threads);
-          finished_with t;
-        ))
+          finished_with t; ))
     ;;
 
     (* Helper threads. *)
@@ -750,8 +737,7 @@ let%test_module _ =
       ok_exn (add_work_for_helper_thread t helper_thread
                 (fun () ->
                    Thread_safe_ivar.read helper_continue;
-                   Thread_safe_ivar.fill helper_finished ();
-                ));
+                   Thread_safe_ivar.fill helper_finished (); ));
       ok_exn (add_work t (fun () -> Thread_safe_ivar.fill work_finished ()));
       Thread_safe_ivar.fill helper_continue ();
       Thread_safe_ivar.read helper_finished;

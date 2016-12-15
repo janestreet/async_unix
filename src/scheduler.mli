@@ -67,7 +67,7 @@ val within_context : Execution_context.t -> (unit -> 'a) -> ('a, unit) Result.t
     never become determined, but the exception will end up in the specified monitor. *)
 val within' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
 
-(** [within] is like [within'], but doesn't require thunk to return a deferred. *)
+(** [within] is like [within'], but doesn't require the thunk to return a deferred. *)
 val within : ((unit -> unit) -> unit) with_options
 
 (** [within_v] is like [within], but allows a value to be returned by [f]. *)
@@ -84,11 +84,11 @@ val with_local : 'a Univ_map.Key.t -> 'a option -> f:(unit -> 'b) -> 'b
     context. *)
 val find_local : 'a Univ_map.Key.t -> 'a option
 
-(** Just like [within'], but instead of running thunk right now, adds
+(** Just like [within'], but instead of running the thunk right now, adds
     it to the Async queue to be run with other Async jobs. *)
 val schedule' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
 
-(** Just like schedule', but doesn't require thunk to return a deferred. *)
+(** Just like schedule', but doesn't require the thunk to return a deferred. *)
 val schedule : ((unit -> unit) -> unit) with_options
 
 (** [preserve_execution_context t f] saves the current execution context and returns a
@@ -224,7 +224,7 @@ val yield : unit -> unit Deferred.t
 val yield_until_no_jobs_remain : unit -> unit Deferred.t
 
 (** [yield_every ~n] returns a function that will act as [yield] every [n] calls and as
-    [Deferred.unit] the rest of the time.  This is useful for improving fairness in
+    [return ()] the rest of the time.  This is useful for improving fairness in
     circumstances where you don't have good control of the batch size, but can insert a
     deferred into every iteration.
 

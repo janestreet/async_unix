@@ -40,11 +40,14 @@ val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t
 val readdir : string -> string array Deferred.t
 val ls_dir : string -> string list Deferred.t
+val home_directory : unit -> string Deferred.t
+val opaque_identity : 'a -> 'a
 
 val interactive : bool ref
 val os_type : string
 val word_size : int
 val int_size : int
+val big_endian : bool
 
 val ocaml_version : string
 

@@ -55,48 +55,48 @@ let syscall_result2 =
     loop a b f 0
 ;;
 
-let%test_module "syscall_result" = (module struct
-  let test_both f =
-    List.iter ~f
-      [ (fun f -> syscall_result  ()    (fun ()    -> f ()))
-      ; (fun f -> syscall_result2 () () (fun () () -> f ()))
-      ]
-  ;;
+let%test_module "syscall_result" =
+  (module struct
+    let test_both f =
+      List.iter ~f
+        [ (fun f -> syscall_result  ()    (fun ()    -> f ()))
+        ; (fun f -> syscall_result2 () () (fun () () -> f ())) ]
+    ;;
 
-  let%test_unit "Ok" =
-    test_both (fun do_syscall ->
-      do_syscall (fun () -> Syscall_result.Unit.create_ok ())
-      |> Syscall_result.Unit.ok_exn)
-  ;;
+    let%test_unit "Ok" =
+      test_both (fun do_syscall ->
+        do_syscall (fun () -> Syscall_result.Unit.create_ok ())
+        |> Syscall_result.Unit.ok_exn)
+    ;;
 
-  let%test_unit "non-EINTR error" =
-    test_both (fun do_syscall ->
-      let r = do_syscall (fun () -> Syscall_result.Unit.create_error ENOSYS) in
-      assert (Syscall_result.Unit.error_exn r = ENOSYS))
-  ;;
+    let%test_unit "non-EINTR error" =
+      test_both (fun do_syscall ->
+        let r = do_syscall (fun () -> Syscall_result.Unit.create_error ENOSYS) in
+        assert (Syscall_result.Unit.error_exn r = ENOSYS))
+    ;;
 
-  let%test_unit "EINTR, then Ok" =
-    test_both (fun do_syscall ->
-      let first_call = ref true in
-      let r =
-        do_syscall (fun () ->
-          if !first_call
-          then (first_call := false; Syscall_result.Unit.create_error EINTR)
-          else (Syscall_result.Unit.create_ok ()))
-      in
-      r |> Syscall_result.Unit.ok_exn)
-  ;;
+    let%test_unit "EINTR, then Ok" =
+      test_both (fun do_syscall ->
+        let first_call = ref true in
+        let r =
+          do_syscall (fun () ->
+            if !first_call
+            then (first_call := false; Syscall_result.Unit.create_error EINTR)
+            else (Syscall_result.Unit.create_ok ()))
+        in
+        r |> Syscall_result.Unit.ok_exn)
+    ;;
 
-  let%test_unit "EINTR, then non-EINTR error" =
-    test_both (fun do_syscall ->
-      let first_call = ref true in
-      let r =
-        do_syscall (fun () ->
-          if !first_call
-          then (first_call := false; Syscall_result.Unit.create_error EINTR)
-          else (Syscall_result.Unit.create_error ENOSYS))
-      in
-      assert (Syscall_result.Unit.error_exn r = ENOSYS))
-  ;;
-end)
+    let%test_unit "EINTR, then non-EINTR error" =
+      test_both (fun do_syscall ->
+        let first_call = ref true in
+        let r =
+          do_syscall (fun () ->
+            if !first_call
+            then (first_call := false; Syscall_result.Unit.create_error EINTR)
+            else (Syscall_result.Unit.create_error ENOSYS))
+        in
+        assert (Syscall_result.Unit.error_exn r = ENOSYS))
+    ;;
+  end)
 

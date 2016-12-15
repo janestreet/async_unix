@@ -47,14 +47,13 @@ let run ?priority ?thread ?(when_finished = `Best) ?name f =
        other threads, and when a job is finished in another thread, it will try to acquire
        the async lock and manipulate async datastructures.  This seems hard to think about
        if async hasn't even started yet. *)
-    Deferred.bind Deferred.unit ~f:doit)
+    Deferred.bind (return ()) ~f:doit)
 ;;
 
 module Helper_thread = struct
   (* A wrapper around [Thread_pool]'s helper thread, so we can attach a finalizer. *)
   type t =
-    { thread_pool_helper_thread : Thread_pool.Helper_thread.t
-    }
+    { thread_pool_helper_thread : Thread_pool.Helper_thread.t }
   [@@deriving fields, sexp_of]
 
   (* Both [create] and [create_now] add Async finalizers to the returned helper thread so

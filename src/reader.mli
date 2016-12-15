@@ -17,9 +17,7 @@
     usual way by using [try_with], e.g.:
 
     {[
-      try_with (fun () -> Reader.read reader ...)
-    ]}
-*)
+      try_with (fun () -> Reader.read reader ...) ]} *)
 
 open! Core.Std
 open! Import
@@ -145,27 +143,24 @@ type 'a read_one_chunk_at_a_time_result =
       and left data in the reader's buffer (i.e. [c < len]), and that the reader reached
       eof without reading any more data into the buffer; hence the data in the buffer was
       never consumed (and never will be, since the reader is at eof). *)
-  | `Eof_with_unconsumed_data of string
-  ]
+  | `Eof_with_unconsumed_data of string ]
 [@@deriving sexp_of]
 
 type 'a handle_chunk_result =
   [ `Stop of 'a
-    (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
-        [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
+  (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
+      [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Stop_consumed of 'a * int
-    (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
-        [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
+  (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
+      [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Continue
-    (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
+  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
   | `Consumed of int * [ `Need of int
-                       | `Need_unknown
-                       ]
+                       | `Need_unknown ]
     (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
         bytes are needed (including the data remaining in the buffer after the [c] were
         already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
-        error if [n < 0 || c + n <= len]. *)
-  ]
+        error if [n < 0 || c + n <= len]. *) ]
 [@@deriving sexp_of]
 
 val read_one_chunk_at_a_time
@@ -180,8 +175,7 @@ val read_one_chunk_at_a_time
     [Iobuf.Lo_bound] is considered consumed. *)
 type 'a handle_iobuf_result =
   [ `Stop of 'a
-  | `Continue
-  ]
+  | `Continue ]
 [@@deriving sexp_of]
 
 (** [read_one_iobuf_at_a_time] is like [read_one_chunk_at_a_time], except that the

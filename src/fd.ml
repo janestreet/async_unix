@@ -132,7 +132,7 @@ let close_finished t = Ivar.read t.close_finished
 let close_started t =
   match t.state with
   | Open close_started -> Ivar.read close_started
-  | Close_requested _ | Closed -> Deferred.unit
+  | Close_requested _ | Closed -> return ()
 ;;
 
 let with_close t ~f = Monitor.protect (fun () -> f t) ~finally:(fun () -> close t)
@@ -173,8 +173,7 @@ let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
   upon
     (choose
        [ choice interrupt (fun () -> `Interrupted);
-         choice (Ivar.read ivar) (fun _ -> `Not_interrupted);
-       ])
+         choice (Ivar.read ivar) (fun _ -> `Not_interrupted); ])
     (function
       | `Not_interrupted -> ()
       | `Interrupted ->

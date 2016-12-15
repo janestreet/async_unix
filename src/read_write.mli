@@ -10,8 +10,7 @@ end
 type ('a, -'z) any =
   private
   { mutable read  : 'a
-  ; mutable write : 'a
-  }
+  ; mutable write : 'a }
 [@@deriving sexp]
 
 module Immutable : sig
@@ -66,6 +65,5 @@ module Export : sig
     = ('a, 'z) any
     = private
       { mutable read  : 'a
-      ; mutable write : 'a
-      }
+      ; mutable write : 'a }
 end

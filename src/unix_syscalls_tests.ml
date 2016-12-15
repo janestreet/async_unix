@@ -14,8 +14,7 @@ let%test_unit "fork_exec ~env last binding takes precedence" =
         Deferred.List.iter
           [ `Replace_raw (List.map env ~f:(fun (v, s) -> v ^ "=" ^ s))
           ; `Replace env
-          ; `Extend env
-          ]
+          ; `Extend env ]
           ~f:(fun env ->
             let%bind pid =
               fork_exec () ~env ~prog:"sh" ~args:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]

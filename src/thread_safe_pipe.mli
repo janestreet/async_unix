@@ -32,8 +32,7 @@ end
     syntax for calls that want to raise if the pipe is closed:
 
     {[
-      write t a ~if_closed:Raise
-    ]}
+      write t a ~if_closed:Raise ]}
 
     It also allows lightweight syntax for calls that want to match on whether the pipe was
     closed:
@@ -41,16 +40,15 @@ end
     {[
       match write t a ~if_closed:Return with
       | Closed  -> ...
-      | Written -> ...
-    ]}
+      | Written -> ... ]}
 
     Returning a variant is essential when one wants to distinguish a closed pipe from
     other errors.  Also, since pipe-writing functions acquire the Async lock, it would be
     incorrect (due to races) to check [is_closed] prior to the lock acquisition. *)
 module If_closed : sig
   type 'a t =
-  | Raise  : unit t
-  | Return : Written_or_closed.t t
+    | Raise  : unit t
+    | Return : Written_or_closed.t t
 end
 
 (** [transfer_in_without_pushback'] and [write_without_pushback] transfer the element(s)

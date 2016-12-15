@@ -8,8 +8,7 @@ module Poller = struct
       { execution_context : Execution_context.t
       ; result            : 'a Ivar.t
       ; poll              : unit -> [ `Stop_polling of 'a | `Continue_polling ]
-      ; mutable is_alive  : bool
-      }
+      ; mutable is_alive  : bool }
     [@@deriving fields, sexp_of]
 
     let invariant a_invariant t : unit =
@@ -37,16 +36,14 @@ type t =
        kernel scheduler in sexps of the scheduler, which already has its own
        [kernel_scheduler] field. *)
     kernel_scheduler : Kernel_scheduler.t sexp_opaque
-  ; mutable pollers : Poller.t array
-  }
+  ; mutable pollers : Poller.t array }
 [@@deriving fields, sexp_of]
 
 let is_empty t = Array.is_empty t.pollers
 
 let create () =
   { kernel_scheduler = Kernel_scheduler.t ()
-  ; pollers = [||];
-  }
+  ; pollers = [||]; }
 ;;
 
 let invariant t =

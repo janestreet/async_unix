@@ -61,8 +61,7 @@ module Output : sig
   type t =
     { stdout      : string
     ; stderr      : string
-    ; exit_status : Unix.Exit_or_signal.t
-    }
+    ; exit_status : Unix.Exit_or_signal.t }
   [@@deriving compare, sexp_of]
 
   module Stable : sig

@@ -28,8 +28,7 @@ module Check_buffer_age' = struct
     ; mutable bytes_seen                              : Int63.t
     (* The buffer-age check is responsible for filling in [too_old] if it detects an age
        violation. *)
-    ; mutable too_old                                 : unit Ivar.t
-    }
+    ; mutable too_old                                 : unit Ivar.t }
   [@@deriving fields, sexp_of]
 end
 
@@ -82,7 +81,7 @@ type t =
   ; mutable scheduled_back             : int
   ; mutable back                       : int
 
-  ; flushes                            : (Time.t Ivar.t * Int63.t) Queue.t sexp_opaque
+  ; flushes                            : (Time_ns.t Ivar.t * Int63.t) Queue.t sexp_opaque
 
   (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
      [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
@@ -130,8 +129,7 @@ type t =
      call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
      completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
      leak even though client code doesn't explicitly wait on [open_flags]. *)
-  ; open_flags                         : open_flags Deferred.t
-  }
+  ; open_flags                         : open_flags Deferred.t }
 [@@deriving fields, sexp_of]
 
 type writer = t [@@deriving sexp_of]
@@ -333,8 +331,7 @@ end = struct
           ; maximum_age                             = Time_ns.Span.of_span maximum_age
           ; bytes_seen                              = Int63.zero
           ; bytes_received_at_now_minus_maximum_age = Int63.zero
-          ; too_old                                 = Ivar.create ()
-          })
+          ; too_old                                 = Ivar.create () })
   ;;
 
   let destroy t =
@@ -350,9 +347,10 @@ end = struct
   ;;
 end
 
-let flushed_time t =
+
+let flushed_time_ns t =
   if t.bytes_written = t.bytes_received
-  then (return (Time.now ()))
+  then (return (Time_ns.now ()))
   else if Ivar.is_full t.close_finished
   then (Deferred.never ())
   else (
@@ -360,9 +358,13 @@ let flushed_time t =
       Queue.enqueue t.flushes (ivar, t.bytes_received)))
 ;;
 
+let flushed_time t =
+  Deferred.map (flushed_time_ns t) ~f:Time_ns.to_time
+;;
+
 let flushed t =
   if t.bytes_written = t.bytes_received
-  then Deferred.unit
+  then (return ())
   else if Ivar.is_full t.close_finished
   then (Deferred.never ())
   else (Deferred.ignore (flushed_time t))
@@ -419,8 +421,7 @@ let final_flush ?force t =
       Deferred.all_unit [ producers_flushed; flushed t ];
       force;
       (* The buffer-age check might fire while we're waiting. *)
-      Check_buffer_age.too_old t.check_buffer_age;
-    ]
+      Check_buffer_age.too_old t.check_buffer_age; ]
 ;;
 
 let close ?force_close t =
@@ -451,14 +452,13 @@ let () =
     Deferred.List.iter ~how:`Parallel (Bag.to_list writers_to_flush_at_shutdown)
       ~f:(fun t ->
         Deferred.any_unit [ final_flush t;
-                            close_finished t;
-                          ]))
+                            close_finished t; ]))
 ;;
 
 let fill_flushes { bytes_written; flushes; _ } =
   if not (Queue.is_empty flushes)
   then (
-    let now = Time.now () in
+    let now = Time_ns.now () in
     let rec loop () =
       match Queue.peek flushes with
       | None -> ()
@@ -466,7 +466,7 @@ let fill_flushes { bytes_written; flushes; _ } =
         if Int63.(z <= bytes_written)
         then (
           Ivar.fill ivar now;
-          ignore (Queue.dequeue flushes : (Time.t Ivar.t * Int63.t) option);
+          ignore (Queue.dequeue flushes : (Time_ns.t Ivar.t * Int63.t) option);
           loop ())
     in
     loop ())
@@ -536,8 +536,7 @@ let create
     ; check_buffer_age            = Check_buffer_age.dummy
     ; consumer_left
     ; raise_when_consumer_leaves
-    ; open_flags
-    }
+    ; open_flags }
   in
   Monitor.detach_and_iter_errors inner_monitor ~f:(fun exn ->
     Monitor.send_exn monitor
@@ -666,6 +665,7 @@ let rec start_write t =
     | `Error ((Unix.Unix_error
                  (( EPIPE
                   | ECONNRESET
+                  | EHOSTUNREACH
                   | ENETDOWN
                   | ENETRESET
                   | ENETUNREACH
@@ -1224,7 +1224,7 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
           Option.value perm ~default:p
       in
       let%bind () = Unix.fchmod fd ~perm:new_permissions in
-      let%map () = if do_fsync then (fsync t) else Deferred.unit in
+      let%map () = if do_fsync then (fsync t) else (return ()) in
       result)
   in
   match%bind Monitor.try_with (fun () -> Unix.rename ~src:temp_file ~dst:file) with
@@ -1244,31 +1244,31 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
 let save ?temp_file ?perm ?fsync file ~contents =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     write t contents;
-    Deferred.unit)
+    return ())
 ;;
 
 let save_lines ?temp_file ?perm ?fsync file lines =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     List.iter lines ~f:(fun line -> write t line; newline t);
-    Deferred.unit)
+    return ())
 ;;
 
 let save_sexp ?temp_file ?perm ?fsync ?(hum=true) file sexp =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     write_sexp_internal t sexp ~hum ~terminate_with:Newline;
-    Deferred.unit)
+    return ())
 ;;
 
 let save_sexps ?temp_file ?perm ?fsync ?(hum=true) file sexps =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     List.iter sexps ~f:(fun sexp ->
       write_sexp_internal t sexp ~hum ~terminate_with:Newline);
-    Deferred.unit)
+    return ())
 
 let save_bin_prot ?temp_file ?perm ?fsync file bin_writer a =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
     write_bin_prot t bin_writer a;
-    Deferred.unit)
+    return ())
 ;;
 
 let with_flushed_at_close t ~flushed ~f =
@@ -1278,7 +1278,7 @@ let with_flushed_at_close t ~flushed ~f =
   Monitor.protect f
     ~finally:(fun () ->
       Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
-      Deferred.unit)
+      return ())
 ;;
 
 let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r write_f =
@@ -1319,8 +1319,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
       choose [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
              ; choice stop                      (fun () -> `Stop         )
              ; choice (close_finished t)        (fun () -> `Writer_closed)
-             ; choice (consumer_left  t)        (fun () -> `Consumer_left)
-             ]
+             ; choice (consumer_left  t)        (fun () -> `Consumer_left) ]
     with
     | `End_of_pipe_r | `Stop -> ()
     | `Writer_closed | `Consumer_left -> Pipe.close_read pipe_r

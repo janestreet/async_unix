@@ -206,21 +206,21 @@ module Blocking : sig
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [error] printf like logging at the `Info log level *)
+  (** [error] printf like logging at the `Error log level *)
   val error
     :  ?time : Time.t
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [error] printf like logging at the `Info log level *)
+  (** [debug] printf like logging at the `Debug log level *)
   val debug
     :  ?time : Time.t
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-(** [sexp] logging of sexps. *)
+  (** [sexp] logging of sexps. *)
   val sexp
     :  ?level : Level.t
     -> ?time : Time.t
@@ -228,13 +228,21 @@ module Blocking : sig
     -> Sexp.t
     -> unit
 
-  (** [surround] logs before and after.  See more detailed comment for async surround. *)
-  val surround
+  (** [surround_s] logs before and after.  See more detailed comment for async surround. *)
+  val surround_s
     :  ?level : Level.t
     -> ?time : Time.t
     -> ?tags : (string * string) list
     -> Sexp.t
     -> (unit -> 'a)
+    -> 'a
+
+  (** [surroundf] logs before and after.  See more detailed comment for async surround. *)
+  val surroundf
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> ('a, unit, string, (unit -> 'b) -> 'b) format4
     -> 'a
 end
 
@@ -304,13 +312,20 @@ module type Global_intf = sig
 
   val message : Message.t -> unit
 
-  val surround
+  val surround_s
     :  ?level : Level.t
     -> ?time : Time.t
     -> ?tags : (string * string) list
     -> Sexp.t
     -> (unit -> 'a Deferred.t)
     -> 'a Deferred.t
+
+  val surroundf
+    :  ?level : Level.t
+    -> ?time : Time.t
+    -> ?tags : (string * string) list
+    -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
+    -> 'a
 end
 
 (** This functor can be called to generate "singleton" logging modules *)
@@ -427,7 +442,7 @@ val message : t -> Message.t -> unit
     after [f] returns or raises. If [f] raises, the second message will include the
     exception, and [surround] itself will re-raise the exception tagged with [message]. As
     usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
-val surround
+val surround_s
   :  ?level : Level.t
   -> ?time : Time.t
   -> ?tags : (string * string) list
@@ -435,6 +450,14 @@ val surround
   -> Sexp.t
   -> (unit -> 'a Deferred.t)
   -> 'a Deferred.t
+
+val surroundf
+  :  ?level : Level.t
+  -> ?time : Time.t
+  -> ?tags : (string * string) list
+  -> t
+  -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
+  -> 'a
 
 (** [would_log] returns true if a message at the given log level would be logged if sent
     immediately. *)

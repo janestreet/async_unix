@@ -24,8 +24,7 @@ type t =
   { timerfd               : Timerfd.t
   ; epoll                 : Epoll.t
   ; handle_fd_read_ready  : File_descr.t -> Flags.t -> unit
-  ; handle_fd_write_ready : File_descr.t -> Flags.t -> unit
-  }
+  ; handle_fd_write_ready : File_descr.t -> Flags.t -> unit }
 [@@deriving sexp_of, fields]
 
 let backend = Config.File_descr_watcher.Epoll
@@ -59,7 +58,7 @@ let create
       ~num_file_descrs
       ~handle_fd_read_ready
       ~handle_fd_write_ready
-      =
+  =
   let epoll =
     Or_error.ok_exn Epoll.create ~num_file_descrs
       ~max_ready_events:(Epoll_max_ready_events.raw Config.epoll_max_ready_events)
@@ -81,8 +80,7 @@ let create
   { timerfd
   ; epoll
   ; handle_fd_read_ready  = handle_fd `Read  handle_fd_read_ready
-  ; handle_fd_write_ready = handle_fd `Write handle_fd_write_ready
-  }
+  ; handle_fd_write_ready = handle_fd `Write handle_fd_write_ready }
 ;;
 
 let reset_in_forked_process t = Epoll.close t.epoll

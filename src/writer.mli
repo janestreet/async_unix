@@ -19,8 +19,7 @@
     system call failing.  This will cause an exception to be sent to the writer's monitor,
     which will be a child of the monitor in effect when the writer is created.  One can
     deal with such asynchronous exceptions in the usual way, by handling the stream
-    returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)].
-*)
+    returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)]. *)
 open! Core.Std
 open! Import
 
@@ -148,8 +147,7 @@ val set_fd : t -> Fd.t -> unit Deferred.t
         type t
         val length : t -> int
         val blit_to_bigstring : (t, Bigstring.t) Blit.blit
-      end
-    ]}
+      end ]}
 
     then one can use [write_gen] to implement a custom analog of [Writer.write], like:
 
@@ -162,8 +160,7 @@ val set_fd : t -> Fd.t -> unit Deferred.t
             ~length:A.length
             ~blit_to_bigstring:A.blit_to_bigstring
             ?pos ?len writer a
-      end
-    ]}
+      end ]}
 
     In some cases it may be difficult to write only part of a value:
 
@@ -172,8 +169,7 @@ val set_fd : t -> Fd.t -> unit Deferred.t
         type t
         val length : t -> int
         val blit_to_bigstring : t -> Bigstring.t -> pos:int -> unit
-      end
-    ]}
+      end ]}
 
     In these cases, use [write_gen_whole] instead.  It never requires writing only part of
     a value, although it is potentially less space-efficient.  It may waste portions of
@@ -188,13 +184,11 @@ val set_fd : t -> Fd.t -> unit Deferred.t
             ~length:B.length
             ~blit_to_bigstring:B.blit_to_bigstring
             writer b
-      end
-    ]}
+      end ]}
 
     Note: [write_gen] and [write_gen_whole] give you access to the writer's internal
     buffer.  You should not capture it; doing so might lead to errors of the segfault
-    kind.
-*)
+    kind. *)
 val write_gen
   :  ?pos              : int
   -> ?len              : int
@@ -337,8 +331,9 @@ val schedule_iovecs : t -> Bigstring.t Unix.IOVec.t Queue.t -> unit
     deferred will never become determined.
 
     It is OK to call [flushed t] after [t] has been closed. *)
-val flushed      : t ->   unit Deferred.t
-val flushed_time : t -> Time.t Deferred.t
+val flushed         : t ->      unit Deferred.t
+val flushed_time    : t ->    Time.t Deferred.t
+val flushed_time_ns : t -> Time_ns.t Deferred.t
 
 val fsync : t -> unit Deferred.t
 val fdatasync : t -> unit Deferred.t
@@ -399,11 +394,11 @@ val can_write : t -> bool
 (** In addition to flushing its internal buffer prior to closing, a writer keeps track of
     producers that are feeding it data, so that when [Writer.close] is called, it does the
     following:
- 
+
     + requests that the writer's producers flush their data to it
     + flushes the writer's internal buffer
     + calls [Unix.close] on the writer's underlying file descriptor
- 
+
     [with_flushed_at_close t ~flushed ~f] calls [f] and adds [flushed] to the set of
     producers that should be flushed-at-close, for the duration of [f]. *)
 val with_flushed_at_close
@@ -528,9 +523,7 @@ val save_bin_prot
     [transfer t pipe_r f] is equivalent to:
 
     {[
-      transfer' t pipe_r (fun q -> Queue.iter q ~f; Deferred.unit)
-    ]}
-*)
+      transfer' t pipe_r (fun q -> Queue.iter q ~f; return ()) ]} *)
 val transfer'
   :  ?stop                    : unit Deferred.t
   -> ?max_num_values_per_read : int

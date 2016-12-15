@@ -10,7 +10,7 @@ module Syscall_result = Unix.Syscall_result
 
 module Error = Unix.Error
 
-type error = Unix.error =
+type error = Unix.Error.t =
   | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
   | EFAULT | EFBIG | EINTR | EINVAL | EIO | EISDIR | EMFILE | EMLINK
   | ENAMETOOLONG | ENFILE | ENODEV | ENOENT | ENOEXEC | ENOLCK | ENOMEM | ENOSPC
@@ -84,8 +84,7 @@ type open_flag =
   | `Noctty
   | `Dsync
   | `Sync
-  | `Rsync
-  ]
+  | `Rsync ]
 
 type file_perm = int [@@deriving sexp, bin_io, compare]
 
@@ -176,7 +175,7 @@ let with_file ?exclusive ?perm file ~mode ~f =
   | Some read_or_write ->
     doit (fun fd ->
       let%bind () = lockf fd read_or_write in
-      Monitor.protect (fun () -> f fd) ~finally:(fun () -> unlockf fd; Deferred.unit))
+      Monitor.protect (fun () -> f fd) ~finally:(fun () -> unlockf fd; return ()))
 ;;
 
 (* file status *)
@@ -213,8 +212,7 @@ module Stats = struct
     ; size  : int64
     ; atime : Time.t
     ; mtime : Time.t
-    ; ctime : Time.t
-    }
+    ; ctime : Time.t }
   [@@deriving fields, sexp, bin_io, compare]
 
   let of_unix (u : Unix.stats) =
@@ -229,8 +227,7 @@ module Stats = struct
     ; size  = u.st_size
     ; atime = Time.of_float u.st_atime
     ; mtime = Time.of_float u.st_mtime
-    ; ctime = Time.of_float u.st_ctime
-    }
+    ; ctime = Time.of_float u.st_ctime }
 
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
@@ -400,12 +397,11 @@ let getgrouplist username gid =
 ;;
 
 type process_times =
-    Unix.process_times =
+  Unix.process_times =
   { tms_utime  : float
   ; tms_stime  : float
   ; tms_cutime : float
-  ; tms_cstime : float
-  }
+  ; tms_cstime : float }
 
 let times = Unix.times
 
@@ -418,8 +414,7 @@ type tm = Unix.tm =
   ; tm_year  : int
   ; tm_wday  : int
   ; tm_yday  : int
-  ; tm_isdst : bool
-  }
+  ; tm_isdst : bool }
 
 let time         = Unix.time
 let gettimeofday = Unix.gettimeofday
@@ -588,10 +583,9 @@ module Socket = struct
     type 'address t =
       { family                  : Unix.socket_domain
       ; address_of_sockaddr_exn : Unix.sockaddr -> 'address
-      ; sexp_of_address         : 'address -> Sexp.t
-      }
+      ; sexp_of_address         : 'address -> Sexp.t }
       constraint 'address = [< Address.t ]
-    [@@deriving fields, sexp_of]
+      [@@deriving fields, sexp_of]
 
     let to_string t =
       match t.family with
@@ -603,61 +597,53 @@ module Socket = struct
     let inet =
       { family                  = PF_INET
       ; address_of_sockaddr_exn = Address.Inet.of_sockaddr_exn
-      ; sexp_of_address         = Address.Inet.sexp_of_t
-      }
+      ; sexp_of_address         = Address.Inet.sexp_of_t }
     ;;
 
     let unix =
       { family                  = PF_UNIX
       ; address_of_sockaddr_exn = Address.Unix.of_sockaddr_exn
-      ; sexp_of_address         = Address.Unix.sexp_of_t
-      }
+      ; sexp_of_address         = Address.Unix.sexp_of_t }
     ;;
   end
 
   module Type = struct
     type 'a t =
       { family      : 'a Family.t
-      ; socket_type : Unix.socket_type
-      }
+      ; socket_type : Unix.socket_type }
     [@@deriving sexp_of]
 
     let sexp_of_address t = t.family.sexp_of_address
 
     let tcp =
       { family      = Family.inet
-      ; socket_type = SOCK_STREAM
-      }
+      ; socket_type = SOCK_STREAM }
     ;;
 
     let udp =
       { family      = Family.inet
-      ; socket_type = SOCK_DGRAM
-      }
+      ; socket_type = SOCK_DGRAM }
     ;;
 
     let unix =
       { family      = Family.unix
-      ; socket_type = SOCK_STREAM
-      }
+      ; socket_type = SOCK_STREAM }
     ;;
 
     let unix_dgram =
       { family      = Family.unix
-      ; socket_type = SOCK_DGRAM
-      }
+      ; socket_type = SOCK_DGRAM }
     ;;
   end
 
   type 'b t_ =
     { type_ : 'b Type.t
-    ; fd    : Fd.t
-    }
+    ; fd    : Fd.t }
   [@@deriving sexp_of]
 
   type (+'a, 'b) t = 'b t_
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
-  [@@deriving sexp_of]
+    [@@deriving sexp_of]
 
   let fd t = t.fd
 
@@ -682,16 +668,14 @@ module Socket = struct
     type 'a t =
       { name : string
       ; get  : File_descr.t -> 'a
-      ; set  : File_descr.t -> 'a -> unit
-      }
+      ; set  : File_descr.t -> 'a -> unit }
 
     let to_string t = t.name
 
     let make getsockopt setsockopt name opt =
       { name
       ; get  = (fun fd -> getsockopt fd opt)
-      ; set  = (fun fd a -> setsockopt fd opt a)
-      }
+      ; set  = (fun fd a -> setsockopt fd opt a) }
     ;;
 
     let bool   = make Unix.getsockopt        Unix.setsockopt
@@ -725,15 +709,13 @@ module Socket = struct
     let mcast_loop =
       { name = "mcast_loop"
       ; get  = Unix.get_mcast_loop
-      ; set  = Unix.set_mcast_loop
-      }
+      ; set  = Unix.set_mcast_loop }
     ;;
 
     let mcast_ttl =
       { name = "mcast_ttl"
       ; get  = Unix.get_mcast_ttl
-      ; set  = Unix.set_mcast_ttl
-      }
+      ; set  = Unix.set_mcast_ttl }
     ;;
   end
 
@@ -790,7 +772,7 @@ module Socket = struct
          Unix Network Programming, p422). *)
       Fd.with_file_descr t.fd ~nonblocking:true
         (fun file_descr ->
-            Unix.accept file_descr)
+           Unix.accept file_descr)
     with
     | `Already_closed -> `Socket_closed
     | `Ok (file_descr, sockaddr) ->
@@ -799,11 +781,11 @@ module Socket = struct
       let fd =
         Fd.create (Fd.Kind.Socket `Active) file_descr
           (Info.create "socket"
-              (`listening_on t, `client address)
-              (let sexp_of_address = sexp_of_address t in
+             (`listening_on t, `client address)
+             (let sexp_of_address = sexp_of_address t in
               [%sexp_of:
                 ([ `listening_on of (_, _) t ]
-                  * [ `client of address ])]))
+                 * [ `client of address ])]))
       in
       let s = { fd; type_ = t.type_ } in
       set_close_on_exec s.fd;
@@ -967,8 +949,7 @@ module Host = struct
     { name      : string
     ; aliases   : string array
     ; family    : Protocol_family.t
-    ; addresses : Inet_addr.t array
-    }
+    ; addresses : Inet_addr.t array }
 
   let getbyname n =
     In_thread.syscall_exn ~name:"gethostbyname" (fun () -> Unix.Host.getbyname     n)
@@ -1020,8 +1001,7 @@ module Addr_info = struct
     ; ai_socktype  : socket_type
     ; ai_protocol  : int
     ; ai_addr      : sockaddr
-    ; ai_canonname : string
-    }
+    ; ai_canonname : string }
   [@@deriving bin_io, sexp_of]
 
   module Blocking_sexp = struct
@@ -1030,8 +1010,7 @@ module Addr_info = struct
       ; ai_socktype  : socket_type
       ; ai_protocol  : int
       ; ai_addr      : sockaddr_blocking_sexp
-      ; ai_canonname : string
-      }
+      ; ai_canonname : string }
     [@@deriving bin_io, sexp]
   end
 
@@ -1055,8 +1034,7 @@ end
 module Name_info = struct
   type t = Unix.name_info =
     { ni_hostname : string
-    ; ni_service  : string
-    }
+    ; ni_service  : string }
   [@@deriving bin_io, sexp]
 
   type getnameinfo_option = Unix.getnameinfo_option =
@@ -1102,8 +1080,7 @@ module Passwd = struct
     ; gid    : int
     ; gecos  : string
     ; dir    : string
-    ; shell  : string
-    }
+    ; shell  : string }
   [@@deriving fields, sexp]
 
   let getbyname n =
@@ -1129,8 +1106,7 @@ module Group = struct
     { name   : string
     ; passwd : string
     ; gid    : int
-    ; mem    : string array
-    }
+    ; mem    : string array }
   [@@deriving fields, sexp]
 
   let getbyname n =

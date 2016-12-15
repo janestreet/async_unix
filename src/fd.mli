@@ -44,8 +44,7 @@ module Kind : sig
     | Socket of [ `Unconnected  (** the result of socket() *)
                 | `Bound        (** the result of bind() *)
                 | `Passive      (** the result of listen() *)
-                | `Active       (** the result of connect() or accept() *)
-                ]
+                | `Active       (** the result of connect() or accept() *) ]
 
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
@@ -157,8 +156,7 @@ val with_file_descr
   -> (Unix.File_descr.t -> 'a)
   -> [ `Ok of 'a
      | `Already_closed
-     | `Error of exn
-     ]
+     | `Error of exn ]
 
 (** [with_file_descr_exn] is like [with_file_descr] except that it raises rather than
     return [`Already_closed] or [`Error]. *)
@@ -178,8 +176,7 @@ val with_file_descr_deferred
   -> (Unix.File_descr.t -> 'a Deferred.t)
   -> [ `Ok of 'a
      | `Already_closed
-     | `Error of exn
-     ] Deferred.t
+     | `Error of exn ] Deferred.t
 
 (** [with_file_descr_deferred_exn] is like [with_file_descr_deferred], except that it
     raises rather than return [`Already_closed] or [`Error]. *)
@@ -248,8 +245,7 @@ val syscall
   -> (Unix.File_descr.t -> 'a)
   -> [ `Already_closed
      | `Ok of 'a
-     | `Error of exn
-     ]
+     | `Error of exn ]
 
 (** [syscall_exn t f] is like [syscall], except it raises rather than return
     [`Already_closed] or [`Error]. *)

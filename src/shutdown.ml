@@ -57,8 +57,7 @@ let shutdown ?force status =
              | Ok () -> status
              | Error _ -> if status = 0 then 1 else status
            in
-           exit status
-      );
+           exit status );
     let force =
       match force with
       | None -> !default_force_ref ()

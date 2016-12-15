@@ -49,8 +49,7 @@ type open_flag =
   | `Noctty
   | `Dsync
   | `Sync
-  | `Rsync
-  ]
+  | `Rsync ]
 
 type file_perm = int
 
@@ -134,8 +133,7 @@ module Stats : sig
     ; size  : int64
     ; atime : Time.t
     ; mtime : Time.t
-    ; ctime : Time.t
-    }
+    ; ctime : Time.t }
   [@@deriving fields, sexp, bin_io, compare]
 
   val to_string : t -> string
@@ -198,10 +196,12 @@ type dir_handle = Unix.dir_handle
 
 val opendir : string -> dir_handle Deferred.t
 
+(** [readdir_opt dir_handle] returns the next directory member, or [None] when there are
+    no more directory members to return. *)
 val readdir_opt : dir_handle -> string option Deferred.t
 
 val readdir : dir_handle -> string Deferred.t
-  [@@deprecated "[since 2016-08] use readdir_opt instead"]
+[@@deprecated "[since 2016-08] use readdir_opt instead"]
 
 val rewinddir : dir_handle -> unit Deferred.t
 
@@ -225,8 +225,7 @@ val readlink : string -> string Deferred.t
     automatically appending a suffix of six random characters to make the name unique.
     Unlike C's [mkstemp], [prefix] should not include six X's at the end.
 
-    @raise Unix_error on errors.
-*)
+    @raise Unix_error on errors. *)
 val mkstemp : string -> (string * Fd.t) Deferred.t
 
 val mkdtemp : string -> string Deferred.t
@@ -239,8 +238,7 @@ type process_times
   = { tms_utime  : float  (** User time for the process *)
     ; tms_stime  : float  (** System time for the process *)
     ; tms_cutime : float  (** User time for the children processes *)
-    ; tms_cstime : float  (** System time for the children processes *)
-    }
+    ; tms_cstime : float  (** System time for the children processes *) }
 
 val times : unit -> process_times
 
@@ -253,8 +251,7 @@ type tm = Unix.tm =
   ; tm_year  : int   (** Year - 1900 *)
   ; tm_wday  : int   (** Day of week (Sunday is 0) *)
   ; tm_yday  : int   (** Day of year 0..365 *)
-  ; tm_isdst : bool  (** Daylight time savings in effect *)
-  }
+  ; tm_isdst : bool  (** Daylight time savings in effect *) }
 val time : unit -> float
 val gettimeofday : unit -> float
 val gmtime : float -> tm
@@ -290,8 +287,7 @@ type wait_on =
   [ `Any
   | `Group of Pid.t
   | `My_group
-  | `Pid of Pid.t
-  ]
+  | `Pid of Pid.t ]
 [@@deriving sexp]
 
 val wait                 : wait_on -> (Pid.t * Exit_or_signal.t        ) Deferred.t
@@ -310,7 +306,7 @@ module Inet_addr : sig
   type t = Unix.Inet_addr.t [@@deriving bin_io, compare, hash, sexp_of]
 
   val t_of_sexp : Sexp.t -> t
-    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+  [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
   (** same as [Core.Unix] *)
   module Stable        = Unix.Inet_addr.Stable
@@ -353,10 +349,10 @@ module Socket : sig
       type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
 
       val t_of_sexp : Sexp.t -> t
-        [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
       val __t_of_sexp__ : Sexp.t -> t
-        [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig
@@ -374,7 +370,7 @@ module Socket : sig
     type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
 
     val t_of_sexp : Sexp.t -> t
-      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
     (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
     module Blocking_sexp : sig
@@ -406,12 +402,11 @@ module Socket : sig
         | ---bind--> Bound ---listen--> Passive ---accept---> Active
                      |
                      | ---connect--> Active
-      v}
-  *)
+      v} *)
   type (+'a, 'b) t
     constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
     constraint 'b = [< Address.t ]
-  [@@deriving sexp_of]
+    [@@deriving sexp_of]
 
   module Type : sig
     type 'a t constraint 'a = [< Address.t ] [@@deriving sexp_of]
@@ -550,10 +545,10 @@ module Socket : sig
       {!Linux_ext.bind_to_interface}.
 
       Typically, one would use this function for very specific non-multicast requirements.
-      For similar functionality when using multicast, see {!Core_unix.mcast_set_ifname}. *)
+      For similar functionality when using multicast, see
+      {!Core_unix.mcast_set_ifname}. *)
   val bind_to_interface_exn
-    : (([ `Unconnected ], _) t -> [ `Any | `Interface_name of string ] -> unit)
-        Or_error.t
+    : (([ `Unconnected ], _) t -> [ `Any | `Interface_name of string ] -> unit) Or_error.t
 end
 
 val bind_to_interface_exn
@@ -564,8 +559,7 @@ module Host : sig
     { name      : string
     ; aliases   : string array
     ; family    : Protocol_family.t
-    ; addresses : Inet_addr.t array
-    }
+    ; addresses : Inet_addr.t array }
 
   val getbyname     : string      -> t option Deferred.t
   val getbyname_exn : string      -> t        Deferred.t
@@ -594,7 +588,7 @@ type sockaddr = Unix.sockaddr =
 [@@deriving bin_io, sexp_of]
 
 val sockaddr_of_sexp : Sexp.t -> sockaddr
-  [@@deprecated "[since 2015-10] Replace [sockaddr] by [sockaddr_blocking_sexp]"]
+[@@deprecated "[since 2015-10] Replace [sockaddr] by [sockaddr_blocking_sexp]"]
 
 (** [sockaddr_blocking_sexp] is like [sockaddr], with [of_sexp] that performs DNS lookup
     to resolve [Inet_addr.t]. *)
@@ -606,12 +600,11 @@ module Addr_info : sig
     ; ai_socktype  : socket_type
     ; ai_protocol  : int
     ; ai_addr      : sockaddr
-    ; ai_canonname : string
-    }
+    ; ai_canonname : string }
   [@@deriving bin_io, sexp_of]
 
   val t_of_sexp : Sexp.t -> t
-    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
+  [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
   (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
   module Blocking_sexp : sig
@@ -633,8 +626,7 @@ end
 module Name_info : sig
   type t = Unix.name_info =
     { ni_hostname : string
-    ; ni_service  : string
-    }
+    ; ni_service  : string }
   [@@deriving bin_io, sexp]
 
   type getnameinfo_option = Unix.getnameinfo_option =
@@ -662,9 +654,7 @@ val setuid : int -> unit
 
 module Error = Unix.Error
 
-(** @deprecated in favor of {!Error.t} *)
-type error =
-    Unix.error =
+type error = Unix.Error.t =
   | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
   | EFAULT | EFBIG | EINTR | EINVAL | EIO | EISDIR | EMFILE | EMLINK
   | ENAMETOOLONG | ENFILE | ENODEV | ENOENT | ENOEXEC | ENOLCK | ENOMEM | ENOSPC
@@ -676,7 +666,13 @@ type error =
   | ECONNABORTED | ECONNRESET | ENOBUFS | EISCONN | ENOTCONN | ESHUTDOWN
   | ETOOMANYREFS | ETIMEDOUT | ECONNREFUSED | EHOSTDOWN | EHOSTUNREACH | ELOOP
   | EOVERFLOW | EUNKNOWNERR of int
-[@@deriving sexp]
+[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
+
+val sexp_of_error : Error.t -> Sexp.t
+[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
+
+val error_of_sexp : Sexp.t -> Error.t
+[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
 
 exception Unix_error of Error.t * string * string
 
@@ -726,8 +722,7 @@ module Terminal_io : sig
                                    before the read request is satisfied. *)
     ; mutable c_vtime  : int   (** Maximum read wait (in 0.1s units). *)
     ; mutable c_vstart : char  (** Start character (usually ctrl-Q). *)
-    ; mutable c_vstop  : char  (** Stop character (usually ctrl-S). *)
-    }
+    ; mutable c_vstop  : char  (** Stop character (usually ctrl-S). *) }
 
   type setattr_when = Caml.Unix.setattr_when = TCSANOW | TCSADRAIN | TCSAFLUSH
 
@@ -744,8 +739,7 @@ module Passwd : sig
     ; gid    : int
     ; gecos  : string
     ; dir    : string
-    ; shell  : string
-    }
+    ; shell  : string }
   [@@deriving fields, sexp]
 
   val getbyname     : string -> t option Deferred.t
@@ -761,8 +755,7 @@ module Group : sig
     { name   : string
     ; passwd : string
     ; gid    : int
-    ; mem    : string array
-    }
+    ; mem    : string array }
   [@@deriving fields, sexp]
 
   val getbyname     : string -> t option Deferred.t
@@ -787,5 +780,4 @@ val getlogin : unit -> string Deferred.t
 val wordexp
   : (?flags : [ `No_cmd | `Show_err | `Undef ] list
      -> string
-     -> string array Deferred.t
-    ) Or_error.t
+     -> string array Deferred.t ) Or_error.t
