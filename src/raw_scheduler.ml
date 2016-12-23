@@ -353,7 +353,7 @@ let default_handle_thread_pool_stuck ~stuck_for =
       sprintf "\
 %s: All %d threads in Async's thread pool have been blocked for at least %s.
   Please check code in your program that uses threads, e.g. [In_thread.run]."
-        (Time.format (Time_ns.to_time now) "%F %T %Z" ~zone:Time.Zone.local)
+        (Time.format (Time_ns.to_time now) "%F %T %Z" ~zone:(force Time.Zone.local))
         (Validated.raw Config.max_num_threads)
         (Time_ns.Span.to_short_string stuck_for)
     in

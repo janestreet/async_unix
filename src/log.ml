@@ -76,7 +76,7 @@ module Rotation = struct
       ; time          : Time.Ofday.t sexp_option
       ; keep          : [ `All | `Newer_than of Time.Span.t | `At_least of int ]
       ; naming_scheme : [ `Numbered | `Timestamped | `Dated ]
-      ; zone          : Time.Zone.t [@default Time.Zone.local]
+      ; zone          : Time.Zone.t [@default (force Time.Zone.local)]
       }
     [@@deriving fields, sexp]
   end
@@ -142,7 +142,7 @@ module Rotation = struct
     { messages
     ; size
     ; time
-    ; zone          = Option.value zone ~default:Time.Zone.local
+    ; zone          = Option.value zone ~default:(force Time.Zone.local)
     ; keep
     ; naming_scheme
     }
@@ -181,7 +181,7 @@ module Rotation = struct
       ~naming_scheme:(fun acc _ -> acc)
   ;;
 
-  let default ?(zone = Time.Zone.local) () =
+  let default ?(zone = (force Time.Zone.local)) () =
     { messages      = None
     ; size          = None
     ; time          = Some Time.Ofday.start_of_day
@@ -436,7 +436,7 @@ end = struct
 
   let add_tags t tags = {t with tags = List.rev_append tags t.tags}
 
-  let to_write_only_text ?(zone=Time.Zone.local) t =
+  let to_write_only_text ?(zone=(force Time.Zone.local)) t =
     let prefix =
       match t.level with
       | None   -> ""
@@ -777,13 +777,13 @@ end = struct
         type t               = Time.t
         let create _zone     = Time.now ()
         let rotate_one       = ident
-        let to_string_opt ts = Some (Time.to_filename_string ~zone:Time.Zone.local ts)
+        let to_string_opt ts = Some (Time.to_filename_string ~zone:(force Time.Zone.local) ts)
         let cmp_newest_first     = Time.descending
 
         let of_string_opt    = function
           | None   -> None
           | Some s ->
-            try Some (Time.of_filename_string ~zone:Time.Zone.local s) with _ -> None
+            try Some (Time.of_filename_string ~zone:(force Time.Zone.local) s) with _ -> None
         ;;
       end)
 

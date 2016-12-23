@@ -121,7 +121,7 @@ module Lines_or_sexp = struct
   ;;
 
   let create string =
-    try Sexp (Sexp.of_string (String.strip string))
+    try Sexp (Sexp.of_string string)
     with _ -> Lines (String.split ~on:'\n' string)
   ;;
 end
