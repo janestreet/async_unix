@@ -39,7 +39,6 @@ let%bench_module "Clock.every" =
           else (incr n);
           return ())
         ~continue:Time_source.Continue.immediately;
-      ();
       run_cycles_until_no_jobs_remain ();
     ;;
   end)

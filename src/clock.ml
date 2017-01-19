@@ -49,8 +49,8 @@ let at_intervals ?start ?stop span =
   at_intervals ?start ?stop (Time_ns.Span.of_span span)
 ;;
 
-let every' ?start ?stop ?continue_on_error span f =
-  every' ?start ?stop ?continue_on_error (Time_ns.Span.of_span span) f
+let every' ?start ?stop ?continue_on_error ?finished span f =
+  every' ?start ?stop ?continue_on_error ?finished (Time_ns.Span.of_span span) f
 ;;
 
 let every ?start ?stop ?continue_on_error span f =

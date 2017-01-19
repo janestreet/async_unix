@@ -56,10 +56,17 @@ val run_in_async_exn
     [block_on_async] will automatically start the scheduler if it isn't already
     running. *)
 val block_on_async     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
-val block_on_async_exn : (unit -> 'a Deferred.t) ->  'a
+val block_on_async_exn : (unit -> 'a Deferred.t) -> 'a
 
 (** [run_in_async_wait f] is like [block_on_async f], except that it must be called from a
     thread outside Async.  Upon returning from [run_in_async_wait], it is guaranteed that
     the caller does not have the Async lock. *)
 val run_in_async_wait     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 val run_in_async_wait_exn : (unit -> 'a Deferred.t) ->  'a
+
+(** [reset_scheduler] stops the scheduler thread and any associated threads, and resets
+    Async's global state to its initial state.  This is useful if you need to first use
+    Async to compute a value and then to daemonize (in which case you should [daemonize]
+    with [~allow_threads_to_have_been_created:true]).  [reset_scheduler] can be called
+    from the main thread (before Async is started) or from a thread outside Async. *)
+val reset_scheduler : unit -> unit

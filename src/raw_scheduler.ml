@@ -591,6 +591,30 @@ let reset_in_forked_process () =
   init ();
 ;;
 
+(* [thread_safe_reset] shuts down Async, exiting the scheduler thread, freeing up all
+   Async resources (file descriptors, threads), and resetting Async global state, so that
+   one can recreate a new Async scheduler afterwards.  [thread_safe_reset] blocks until
+   the shutdown is complete; it must be called from outside Async, e.g. the main
+   thread. *)
+let thread_safe_reset () =
+  match !the_one_and_only_ref with
+  | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+  | Initialized t ->
+    assert (not (am_holding_lock t));
+    Thread_pool.finished_with t.thread_pool;
+    Thread_pool.block_until_finished t.thread_pool;
+    (* We now schedule a job that, when it runs, exits the scheduler thread.  We then wait
+       for that job to run.  We acquire the Async lock so that we can schedule the job,
+       but release it before we block, so that the scheduler can acquire it. *)
+    let scheduler_thread_finished = Thread_safe_ivar.create () in
+    with_lock t (fun () ->
+      schedule (fun () ->
+        Thread_safe_ivar.fill scheduler_thread_finished ();
+        Thread.exit ()));
+    Thread_safe_ivar.read scheduler_thread_finished;
+    reset_in_forked_process ();
+;;
+
 let make_async_unusable () =
   reset_in_forked_process ();
   Async_kernel.Scheduler.make_async_unusable ();

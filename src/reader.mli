@@ -61,8 +61,8 @@ val transfer : t -> string Pipe.Writer.t -> unit Deferred.t
 
 (** [pipe t] returns the reader end of a pipe that will continually be filled with chunks
     of data from the underlying Reader.t.  When the reader reaches EOF or the pipe is
-    closed, [pipe] closes the the reader, and then after the reader close is finished,
-    closes the pipe. *)
+    closed, [pipe] closes the reader, and then after the reader close is finished, closes
+    the pipe. *)
 val pipe : t -> string Pipe.Reader.t
 
 (** [of_pipe info pipe_r] returns a reader [t] that receives all the data from [pipe_r].

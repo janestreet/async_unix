@@ -195,8 +195,9 @@ module Internal = struct
     { id                                      : Pool_id.t
     (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
         [finished_with], it transitions to [`Finishing].  When the last work is done, it
-        transitions to[`Finished]. *)
+        transitions to [`Finished] and fills [finished]. *)
     ; mutable state                           : [ `In_use | `Finishing | `Finished ]
+    ; finished                                : unit Thread_safe_ivar.t
     (* [mutex] is used to protect all access to [t] and its substructures, since the
        threads actually doing the work need to access[t]. *)
     ; mutex                                   : Mutex.t
@@ -242,6 +243,7 @@ module Internal = struct
           | `Finished ->
             assert (t.unfinished_work = 0);
             assert (t.num_threads = 0)))
+        ~finished:ignore
         ~mutex:(check Mutex.invariant)
         ~default_priority:ignore
         ~max_num_threads:(check (fun max_num_threads ->
@@ -296,6 +298,7 @@ module Internal = struct
       let t =
         { id                                      = Pool_id.create ()
         ; state                                   = `In_use
+        ; finished                                = Thread_safe_ivar.create ()
         ; mutex                                   = Mutex.create ()
         ; default_priority                        = getpriority ()
         ; max_num_threads
@@ -321,6 +324,7 @@ module Internal = struct
         Fields.iter
           ~id:ignore
           ~state:(set `Finished)
+          ~finished:(fun _ -> Thread_safe_ivar.fill t.finished ())
           ~mutex:ignore
           ~default_priority:ignore
           ~max_num_threads:ignore
@@ -575,6 +579,11 @@ let create ~max_num_threads =
 ;;
 
 let finished_with t = critical_section t ~f:(fun () -> finished_with t)
+
+(* We do not use [critical_section] for [block_until_finished] because it is already
+   thread safe, and we do not want it to hold [t]'s lock while blocking, because we must
+   allow the finishing threads to acquire [t]'s lock. *)
+let block_until_finished t = Thread_safe_ivar.read t.finished
 
 let default_priority   = default_priority
 let has_unstarted_work = has_unstarted_work

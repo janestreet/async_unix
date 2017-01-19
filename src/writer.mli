@@ -25,6 +25,10 @@ open! Import
 
 module Id : Unique_id
 
+module Line_ending : sig
+  type t = Dos | Unix [@@deriving sexp_of]
+end
+
 type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
@@ -76,12 +80,19 @@ type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin
     syscall returns EPIPE or ECONNRESET.  If [not raise_when_consumer_leaves], then the
     writer will silently drop all writes after the consumer leaves, and the writer will
     eventually fail with a writer-buffer-older-than error if the application remains open
-    long enough. *)
+    long enough.
+
+    [line_ending] determines how [newline] and [write_line] terminate lines by default.
+    If [line_ending = Unix] then end of line is ["\n"], if [line_ending = Dos] then end of
+    line is ["\r\n"].  Note that [line_ending = Dos] is not equivalent to opening the file
+    in text mode because any "\n" characters being printed by other means (e.g. [write
+    "\n"]) are still written verbatim (in Unix style). *)
 val create
   :  ?buf_len                    : int
   -> ?syscall                    : [ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?buffer_age_limit           : buffer_age_limit
   -> ?raise_when_consumer_leaves : bool  (** default is [true] *)
+  -> ?line_ending                : Line_ending.t  (** default is [Unix] *)
   -> Fd.t
   -> t
 
@@ -106,9 +117,10 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file.  *)
 val open_file
-  :  ?append        : bool  (** default is [false] *)
-  -> ?buf_len       : int
-  -> ?perm          : int   (** default is [0o666] *)
+  :  ?append      : bool  (** default is [false] *)
+  -> ?buf_len     : int
+  -> ?perm        : int   (** default is [0o666] *)
+  -> ?line_ending : Line_ending.t  (** default is [Unix] *)
   -> string
   -> t Deferred.t
 
@@ -120,9 +132,10 @@ val open_file
     writer to be flushed before closing it.  [Writer.close] will already wait for the
     flush. *)
 val with_file
-  :  ?perm      : int   (** default is [0o666] *)
-  -> ?append    : bool  (** default is [false] *)
-  -> ?exclusive : bool  (** default is [false] *)
+  :  ?perm        : int   (** default is [0o666] *)
+  -> ?append      : bool  (** default is [false] *)
+  -> ?exclusive   : bool  (** default is [false] *)
+  -> ?line_ending : Line_ending.t  (** default is [Unix] *)
   -> string
   -> f          : (t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -237,11 +250,16 @@ val to_formatter : t -> Format.formatter
 (** [write_char t c] writes the character *)
 val write_char : t -> char -> unit
 
-(** [newline t] is [write_char t '\n'] *)
-val newline : t -> unit
+(** [newline t] writes the end-of-line terminator.  [line_ending] can override [t]'s
+    [line_ending]. *)
+val newline : ?line_ending:Line_ending.t -> t -> unit
 
-(** [write_line t s] is [write t s; newline t]. *)
-val write_line : t -> string -> unit
+(** [write_line t s ?line_ending] is [write t s; newline t ?line_ending]. *)
+val write_line
+  :  ?line_ending : Line_ending.t
+  -> t
+  -> string
+  -> unit
 
 (** [write_byte t i] writes one 8-bit integer (as the single character with that code).
     The given integer is taken modulo 256. *)

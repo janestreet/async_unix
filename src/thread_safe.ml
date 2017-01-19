@@ -118,9 +118,20 @@ let block_on_async t f =
        necessary because subsequent code in the main thread can do operations that rely on
        the execution context. *)
     Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context);
-  res ;;
+  res
+;;
 
-let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
+let block_on_async_exn t f =
+  Result.ok_exn (block_on_async t f)
+;;
+
+let reset_scheduler t =
+  if debug then (Debug.log "reset_scheduler" t [%sexp_of: t]);
+  if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
+  then (raise_s [%message "called [reset_scheduler] from within async"]);
+  if am_holding_lock t then (unlock t);
+  Raw_scheduler.thread_safe_reset ()
+;;
 
 let run_in_async ?wakeup_scheduler t f =
   if debug then (Debug.log "run_in_async" t [%sexp_of: t]);
@@ -168,3 +179,5 @@ let block_on_async_exn f = block_on_async_exn (t ()) f
 
 let run_in_async_wait     f = run_in_async_wait     (t ()) f
 let run_in_async_wait_exn f = run_in_async_wait_exn (t ()) f
+
+let reset_scheduler () = reset_scheduler (t ())

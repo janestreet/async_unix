@@ -262,8 +262,8 @@ val syscall_result_exn
   :  ?nonblocking : bool  (** default is [false] *)
   -> t
   -> 'a
-  -> (Unix.File_descr.t -> 'a -> 'b Core.Syscall_result.t)
-  -> 'b Core.Syscall_result.t
+  -> (Unix.File_descr.t -> 'a -> 'b Unix.Syscall_result.t)
+  -> 'b Unix.Syscall_result.t
 
 (** [syscall_in_thread t f] runs [In_thread.syscall] with [f] on the file descriptor
     underlying [t], if [is_open t], and returns a deferred that becomes determined with

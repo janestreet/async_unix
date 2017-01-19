@@ -12,6 +12,10 @@ let io_stats = Io_stats.create ()
 
 let debug = Debug.writer
 
+module Line_ending = struct
+  type t = Dos | Unix [@@deriving sexp_of]
+end
+
 module Check_buffer_age' = struct
   type 'a t =
     { writer                                          : 'a
@@ -129,7 +133,9 @@ type t =
      call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
      completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
      leak even though client code doesn't explicitly wait on [open_flags]. *)
-  ; open_flags                         : open_flags Deferred.t }
+  ; open_flags                         : open_flags Deferred.t
+  ; line_ending                        : Line_ending.t
+  }
 [@@deriving fields, sexp_of]
 
 type writer = t [@@deriving sexp_of]
@@ -192,6 +198,7 @@ let invariant t : unit =
         if Ivar.is_full consumer_left then (assert (is_stopped_permanently t))))
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
+      ~line_ending:ignore
   with exn -> raise_s [%message "writer invariant failed" (exn : exn) ~writer:(t : t)]
 ;;
 
@@ -269,10 +276,17 @@ end = struct
   ;;
 
   let send_too_old_writer_error e =
+    let { maximum_age; writer; _ } = e in
+    let beginning_of_buffer =
+      Bigstring.to_string writer.buf ~pos:0
+        ~len:(Int.min 1024 (Bigstring.length writer.buf))
+    in
     Monitor.send_exn e.writer.monitor
-      (Error.to_exn
-         (Error.create "writer buffer has data older than" (e.maximum_age, e.writer)
-            [%sexp_of: Time_ns.Span.t * writer]));
+      (Exn.create_s
+         [%message "writer buffer has data older than"
+                     (maximum_age         : Time_ns.Span.t)
+                     (beginning_of_buffer : string)
+                     (writer              : writer)])
   ;;
 
   let check =
@@ -491,6 +505,7 @@ let create
       ?(syscall = `Per_cycle)
       ?buffer_age_limit
       ?(raise_when_consumer_leaves = true)
+      ?(line_ending = Line_ending.Unix)
       fd =
   let buffer_age_limit =
     match buffer_age_limit with
@@ -536,7 +551,9 @@ let create
     ; check_buffer_age            = Check_buffer_age.dummy
     ; consumer_left
     ; raise_when_consumer_leaves
-    ; open_flags }
+    ; open_flags
+    ; line_ending
+    }
   in
   Monitor.detach_and_iter_errors inner_monitor ~f:(fun exn ->
     Monitor.send_exn monitor
@@ -564,12 +581,12 @@ let ensure_can_write t =
   then (raise_s [%message "attempt to use closed writer" ~_:(t : t)]);
 ;;
 
-let open_file ?(append = false) ?buf_len ?(perm = 0o666) file =
+let open_file ?(append = false) ?buf_len ?(perm = 0o666) ?line_ending file =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm >>| create ?buf_len
+  Unix.openfile file ~mode ~perm >>| create ?buf_len ?line_ending
 ;;
 
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
@@ -582,8 +599,8 @@ let with_writer_exclusive t f =
       Unix.unlockf t.fd)
 ;;
 
-let with_file ?perm ?append ?(exclusive = false) file ~f =
-  let%bind t = open_file ?perm ?append file in
+let with_file ?perm ?append ?(exclusive = false) ?line_ending file ~f =
+  let%bind t = open_file ?perm ?append ?line_ending file in
   with_close t ~f:(fun () ->
     if exclusive
     then (with_writer_exclusive t (fun () -> f t))
@@ -972,11 +989,21 @@ let write_char t c =
     maybe_start_writer t)
 ;;
 
-let newline t = write_char t '\n'
+let newline ?line_ending t =
+  let line_ending =
+    match line_ending with
+    | Some x -> x
+    | None -> t.line_ending in
+  begin match line_ending with
+  | Unix -> ()
+  | Dos  -> write_char t '\r'
+  end;
+  write_char t '\n'
+;;
 
-let write_line t s =
+let write_line ?line_ending t s =
   write t s;
-  newline t;
+  newline t ?line_ending;
 ;;
 
 let write_byte t i = write_char t (char_of_int (i % 256))
@@ -1118,7 +1145,7 @@ let schedule_iobuf_consume t ?len iobuf =
 let write_gen ?pos ?len t src ~blit_to_bigstring  ~length =
   ensure_can_write t; write_gen ?pos ?len t src ~blit_to_bigstring ~length
 let write ?pos ?len t s             = ensure_can_write t; write ?pos ?len t s
-let write_line t s                  = ensure_can_write t; write_line t s
+let write_line ?line_ending t s     = ensure_can_write t; write_line t s ?line_ending
 let writef t                        = ensure_can_write t; writef t
 let write_marshal t ~flags v        = ensure_can_write t; write_marshal t ~flags v
 let write_sexp ?hum ?terminate_with t s =
@@ -1129,7 +1156,7 @@ let write_bigsubstring t s          = ensure_can_write t; write_bigsubstring t s
 let write_substring t s             = ensure_can_write t; write_substring t s
 let write_byte t b                  = ensure_can_write t; write_byte t b
 let write_char t c                  = ensure_can_write t; write_char t c
-let newline t                       = ensure_can_write t; newline t
+let newline ?line_ending t          = ensure_can_write t; newline ?line_ending t
 
 let stdout_and_stderr =
   lazy (

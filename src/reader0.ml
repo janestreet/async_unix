@@ -302,7 +302,7 @@ module Internal = struct
                   (Fd.syscall t.fd ~nonblocking:true
                      (fun file_descr ->
                         let res =
-                          Core.Syscall_result.Int.ok_or_unix_error_exn
+                          Unix.Syscall_result.Int.ok_or_unix_error_exn
                             (Bigstring.read_assume_fd_is_nonblocking
                                file_descr buf ~pos ~len)
                             ~syscall_name:"read"

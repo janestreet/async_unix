@@ -5,49 +5,53 @@ open Raw_scheduler
 
 module Priority = Linux_ext.Priority
 
+let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
+  let ivar = Ivar.create () in
+  let doit () =
+    (* At this point, we are in a thread-pool thread, not the async thread. *)
+    let result = Result.try_with f in
+    let locked =
+      match when_finished with
+      | `Take_the_async_lock  -> lock t; true
+      | `Notify_the_scheduler -> false
+      | `Best                 -> try_lock t
+    in
+    if locked
+    then (
+      protect ~finally:(fun () -> unlock t) ~f:(fun () ->
+        Ivar.fill ivar result;
+        have_lock_do_cycle t))
+    else (
+      thread_safe_enqueue_external_job t
+        (current_execution_context t) (fun () -> Ivar.fill ivar result) ())
+  in
+  begin
+    match thread with
+    | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
+    | Some helper_thread ->
+      ok_exn
+        (Thread_pool.add_work_for_helper_thread
+           t.thread_pool
+           helper_thread
+           doit
+           ?name
+           ?priority)
+  end;
+  Ivar.read ivar >>| Result.ok_exn
+;;
+
 let run ?priority ?thread ?(when_finished = `Best) ?name f =
   let t = the_one_and_only ~should_lock:true in
-  let doit () =
-    Deferred.create (fun ivar ->
-      let doit () =
-        (* At this point, we are in a thread-pool thread, not the async thread. *)
-        let result = Result.try_with f in
-        let locked =
-          match when_finished with
-          | `Take_the_async_lock  -> lock t; true
-          | `Notify_the_scheduler -> false
-          | `Best                 -> try_lock t
-        in
-        if locked
-        then (
-          protect ~finally:(fun () -> unlock t) ~f:(fun () ->
-            Ivar.fill ivar result;
-            have_lock_do_cycle t))
-        else (
-          thread_safe_enqueue_external_job t
-            (current_execution_context t) (fun () -> Ivar.fill ivar result) ())
-      in
-      match thread with
-      | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
-      | Some helper_thread ->
-        ok_exn
-          (Thread_pool.add_work_for_helper_thread
-             t.thread_pool
-             helper_thread
-             doit
-             ?name
-             ?priority))
-    >>| Result.ok_exn
-  in
   if t.is_running
-  then (doit ())
+  then (run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f)
   else (
     (* We use [bind unit ...] to force calls to [run_no_exn] to wait until after the
        scheduler is started.  We do this because [run_no_exn] will cause things to run in
        other threads, and when a job is finished in another thread, it will try to acquire
        the async lock and manipulate async datastructures.  This seems hard to think about
        if async hasn't even started yet. *)
-    Deferred.bind (return ()) ~f:doit)
+    Deferred.bind (return ()) ~f:(fun () ->
+      run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f))
 ;;
 
 module Helper_thread = struct

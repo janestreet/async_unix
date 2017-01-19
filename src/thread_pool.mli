@@ -55,6 +55,10 @@ val create : max_num_threads:int -> t Or_error.t
     subsequent calls will have no effect. *)
 val finished_with : t -> unit
 
+(** [block_until_finished t] blocks the current thread until thread pool [t] has finished.
+    One must previously have called [finished_with] to cause [t] to start finishing. *)
+val block_until_finished : t -> unit
+
 (** [max_num_threads t] returns the maximum number of threads that [t] is allowed to
     create. *)
 val max_num_threads : t -> int
