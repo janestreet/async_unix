@@ -359,6 +359,14 @@ module Socket : sig
         type nonrec t = t [@@deriving bin_io, compare, sexp_poly]
       end
 
+      (** [Show_port_in_test] renders the port as an integer, even in tests, unlike the
+          normal [sexp_of_t] and [to_string], which render the port as "PORT" in
+          tests. *)
+      module Show_port_in_test : sig
+        type nonrec t = t [@@deriving sexp_of]
+        val to_string : t -> string
+      end
+
       val create : Inet_addr.t -> port:int -> t
       val create_bind_any : port:int -> t
       val addr : t -> Inet_addr.t

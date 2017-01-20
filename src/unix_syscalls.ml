@@ -516,12 +516,29 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare]
+
+      let to_string_internal ~show_port_in_test (`Inet (a, p)) =
+        sprintf "%s:%s" (Inet_addr.to_string a)
+          (if am_running_inline_test && not show_port_in_test
+           then "PORT"
+           else (p |> Int.to_string))
+      ;;
+
+      let to_string = to_string_internal ~show_port_in_test:false
+
+      let sexp_of_t t : Sexp.t = Atom (to_string t)
 
       module Blocking_sexp = struct
         type t =
           [ `Inet of Inet_addr.Blocking_sexp.t * int ]
         [@@deriving bin_io, compare, sexp]
+      end
+
+      module Show_port_in_test = struct
+        type t = [ `Inet of Inet_addr.t * int ] [@@deriving sexp_of]
+
+        let to_string = to_string_internal ~show_port_in_test:true
       end
 
       let t_of_sexp = Blocking_sexp.t_of_sexp
@@ -530,8 +547,6 @@ module Socket = struct
       let addr (`Inet (a, _)) = a
 
       let port (`Inet (_, p)) = p
-
-      let to_string (`Inet (a, p)) = sprintf "%s:%d" (Inet_addr.to_string a) p
 
       let to_host_and_port (`Inet (addr, port)) =
         Host_and_port.create ~host:(Inet_addr.to_string addr) ~port
@@ -574,8 +589,8 @@ module Socket = struct
     ;;
 
     let to_string = function
-      | `Inet (a, p) -> sprintf "%s:%d" (Inet_addr.to_string a) p
-      | `Unix s -> s
+      | `Inet _ as t -> t |> Inet.to_string
+      | `Unix _ as t -> t |> Unix.to_string
     ;;
   end
 
