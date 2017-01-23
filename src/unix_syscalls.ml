@@ -216,6 +216,7 @@ module Stats = struct
   [@@deriving fields, sexp, bin_io, compare]
 
   let of_unix (u : Unix.stats) =
+    let of_float_sec f = Time.of_span_since_epoch (Time.Span.of_sec f) in
     { dev   = u.st_dev
     ; ino   = u.st_ino
     ; kind  = File_kind.of_unix u.st_kind
@@ -225,9 +226,9 @@ module Stats = struct
     ; gid   = u.st_gid
     ; rdev  = u.st_rdev
     ; size  = u.st_size
-    ; atime = Time.of_float u.st_atime
-    ; mtime = Time.of_float u.st_mtime
-    ; ctime = Time.of_float u.st_ctime }
+    ; atime = of_float_sec u.st_atime
+    ; mtime = of_float_sec u.st_mtime
+    ; ctime = of_float_sec u.st_ctime }
 
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
