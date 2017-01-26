@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 
 include Async_kernel.Std
 
@@ -14,4 +14,4 @@ module Min_inter_cycle_timeout  = Config.Min_inter_cycle_timeout
 module Kernel_scheduler = Async_kernel.Scheduler
 module File_descr       = Unix.File_descr
 
-let print_s sexp = Core.Std.printf "%s\n%!" (sexp |> Sexp.to_string_hum)
+let print_s sexp = Core.printf "%s\n%!" (sexp |> Sexp.to_string_hum)

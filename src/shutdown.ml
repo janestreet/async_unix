@@ -1,6 +1,6 @@
 (* Unit tests are in ../../lib_test/shutdown_tests.ml *)
 
-open Core.Std
+open Core
 open Import
 
 let debug = Debug.shutdown
@@ -40,7 +40,7 @@ let shutdown ?force status =
                begin match result with
                | Ok () -> ()
                | Error error ->
-                 Core.Std.Debug.eprints "at_shutdown function raised"
+                 Core.Debug.eprints "at_shutdown function raised"
                    (error, backtrace) [%sexp_of: Error.t * Backtrace.t];
                end;
                if debug

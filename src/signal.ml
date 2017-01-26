@@ -1,7 +1,7 @@
-open Core.Std
+open Core
 open Import
 
-include Core.Std.Signal
+include Core.Signal
 
 let handle_default `Do_not_use_with_async   = assert false
 let ignore         `Do_not_use_with_async   = assert false

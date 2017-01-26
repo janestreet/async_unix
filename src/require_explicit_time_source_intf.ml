@@ -9,7 +9,7 @@
     {[
       include Require_explicit_time_source ]} *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module From_kernel = Async_kernel.Std.Require_explicit_time_source

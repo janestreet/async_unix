@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Import
 
 type 'a additional_create_args = timerfd:Linux_ext.Timerfd.t -> 'a

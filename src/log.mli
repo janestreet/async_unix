@@ -7,7 +7,7 @@
     A (limited) [Blocking] module is supplied to accommodate the portion of a program that
     runs outside of Async.
 *)
-open! Core.Std
+open! Core
 open! Import
 
 module Level : sig

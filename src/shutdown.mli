@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Import
 
 (** [shutdown ?force status] initiates shutdown, which runs all the [at_shutdown]

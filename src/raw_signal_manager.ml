@@ -1,6 +1,6 @@
-open Core.Std
+open Core
 
-module Signal = Core.Std.Signal
+module Signal = Core.Signal
 
 module Handlers = struct
   type t =

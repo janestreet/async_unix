@@ -1,9 +1,9 @@
-open! Core.Std
+open! Core
 open! Async_kernel.Std
 open! Import
 open! Std
 
-module Unix = Core.Std.Unix
+module Unix = Core.Unix
 
 open Fd
 
@@ -115,7 +115,7 @@ let%test_module "Fd" =
       =
       block_with_timeout (fun () ->
         let r, w =
-          let r, w = Core.Std.Unix.pipe () in
+          let r, w = Core.Unix.pipe () in
           create Fifo r (Info.of_string "<reader>"),
           create Fifo w (Info.of_string "<writer>")
         in

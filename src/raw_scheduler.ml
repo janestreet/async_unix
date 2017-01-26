@@ -1,9 +1,9 @@
-open Core.Std
+open Core
 open Import
 
 module Fd = Raw_fd
 module Watching = Fd.Watching
-module Signal = Core.Std.Signal
+module Signal = Core.Signal
 module Timerfd = Linux_ext.Timerfd
 
 module Tsc = Time_stamp_counter
@@ -233,7 +233,7 @@ let the_one_and_only ~should_lock =
     the_one_and_only_uncommon_case ~should_lock
 ;;
 
-let current_thread_id () = Core.Std.Thread.(id (self ()))
+let current_thread_id () = Core.Thread.(id (self ()))
 
 let is_main_thread () = current_thread_id () = 0
 
@@ -360,7 +360,7 @@ let default_handle_thread_pool_stuck ~stuck_for =
     if Time_ns.Span.(>=) stuck_for Config.abort_after_thread_pool_stuck_for
     then (Monitor.send_exn Monitor.main (Failure message))
     else (
-      Core.Std.eprintf "\
+      Core.eprintf "\
 %s
   This is only a warning.  It will raise an exception in %s.
 %!"

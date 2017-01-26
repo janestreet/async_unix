@@ -33,7 +33,7 @@
     nonblocking system calls (e.g. connect, read, write) directly within Async, without
     releasing the OCaml lock or the Async lock, and without using another thread. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module Kind : sig

@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 module Thread_id : sig
@@ -6,15 +6,15 @@ module Thread_id : sig
 
   include Hashable with type t := t
 
-  val of_ocaml_thread : Core.Std.Thread.t -> t
+  val of_ocaml_thread : Core.Thread.t -> t
 
   val self : unit -> t
 end = struct
   include Int
 
-  let of_ocaml_thread = Core.Std.Thread.id
+  let of_ocaml_thread = Core.Thread.id
 
-  let self () = of_ocaml_thread (Core.Std.Thread.self ())
+  let self () = of_ocaml_thread (Core.Thread.self ())
 end
 
 module Priority = Linux_ext.Priority
@@ -215,7 +215,7 @@ module Internal = struct
        thread-creation failure before the thread pool will make another attempt to create
        a thread. *)
     ; mutable thread_creation_failure_lockout : Time.Span.t
-    (* [last_thread_creation_failure] holds the last time that[Core.Std.Thread.create]
+    (* [last_thread_creation_failure] holds the last time that[Core.Thread.create]
        raised.  It is used to avoid calling [Thread.create] too frequently when it is
        failing. *)
     ; mutable last_thread_creation_failure    : Time.t
@@ -268,7 +268,7 @@ module Internal = struct
                has_unstarted_work t
                && t.num_threads < t.max_num_threads ]}
 
-             This happens when adding work and [Core.Std.Thread.create] raises.  In that
+             This happens when adding work and [Core.Thread.create] raises.  In that
              case, the thread pool enqueues the work and continues with the threads it
              has.  If the thread pool can't make progress, then Async's thread-pool-stuck
              detection will later report it. *)
@@ -381,7 +381,7 @@ module Internal = struct
     let thread = Thread.create t.default_priority in
     let ocaml_thread =
       Or_error.try_with (fun () ->
-        Core.Std.Thread.create (fun () ->
+        Core.Thread.create (fun () ->
           Thread.initialize_ocaml_thread thread;
           let rec loop () =
             match Squeue.pop thread.work_queue with
@@ -684,8 +684,8 @@ let%test_module _ =
           let t = ok_exn (create ~max_num_threads) in
           let worker_threads_have_fully_started = Thread_safe_ivar.create () in
           let worker_threads_should_continue = Thread_safe_ivar.create () in
-          let (_ : Core.Std.Thread.t) =
-            Core.Std.Thread.create (fun () ->
+          let (_ : Core.Thread.t) =
+            Core.Thread.create (fun () ->
               let start = Time.now () in
               let rec loop () =
                 if is_in_use t then (
@@ -793,7 +793,7 @@ let%test_module _ =
 
     (* Setting thread name and priority. *)
     let%test_unit _ =
-      let module RLimit = Core.Std.Unix.RLimit in
+      let module RLimit = Core.Unix.RLimit in
       Result.iter RLimit.nice ~f:(fun rlimit_nice ->
         let test_parameters =
           let nice_limit = RLimit.get rlimit_nice in
@@ -809,7 +809,7 @@ let%test_module _ =
         match test_parameters with
         | `Cannot_test -> ()
         | `Test (nice_limit, cur_limit) ->
-          Core.Std.Unix.RLimit.set rlimit_nice nice_limit;
+          Core.Unix.RLimit.set rlimit_nice nice_limit;
           for priority = 20 - cur_limit to 20 do
             let initial_priority = Priority.of_int priority in
             match Linux_ext.getpriority, Linux_ext.pr_get_name with
@@ -853,7 +853,7 @@ let%test_module _ =
           done)
     ;;
 
-    (* [Core.Std.Thread.create] failure *)
+    (* [Core.Thread.create] failure *)
     let%test_unit _ =
       let t = ok_exn (create ~max_num_threads:2) in
       (* simulate failure *)

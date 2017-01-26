@@ -1,5 +1,5 @@
 (** [Reader] is Async's main API for buffered input from a file descriptor.  It is the
-    analog of [Core.Std.In_channel].
+    analog of [Core.In_channel].
 
     Each reader has an internal buffer, which is filled via [read()] system calls when
     data is needed to satisfy a [Reader.read*] call.
@@ -19,7 +19,7 @@
     {[
       try_with (fun () -> Reader.read reader ...) ]} *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module Read_result : sig

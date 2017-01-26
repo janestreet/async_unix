@@ -2,7 +2,7 @@
    that are used internally within Async that are not exposed in scheduler.mli.
    Also, it breaks a cyclic dependency [Raw_scheduler -> Log -> Scheduler]. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 include Raw_scheduler

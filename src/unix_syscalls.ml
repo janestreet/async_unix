@@ -1,5 +1,5 @@
 module Async_signal = Signal
-open Core.Std
+open Core
 open Import
 
 module File_descr = Unix.File_descr
@@ -584,7 +584,7 @@ module Socket = struct
 
     let t_of_sexp = Blocking_sexp.t_of_sexp
 
-    let to_sockaddr : _ -> Core.Std.Unix.sockaddr = function
+    let to_sockaddr : _ -> Core.Unix.sockaddr = function
       | `Unix s      -> ADDR_UNIX s
       | `Inet (a, i) -> ADDR_INET (a, i)
     ;;

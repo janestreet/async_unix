@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Async_kernel.Std
 open! Import
 open! Std
@@ -6,7 +6,7 @@ open! Std
 open Unix_syscalls
 
 let%test_unit "fork_exec ~env last binding takes precedence" =
-  protectx ~finally:Core.Std.Unix.remove
+  protectx ~finally:Core.Unix.remove
     (Filename.temp_file "test" "fork_exec.env.last-wins")
     ~f:(fun temp_file ->
       Thread_safe.block_on_async_exn (fun () ->

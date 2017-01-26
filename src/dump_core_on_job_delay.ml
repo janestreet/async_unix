@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Import
 
 module Dump_type = struct
@@ -19,7 +19,7 @@ module How_to_dump = struct
     | Call_abort -> Call_abort
     | Call_gcore -> Call_gcore
     | Default ->
-      match Core.Std.Sys.file_exists "/usr/bin/gcore" with
+      match Core.Sys.file_exists "/usr/bin/gcore" with
       | `Yes           -> Call_gcore
       | `No | `Unknown -> Call_abort
   ;;

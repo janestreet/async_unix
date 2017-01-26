@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Import
 
 module Time_source = Async_kernel.Time_source

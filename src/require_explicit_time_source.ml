@@ -1,4 +1,4 @@
-open! Core.Std
+open! Core
 open! Import
 
 include Require_explicit_time_source_intf

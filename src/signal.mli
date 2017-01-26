@@ -1,8 +1,8 @@
 open! Import
 
-include module type of Core.Std.Signal with type t = Core.Std.Signal.t
+include module type of Core.Signal with type t = Core.Signal.t
 
-(** We override values from [Core.Std.Signal] that we don't want people to use with
+(** We override values from [Core.Signal] that we don't want people to use with
     Async. *)
 val handle_default : [ `Do_not_use_with_async ] -> _
 val ignore         : [ `Do_not_use_with_async ] -> _

@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 module Scheduler = Raw_scheduler
@@ -115,7 +115,7 @@ module Internal = struct
     in
     let open_flags =
       Fd.syscall_in_thread fd ~name:"fcntl_getfl" (fun file_descr ->
-        Core.Std.Unix.fcntl_getfl file_descr)
+        Core.Unix.fcntl_getfl file_descr)
     in
     { fd
     ; id                    = Id.create ()

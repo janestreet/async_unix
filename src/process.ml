@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 module Unix = Unix_syscalls
@@ -38,7 +38,7 @@ let create
   =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
-      Core.Std.Unix.create_process_env ~prog ~args ~env ?working_dir ())
+      Core.Unix.create_process_env ~prog ~args ~env ?working_dir ())
   with
   | Error exn -> Or_error.of_exn exn
   | Ok { pid; stdin; stdout; stderr } ->

@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 
 module Key = struct
   type t = [ `Read | `Write ] [@@deriving sexp]

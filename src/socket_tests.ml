@@ -1,7 +1,9 @@
-open! Core.Std
+
+module Local_std = Std
+open! Core
 open! Async_kernel.Std
 open! Import
-open! Std
+open! Local_std
 
 open Socket
 

@@ -1,10 +1,10 @@
-open Core.Std
+open Core
 open Import
 
-module Core_unix = Core.Std.Unix
+module Core_unix = Core.Unix
 module Unix      = Unix_syscalls
 
-module IOVec = Core.Std.Unix.IOVec
+module IOVec = Core.Unix.IOVec
 
 module Id = Unique_id.Int63 ()
 
@@ -1172,7 +1172,7 @@ let stdout_and_stderr =
            let stderr = Fd.stderr () in
            let t = create stdout in
            let dev_and_ino fd =
-             let stats = Core.Std.Unix.fstat (Fd.file_descr_exn fd) in
+             let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
              (stats.st_dev, stats.st_ino)
            in
            if Ppx_inline_test_lib.Runtime.testing || dev_and_ino stdout = dev_and_ino stderr
@@ -1194,7 +1194,7 @@ let%expect_test "stdout and stderr are always the same in tests" =
   [%expect {| ("Lazy.is_val stdout" false) |}];
   print_s [%message (Lazy.is_val stderr : bool)];
   [%expect {| ("Lazy.is_val stderr" false) |}];
-  let module U = Core.Std.Unix in
+  let module U = Core.Unix in
   let saved_stderr = U.dup U.stderr in
   (* Make sure fd 1 and 2 have different inodes at the point that we force them. *)
   let pipe_r, pipe_w = U.pipe () in

@@ -1,5 +1,5 @@
 (** [Writer] is Async's main API for output to a file descriptor.  It is the analog of
-    [Core.Std.Out_channel].
+    [Core.Out_channel].
 
     Each writer has an internal buffer, to which [Writer.write*] adds data.  Each writer
     uses an Async microthread that makes [write()] system calls to move the data from the
@@ -20,7 +20,7 @@
     which will be a child of the monitor in effect when the writer is created.  One can
     deal with such asynchronous exceptions in the usual way, by handling the stream
     returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)]. *)
-open! Core.Std
+open! Core
 open! Import
 
 module Id : Unique_id

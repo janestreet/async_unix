@@ -1,6 +1,6 @@
 (** A simple thread-safe ivar implementation.  *)
 
-open! Core.Std
+open! Core
 open! Import
 
 type 'a t [@@deriving sexp_of]

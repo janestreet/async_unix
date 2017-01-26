@@ -1,6 +1,6 @@
 (** Automatically retrying system calls that may be interrupted with EINTR. *)
 
-open! Core.Std
+open! Core
 
 module Syscall_result = Unix.Syscall_result
 

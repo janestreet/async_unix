@@ -5,7 +5,7 @@
     appropriate field, [dump_core_on_job_delay], in the [ASYNC_CONFIG] environment
     variable. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module How_to_dump : sig

@@ -36,7 +36,7 @@
 
     Behavior is unspecified if work calls [setpriority] directly. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t

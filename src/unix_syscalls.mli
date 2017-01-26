@@ -6,7 +6,7 @@
     There are also a number of cosmetic changes (e.g. polymorphic variants) and other
     improvements (e.g. phantom types on sockets) over the standard Unix module. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 module Syscall_result = Unix.Syscall_result
@@ -328,7 +328,7 @@ module Inet_addr : sig
   val of_string_or_getbyname : string -> t Deferred.t
 end
 
-module Cidr : module type of Core.Std.Unix.Cidr
+module Cidr : module type of Core.Unix.Cidr
 
 module Protocol_family : sig
   type t = Unix.Protocol_family.t
@@ -386,7 +386,7 @@ module Socket : sig
     end
 
     val to_string   : [< t ] -> string
-    val to_sockaddr : [< t ] -> Core.Std.Unix.sockaddr
+    val to_sockaddr : [< t ] -> Core.Unix.sockaddr
   end
 
   module Family : sig
@@ -740,7 +740,7 @@ end
 
 (** Structure of entries in the [passwd] database. *)
 module Passwd : sig
-  type t = Core.Std.Unix.Passwd.t =
+  type t = Core.Unix.Passwd.t =
     { name   : string
     ; passwd : string
     ; uid    : int
@@ -759,7 +759,7 @@ end
 
 (** Structure of entries in the [groups] database. *)
 module Group : sig
-  type t = Core.Std.Unix.Group.t =
+  type t = Core.Unix.Group.t =
     { name   : string
     ; passwd : string
     ; gid    : int
@@ -773,7 +773,7 @@ module Group : sig
   val getbygid_exn : int -> t        Deferred.t
 end
 
-module Ifaddr = Core.Std.Unix.Ifaddr
+module Ifaddr = Core.Unix.Ifaddr
 
 (** [getifaddrs] gets the information using the socket-based netlink interface, which
     can block, see: https://www.infradead.org/~tgr/libnl/doc/core.html. *)

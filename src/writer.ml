@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 include Writer0
@@ -53,7 +53,7 @@ let%test_module _ =
     ;;
 
     let%test_unit "check_buffer_age raises once after EPIPE" = test_async (fun () ->
-      let fd_r, fd_w = Core.Std.Unix.pipe () in
+      let fd_r, fd_w = Core.Unix.pipe () in
       let w =
         create (Fd.create Fifo fd_w (Info.of_string "test fd"))
           ~raise_when_consumer_leaves:false
@@ -61,7 +61,7 @@ let%test_module _ =
           ~syscall:`Per_cycle
       in
       let count = Staged.unstage (count_errors w) in
-      Core.Std.Unix.close fd_r;
+      Core.Unix.close fd_r;
       write w "Hello, world!";
       let check ~now = Check_buffer_age.internal_check_now_for_unit_test ~now in
       check ~now:(Time_ns.now ());
@@ -77,7 +77,7 @@ let%test_module _ =
     ;;
 
     let%test_unit "check_buffer_age is edge triggered" = test_async (fun () ->
-      let fd = Core.Std.Unix.openfile ~mode:[O_WRONLY] "/dev/null" in
+      let fd = Core.Unix.openfile ~mode:[O_WRONLY] "/dev/null" in
       let w =
         create (Fd.create Char fd (Info.of_string "test fd"))
           ~raise_when_consumer_leaves:false

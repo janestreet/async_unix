@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 module Scheduler = Raw_scheduler
@@ -1298,8 +1298,8 @@ end = struct
     let create = ident
 
     let write print = (fun msg -> print (Message.to_write_only_text msg))
-    let stdout      = write (Core.Std.Printf.printf "%s\n%!")
-    let stderr      = write (Core.Std.Printf.eprintf "%s\n%!")
+    let stdout      = write (Core.Printf.printf "%s\n%!")
+    let stderr      = write (Core.Printf.eprintf "%s\n%!")
   end
 
   let level : Level.t ref = ref `Info

@@ -4,7 +4,7 @@
 
     All threads come from the one thread pool used for all Async-managed threads. *)
 
-open! Core.Std
+open! Core
 open Async_kernel
 
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t

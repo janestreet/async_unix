@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 
 let stdout () = Lazy.force Writer.stdout
 

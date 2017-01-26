@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 
 module File_descr = Unix.File_descr

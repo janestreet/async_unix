@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 open Import
 open File_descr_watcher_intf
 open Read_write.Export

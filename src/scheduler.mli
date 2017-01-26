@@ -7,7 +7,7 @@
     lock, does a computation (e.g. fills an ivar), and then runs a "cycle" of Async
     computations. *)
 
-open! Core.Std
+open! Core
 open! Import
 
 type t = Raw_scheduler.t [@@deriving sexp_of]

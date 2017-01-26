@@ -8,7 +8,7 @@
     [~wakeup_scheduler:false], which can reduce CPU use, but increase latency, because the
     scheduler may not wake up for a while to process jobs. *)
 
-open! Core.Std
+open! Core
 open Async_kernel
 
 (** [am_holding_async_lock ()] returns true if the currently running thread is holding the
