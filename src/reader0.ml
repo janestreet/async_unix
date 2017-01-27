@@ -56,7 +56,7 @@ module Internal = struct
        any code that accesses [buf] that [t] has not been closed.  In particular, after
        any deferred operation, we must check whether [t] has been closed while we were
        waiting. *)
-    ; mutable buf                   : Bigstring.t sexp_opaque
+    ; mutable buf                   : Bigstring.t
     (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
        destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
        the middle of a system call in another thread that refers to [buf], in which case
@@ -72,8 +72,8 @@ module Internal = struct
     (* [available] is how many bytes in [buf] are available to be read by user code. *)
     ; mutable available             : int
     (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_prot]. *)
-    ; mutable bin_prot_len_buf      : Bigstring.t sexp_opaque
-    ; mutable bin_prot_buf          : Bigstring.t sexp_opaque
+    ; mutable bin_prot_len_buf      : Bigstring.t
+    ; mutable bin_prot_buf          : Bigstring.t
     (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
        user call extant that is waiting for data from the reader. *)
     ; mutable state                 : State.t
@@ -86,7 +86,33 @@ module Internal = struct
        completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
        leak even though client code doesn't explicitly wait on [open_flags]. *)
     ; open_flags                    : open_flags Deferred.t }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields]
+
+  let sexp_of_t
+        { available
+        ; bin_prot_buf          = _
+        ; bin_prot_len_buf      = _
+        ; buf                   = _
+        ; close_finished
+        ; close_may_destroy_buf
+        ; id
+        ; fd
+        ; last_read_time
+        ; open_flags
+        ; pos
+        ; state } =
+    let unless_testing x = Option.some_if (not am_running_inline_test) x in
+    [%sexp
+      { id                    : Id.t sexp_option = id |> unless_testing
+      ; state                 : State.t
+      ; available             : int
+      ; pos                   : int
+      ; open_flags            : open_flags Deferred.t
+      ; last_read_time        : Time.t sexp_option = last_read_time |> unless_testing
+      ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
+      ; close_finished        : unit Ivar.t
+      ; fd                    : Fd.t sexp_option = fd |> unless_testing }]
+  ;;
 
   let io_stats = Io_stats.create ()
 
