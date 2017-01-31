@@ -71,9 +71,6 @@ module Internal = struct
     ; mutable pos                   : int
     (* [available] is how many bytes in [buf] are available to be read by user code. *)
     ; mutable available             : int
-    (* [bin_prot_len_buf] and [bin_prot_buf] are used by[read_bin_prot]. *)
-    ; mutable bin_prot_len_buf      : Bigstring.t
-    ; mutable bin_prot_buf          : Bigstring.t
     (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
        user call extant that is waiting for data from the reader. *)
     ; mutable state                 : State.t
@@ -90,8 +87,6 @@ module Internal = struct
 
   let sexp_of_t
         { available
-        ; bin_prot_buf          = _
-        ; bin_prot_len_buf      = _
         ; buf                   = _
         ; close_finished
         ; close_may_destroy_buf
@@ -149,8 +144,6 @@ module Internal = struct
     ; close_may_destroy_buf = `Yes
     ; pos                   = 0
     ; available             = 0
-    ; bin_prot_len_buf      = Bigstring.create Bin_prot.Utils.size_header_length
-    ; bin_prot_buf          = Bigstring.create 4096
     ; state                 = `Not_in_use
     ; close_finished        = Ivar.create ()
     ; last_read_time        = Scheduler.cycle_start ()
@@ -181,10 +174,6 @@ module Internal = struct
        free them makes their space immediately available for reuse by C's malloc. *)
     Bigstring.unsafe_destroy t.buf;
     t.buf <- empty_buf;
-    Bigstring.unsafe_destroy t.bin_prot_len_buf;
-    t.bin_prot_len_buf <- empty_buf;
-    Bigstring.unsafe_destroy t.bin_prot_buf;
-    t.bin_prot_buf <- empty_buf;
   ;;
 
   let close t =
@@ -342,6 +331,44 @@ module Internal = struct
                     | exn -> raise exn)
           in
           loop ()))
+  ;;
+
+  let ensure_buf_len t ~at_least =
+    let buf_len = Bigstring.length t.buf in
+    if buf_len < at_least
+    then (
+      let new_buf = Bigstring.create at_least in
+      if t.available > 0
+      then (
+        Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
+          ~dst:new_buf ~dst_pos:0);
+      t.buf <- new_buf;
+      t.pos <- 0);
+    assert (Bigstring.length t.buf >= at_least);
+  ;;
+
+  (* [get_data_until] calls [get_data] to read into [t.buf] until [t.available >=
+     available_at_least], or until it reaches EOF.  It returns [`Ok] if [t.available >=
+     available_at_least], and [`Eof] if not. *)
+  let get_data_until t ~available_at_least =
+    if t.available >= available_at_least
+    then (return `Ok)
+    else (
+      ensure_buf_len t
+        ~at_least:(Int.max available_at_least (2 * Bigstring.length t.buf));
+      if t.pos > 0
+      then (
+        Bigstring.blit ~src:t.buf ~src_pos:t.pos ~dst:t.buf ~dst_pos:0 ~len:t.available;
+        t.pos <- 0);
+      let rec loop () =
+        let%bind result = get_data t in
+        if t.available >= available_at_least
+        then (return `Ok)
+        else (
+          match result with
+          | `Eof -> return (`Eof t.available)
+          | `Ok -> loop ()) in
+      loop ())
   ;;
 
   (* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok].
@@ -550,6 +577,16 @@ module Internal = struct
 
   let really_read_bigstring t bigstring =
     really_read_bigsubstring t (Bigsubstring.of_bigstring bigstring)
+  ;;
+
+  let peek t ~len =
+    match%map get_data_until t ~available_at_least:len with
+    | `Eof (_ : int) ->
+      assert (t.available < len);
+      `Eof
+    | `Ok ->
+      assert (t.available >= len);
+      `Ok (Bigstring.to_string t.buf ~pos:t.pos ~len)
   ;;
 
   let read t ?pos ?len s = read_substring t (Substring.create s ?pos ?len)
@@ -773,9 +810,16 @@ module Internal = struct
     gen_read_sexps t ~sexp_kind:Annotated ?parse_pos
   ;;
 
-  let read_bin_prot
+  module Peek_or_read = struct
+    type t = Peek | Read [@@deriving sexp_of]
+
+    let to_string = Sexplib.Conv.string_of__of__sexp_of [%sexp_of: t]
+  end
+
+  let peek_or_read_bin_prot
         ?(max_len = 100 * 1024 * 1024)
         t
+        ~(peek_or_read : Peek_or_read.t)
         (bin_prot_reader : _ Bin_prot.Type_class.reader)
         k =
     let error f =
@@ -788,7 +832,7 @@ module Internal = struct
       then (k (Ok `Eof))
       else (error "got Eof with %d bytes left over" n ())
     in
-    really_read_bigstring t t.bin_prot_len_buf
+    get_data_until t ~available_at_least:Bin_prot.Utils.size_header_length
     >>> function
     | `Eof n -> handle_eof n
     | `Ok ->
@@ -796,27 +840,21 @@ module Internal = struct
       | `Not_in_use -> assert false
       | `Closed -> error "Reader.read_bin_prot got closed reader" ()
       | `In_use ->
-        let pos_ref = ref 0 in
-        let expected_len = Bigstring.length t.bin_prot_len_buf in
+        let pos = t.pos in
+        let pos_ref = ref pos in
         match
-          Or_error.try_with (fun () ->
-            Bin_prot.Utils.bin_read_size_header t.bin_prot_len_buf ~pos_ref)
+          Or_error.try_with (fun () -> Bin_prot.Utils.bin_read_size_header t.buf ~pos_ref)
         with
         | Error _ as e -> k e
         | Ok len ->
-          if !pos_ref <> expected_len
+          if !pos_ref - pos <> Bin_prot.Utils.size_header_length
           then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
           if len > max_len
           then (error "max read length exceeded: %d > %d" len max_len ());
           if len < 0
           then (error "negative length %d" len ());
-          let prev_len = Bigstring.length t.bin_prot_buf in
-          if len > prev_len
-          then (
-            t.bin_prot_buf <-
-              Bigstring.create (Int.min max_len (Int.max len (prev_len * 2))));
-          let ss = Bigsubstring.create t.bin_prot_buf ~pos:0 ~len in
-          really_read_bigsubstring t ss
+          let need = Bin_prot.Utils.size_header_length + len in
+          get_data_until t ~available_at_least:need
           >>> function
           | `Eof n -> handle_eof n
           | `Ok ->
@@ -824,14 +862,18 @@ module Internal = struct
             | `Not_in_use -> assert false
             | `Closed -> error "Reader.read_bin_prot got closed reader" ()
             | `In_use ->
-              let pos_ref = ref 0 in
+              let pos = t.pos + Bin_prot.Utils.size_header_length in
+              pos_ref := pos;
               match
-                Or_error.try_with (fun () -> bin_prot_reader.read t.bin_prot_buf ~pos_ref)
+                Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
               with
               | Error _ as e -> k e
               | Ok v ->
-                if !pos_ref <> len
+                if !pos_ref - pos <> len
                 then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
+                (match peek_or_read with
+                 | Peek -> ()
+                 | Read -> consume t need);
                 k (Ok (`Ok v))
   ;;
 
@@ -993,6 +1035,11 @@ let do_read t f =
   x
 ;;
 
+let peek t ~len =
+  if len < 0 then (raise_s [%message "[Reader.peek] got negative len" (len : int)]);
+  do_read t (fun () -> peek t ~len);
+;;
+
 let read t ?pos ?len s    = do_read t (fun () -> read t ?pos ?len s)
 let read_char t           = do_read t (fun () -> read_char t)
 let read_substring t s    = do_read t (fun () -> read_substring t s)
@@ -1062,8 +1109,16 @@ let read_annotated_sexps ?parse_pos t =
   read_annotated_sexps ?parse_pos t
 ;;
 
+let peek_or_read_bin_prot ?max_len t reader ~peek_or_read =
+  do_read_k t (peek_or_read_bin_prot ?max_len t reader ~peek_or_read) Fn.id
+;;
+
+let peek_bin_prot ?max_len t reader =
+  peek_or_read_bin_prot ?max_len t reader ~peek_or_read:Peek
+;;
+
 let read_bin_prot ?max_len t reader =
-  do_read_k t (read_bin_prot ?max_len t reader) Fn.id
+  peek_or_read_bin_prot ?max_len t reader ~peek_or_read:Read
 ;;
 
 let read_marshal_raw t = do_read t (fun () -> read_marshal_raw t)

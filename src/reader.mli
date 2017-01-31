@@ -126,6 +126,10 @@ val fd : t -> Fd.t
     [i] satisfies [0 < i <= len]. *)
 val read : t -> ?pos:int -> ?len:int -> string -> int Read_result.t Deferred.t
 
+(** [peek t ~len] peeks exactly [len] bytes from [t]'s buffer.  It blocks until [len]
+    bytes are available or end-of-input is reached. *)
+val peek : t -> len:int -> string Read_result.t Deferred.t
+
 (** [drain t] reads and ignores all data from [t] until it hits EOF, and then closes
     [t]. *)
 val drain : t -> unit Deferred.t
@@ -287,6 +291,13 @@ val read_sexps : (t -> Sexp.t Pipe.Reader.t) read
 
     For higher performance, consider [Unpack_sequence.unpack_bin_prot_from_reader]. *)
 val read_bin_prot
+  :  ?max_len : int
+  -> t
+  -> 'a Bin_prot.Type_class.reader
+  -> 'a Read_result.t Deferred.t
+
+(** Similar to [read_bin_prot], but doesn't consume any bytes from [t]. *)
+val peek_bin_prot
   :  ?max_len : int
   -> t
   -> 'a Bin_prot.Type_class.reader
