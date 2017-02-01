@@ -337,7 +337,7 @@ module Internal = struct
     let buf_len = Bigstring.length t.buf in
     if buf_len < at_least
     then (
-      let new_buf = Bigstring.create at_least in
+      let new_buf = Bigstring.create (Int.max at_least (2 * Bigstring.length t.buf)) in
       if t.available > 0
       then (
         Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available
@@ -354,8 +354,7 @@ module Internal = struct
     if t.available >= available_at_least
     then (return `Ok)
     else (
-      ensure_buf_len t
-        ~at_least:(Int.max available_at_least (2 * Bigstring.length t.buf));
+      ensure_buf_len t ~at_least:available_at_least;
       if t.pos > 0
       then (
         Bigstring.blit ~src:t.buf ~src_pos:t.pos ~dst:t.buf ~dst_pos:0 ~len:t.available;
