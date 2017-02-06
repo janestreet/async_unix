@@ -153,7 +153,8 @@ let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
   let%map { stdout; stderr; exit_status } = collect_output_and_wait t in
   match exit_status with
   | Ok () -> Ok stdout
-  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n -> Ok stdout
+  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n ~equal:Int.equal
+    -> Ok stdout
   | Error exit_status ->
     let { prog; args; working_dir; env; _ } = t in
     Or_error.error "Process.run failed"

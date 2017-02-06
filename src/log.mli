@@ -150,9 +150,13 @@ module Output : sig
 
       An optional [rotate] function may be given which will be called when [Log.rotate t]
       is called while this output is in effect.  This is useful for programs that want
-      very precise control over rotation. *)
+      very precise control over rotation.
+
+      If [close] is provided it will be called when the log is closed. *)
   val create
     :  ?rotate:(unit -> unit Deferred.t)
+    -> ?close:(unit -> unit Deferred.t)
+    -> ?flush:(unit -> unit Deferred.t)
     -> (Message.t Queue.t -> unit Deferred.t)
     -> t
 
@@ -356,7 +360,7 @@ val get_output : t -> Output.t list
 val set_on_error : t -> [ `Raise | `Call of (Error.t -> unit) ] -> unit
 
 (** any call that writes to a log after [close] is called will raise. *)
-val close : t -> unit
+val close : t -> unit Deferred.t
 
 (** returns true if [close] has been called *)
 val is_closed : t -> bool

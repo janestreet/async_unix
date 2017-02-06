@@ -125,9 +125,9 @@ module Rotation = struct
       let naming_scheme =
         l [a "naming_scheme";
            match t.naming_scheme with
-           | `Numbered -> a "Numbered"
-           | `Timestamped -> a "Timestamped"
-           | `Dated -> a "Dated"
+           | `Numbered       -> a "Numbered"
+           | `Timestamped    -> a "Timestamped"
+           | `Dated          -> a "Dated"
            | `User_defined _ -> a "User_defined"]
       in
       let zone = l [a "zone"; Time.Zone.sexp_of_t t.zone] in
@@ -511,11 +511,15 @@ module Output : sig
 
   val create
     :  ?rotate:(unit -> unit Deferred.t)
+    -> ?close:(unit -> unit Deferred.t)
+    -> ?flush:(unit -> unit Deferred.t)
     -> (Message.t Queue.t -> unit Deferred.t)
     -> t
 
   val write  : t -> Message.t Queue.t -> unit Deferred.t
   val rotate : t -> unit Deferred.t
+  val close  : t -> unit Deferred.t
+  val flush  : t -> unit Deferred.t
 
   val stdout        : unit -> t
   val stderr        : unit -> t
@@ -533,12 +537,20 @@ end = struct
   type t =
     { write  : Message.t Queue.t -> unit Deferred.t
     ; rotate : (unit -> unit Deferred.t)
+    ; close  : (unit -> unit Deferred.t)
+    ; flush  : (unit -> unit Deferred.t)
     }
 
-  let create ?(rotate = (fun () -> return ())) write = { write; rotate }
+  let create
+        ?(rotate = (fun () -> return ()))
+        ?(close = (fun () -> return ()))
+        ?(flush = (fun () -> return ()))
+        write = { write; rotate; close; flush }
 
-  let write t = t.write
-  let rotate t = t.rotate ()
+  let write t msgs = t.write msgs
+  let rotate t     = t.rotate ()
+  let close t      = t.close ()
+  let flush t      = t.flush ()
 
   let sexp_of_t _ = Sexp.Atom "<opaque>"
 
@@ -552,7 +564,13 @@ end = struct
     let rotate =
       (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.rotate ()))
     in
-    { write; rotate }
+    let close =
+      (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.close ()))
+    in
+    let flush =
+      (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.flush ()))
+    in
+    { write; rotate; close; flush }
   ;;
 
   let basic_write format w msg =
@@ -568,27 +586,58 @@ end = struct
     end;
   ;;
 
+  let open_file filename =
+    (* guard the open_file with a unit deferred to prevent any work from happening
+       before async spins up.  Without this no real work will be done, but async will be
+       initialized, which will raise if we later call Scheduler.go_main. *)
+    return ()
+    >>= fun () ->
+    Writer.open_file ~append:true filename
+  ;;
+
+  let open_writer ~filename =
+    (* the lazy pushes evaluation to the first place we use it, which keeps writer
+       creation errors within the error handlers for the log. *)
+    lazy begin
+      open_file filename
+      >>| fun w ->
+      (* if we are writing to a slow device, or a temporarily disconnected
+         device it's better to push back on memory in the hopes that the
+         disconnection will resolve than to blow up after a timeout.  If
+         we had a better logging error reporting mechanism we could
+         potentially deal with it that way, but we currently don't. *)
+      Writer.set_buffer_age_limit w `Unlimited;
+      w
+    end
+  ;;
+
+  let write_immediately w format msgs =
+    Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
+    Writer.bytes_written w
+  ;;
+
+  let write' w format msgs =
+    let%map w = w in
+    write_immediately w format msgs
+  ;;
+
   module File : sig
-    val write' : format -> filename:string -> (Message.t Queue.t -> Int63.t Deferred.t)
     val create : format -> filename:string -> t
   end = struct
-    let write' format ~filename msgs =
-      Writer.with_file ~append:true filename ~f:(fun w ->
-        (* if we are writing to a slow device, or a temporarily disconnected
-           device it's better to push back on memory in the hopes that the
-           disconnection will resolve than to blow up after a timeout.  If
-           we had a better logging error reporting mechanism we could
-           potentially deal with it that way, but we currently don't. *)
-        Writer.set_buffer_age_limit w `Unlimited;
-        Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
-        Writer.flushed w
-        >>| fun () ->
-        Writer.bytes_written w)
-    ;;
-
     let create format ~filename =
-      create (fun msgs ->
-        write' format ~filename msgs >>| fun (_ : Int63.t) -> ())
+      let w = open_writer ~filename in
+      create
+        ~close:(fun () ->
+          if Lazy.is_val w
+          then (force w >>= Writer.close)
+          else (return ()))
+        ~flush:(fun () ->
+          if Lazy.is_val w
+          then (force w >>= Writer.flushed)
+          else (return ()))
+        (fun msgs ->
+           let%map (_ : Int63.t) = write' (force w) format msgs in
+           ())
     ;;
   end
 
@@ -600,7 +649,7 @@ end = struct
     let create format w =
       create (fun msgs ->
         Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
-        Writer.flushed w)
+        return ())
   end
 
   module Rotating_file : sig
@@ -671,6 +720,7 @@ end = struct
         ;         dirname       : string
         ;         rotation      : Rotation.t
         ;         format        : format
+        ; mutable writer        : Writer.t Deferred.t Lazy.t
         ; mutable filename      : string
         ; mutable last_messages : int
         ; mutable last_size     : int
@@ -679,12 +729,26 @@ end = struct
         }
       [@@deriving sexp_of]
 
+      let we_have_written_to_the_current_writer t = Lazy.is_val t.writer
+
+      let close_writer t =
+        if we_have_written_to_the_current_writer t
+        then begin
+          let%bind w = Lazy.force t.writer in
+          Writer.close w
+        end else (return ())
+      ;;
+
       let rotate t =
         let basename, dirname = t.basename, t.dirname in
+        close_writer t
+        >>= fun () ->
         current_log_files ~dirname ~basename
         >>= fun files ->
-        List.rev (List.sort files ~cmp:(fun (i1,_) (i2, _) -> Id.cmp_newest_first i1 i2))
-        |> Deferred.List.iter ~f:(fun (id, src) ->
+        let files =
+          List.rev (List.sort files ~cmp:(fun (i1,_) (i2, _) -> Id.cmp_newest_first i1 i2))
+        in
+        Deferred.List.iter files ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
           let dst = make_filename ~dirname ~basename id' in
           if src = t.filename then (Tail.extend t.log_files dst);
@@ -694,15 +758,19 @@ end = struct
         >>= fun () ->
         maybe_delete_old_logs ~dirname ~basename t.rotation.keep
         >>| fun () ->
+        let filename =
+          make_filename ~dirname ~basename (Id.create (Rotation.zone t.rotation))
+        in
         t.last_size     <- 0;
         t.last_messages <- 0;
         t.last_time     <- Time.now ();
-        t.filename      <- make_filename ~dirname ~basename (Id.create (Rotation.zone t.rotation))
+        t.filename      <- filename;
+        t.writer        <- open_writer ~filename;
       ;;
 
       let write t msgs =
         let current_time = Time.now () in
-        Deferred.Or_error.try_with (fun () ->
+        begin
           if Rotation.should_rotate
                t.rotation
                ~last_messages:t.last_messages
@@ -710,15 +778,13 @@ end = struct
                ~last_time:t.last_time
                ~current_time
           then (rotate t)
-          else (return ()))
-        (* rotation errors are not worth potentially crashing the process. *)
-        >>= fun (_ : unit Or_error.t) ->
-        File.write' t.format ~filename:t.filename msgs
-        >>= fun size ->
+          else (return ())
+        end >>= fun () ->
+        write' (Lazy.force t.writer) t.format msgs
+        >>| fun size ->
         t.last_messages <- t.last_messages + Queue.length msgs;
         t.last_size     <- t.last_size + Int63.to_int_exn size;
         t.last_time     <- current_time;
-        return ()
       ;;
 
       let create format ~basename rotation =
@@ -732,12 +798,15 @@ end = struct
         let t_deferred =
           dirname
           >>| fun dirname ->
+          let filename =
+            make_filename ~dirname ~basename (Id.create (Rotation.zone rotation))
+          in
           { basename
           ; dirname
           ; rotation
           ; format
-          ; filename      = make_filename ~dirname ~basename
-                              (Id.create (Rotation.zone rotation))
+          ; writer        = open_writer ~filename
+          ; filename
           ; last_size     = 0
           ; last_messages = 0
           ; last_time     = Time.now ()
@@ -745,7 +814,19 @@ end = struct
           }
         in
         let first_rotate_scheduled = ref false in
+        let close () =
+          let%bind t = t_deferred in
+          close_writer t
+        in
+        let flush () =
+          let%bind t = t_deferred in
+          if Lazy.is_val t.writer
+          then (force t.writer >>= Writer.flushed)
+          else (return ())
+        in
         create
+          ~close
+          ~flush
           ~rotate:(fun () -> t_deferred >>= rotate)
           (fun msgs ->
              t_deferred
@@ -761,11 +842,12 @@ end = struct
     end
 
     module Numbered = Make (struct
-        type t            = int
-        let create        = const 0
-        let rotate_one    = (+) 1
-        let to_string_opt = function 0 -> None | x -> Some (Int.to_string x)
-        let cmp_newest_first  = Int.ascending
+        type t = int
+
+        let create           = const 0
+        let rotate_one       = (+) 1
+        let to_string_opt    = function 0 -> None | x -> Some (Int.to_string x)
+        let cmp_newest_first = Int.ascending
 
         let of_string_opt = function
           | None   -> Some 0
@@ -774,28 +856,31 @@ end = struct
       end)
 
     module Timestamped = Make (struct
-        type t               = Time.t
+        type t = Time.t
+
         let create _zone     = Time.now ()
         let rotate_one       = ident
         let to_string_opt ts = Some (Time.to_filename_string ~zone:(force Time.Zone.local) ts)
-        let cmp_newest_first     = Time.descending
+        let cmp_newest_first = Time.descending
 
-        let of_string_opt    = function
+        let of_string_opt = function
           | None   -> None
-          | Some s ->
-            try Some (Time.of_filename_string ~zone:(force Time.Zone.local) s) with _ -> None
+          | Some s -> try Some (Time.of_filename_string ~zone:(force Time.Zone.local) s) with _ -> None
         ;;
       end)
 
     module Dated = Make (struct
         type t = Date.t
-        let create zone = Date.today ~zone
-        let rotate_one = ident
+
+        let create zone        = Date.today ~zone
+        let rotate_one         = ident
         let to_string_opt date = Some (Date.to_string date)
+        let cmp_newest_first   = Date.descending
+
         let of_string_opt = function
-          | None -> None
+          | None     -> None
           | Some str -> Option.try_with (fun () -> Date.of_string str)
-        let cmp_newest_first = Date.descending
+        ;;
       end)
 
     let create format ~basename (rotation : Rotation.t) =
@@ -874,7 +959,7 @@ let is_closed t = Pipe.is_closed t.updates
 
 module Flush_at_exit_or_gc : sig
   val add_log : t -> unit
-  val close   : t -> unit
+  val close   : t -> unit Deferred.t
 end = struct
   module Weak_table = Caml.Weak.Make (struct
       type z = t
@@ -895,15 +980,23 @@ end = struct
       let flush_bag = Lazy.force flush_bag in
       let flushed   = flushed t in
       let tag       = Bag.add flush_bag flushed in
-      upon flushed (fun () -> Bag.remove flush_bag tag)
-    end
+      upon flushed (fun () -> Bag.remove flush_bag tag);
+      flushed
+    end else
+      (return ())
   ;;
 
   let close t =
-    if not (is_closed t) then begin
-      flush t;
-      Pipe.close t.updates
-    end
+    if not (is_closed t)
+    then begin
+      (* pushing an empty Output.t to the log will cause the existing output to close
+         and release its resources *)
+      Pipe.write_without_pushback t.updates (New_output (Output.combine []));
+      let finished = flushed t in
+      Pipe.close t.updates;
+      finished
+    end else
+      (return ())
   ;;
 
   let finish_at_shutdown =
@@ -911,7 +1004,7 @@ end = struct
       (Shutdown.at_shutdown (fun () ->
          let live_logs = Lazy.force live_logs in
          let flush_bag = Lazy.force flush_bag in
-         Weak_table.iter (fun log -> flush log) live_logs;
+         Weak_table.iter (fun log -> don't_wait_for (flush log)) live_logs;
          Deferred.all_unit (Bag.to_list flush_bag)))
   ;;
 
@@ -923,7 +1016,7 @@ end = struct
     (* If we fall out of scope just close and flush normally.  Without this we risk being
        finalized and removed from the weak table before the the shutdown handler runs, but
        also before we get all of logs out of the door. *)
-    Gc.add_finalizer_exn log close;
+    Gc.add_finalizer_exn log (fun log -> don't_wait_for (close log));
   ;;
 end
 
@@ -937,7 +1030,7 @@ let create_log_processor ~output =
     if Queue.length msgs = 0
     then (f ())
     else begin
-      (Output.write !output) msgs
+      Output.write !output msgs
       >>= fun () ->
       Queue.clear msgs;
       f ()
@@ -957,7 +1050,7 @@ let create_log_processor ~output =
          match Queue.dequeue updates with
          | None -> output_message_queue (fun _ -> return ())
          | Some update ->
-           match update with
+           begin match update with
            | Rotate i ->
              output_message_queue (fun () ->
                Output.rotate !output
@@ -966,6 +1059,8 @@ let create_log_processor ~output =
                loop yield_every)
            | Flush i ->
              output_message_queue (fun () ->
+               Output.flush !output
+               >>= fun () ->
                Ivar.fill i ();
                loop yield_every)
            | Msg msg ->
@@ -973,8 +1068,11 @@ let create_log_processor ~output =
              loop yield_every
            | New_output o ->
              output_message_queue (fun () ->
+               Output.close !output
+               >>= fun () ->
                output := o;
                loop yield_every)
+           end
        end
      in
      loop batch_size)
@@ -1220,10 +1318,11 @@ module Make_global() : Global_intf = struct
   ;;
 
   let log =
-    lazy (create
-            ~level:`Info
-            ~output:[Output.stderr ()]
-            ~on_error:(`Call send_errors_to_top_level_monitor))
+    lazy (
+      create
+        ~level:`Info
+        ~output:[Output.stderr ()]
+        ~on_error:(`Call send_errors_to_top_level_monitor))
   ;;
 
   let level ()             = level (Lazy.force log)
@@ -1240,10 +1339,11 @@ module Make_global() : Global_intf = struct
 
   let flushed () = flushed (Lazy.force log)
   let rotate ()  = rotate (Lazy.force log)
-  let printf   ?level ?time ?tags k         = printf ?level ?time ?tags (Lazy.force log) k
-  let sexp     ?level ?time ?tags s         = sexp ?level ?time ?tags (Lazy.force log) s
-  let string   ?level ?time ?tags s         = string ?level ?time ?tags (Lazy.force log) s
-  let message msg = message (Lazy.force log) msg
+
+  let printf   ?level ?time ?tags k = printf ?level ?time ?tags (Lazy.force log) k
+  let sexp     ?level ?time ?tags s = sexp ?level ?time ?tags (Lazy.force log) s
+  let string   ?level ?time ?tags s = string ?level ?time ?tags (Lazy.force log) s
+  let message msg                   = message (Lazy.force log) msg
 
   let surround_s ?level ?time ?tags msg f =
     surround_s ?level ?time ?tags (Lazy.force log) msg f
