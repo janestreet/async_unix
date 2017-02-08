@@ -518,7 +518,6 @@ module Output : sig
 
   val write  : t -> Message.t Queue.t -> unit Deferred.t
   val rotate : t -> unit Deferred.t
-  val close  : t -> unit Deferred.t
   val flush  : t -> unit Deferred.t
 
   val stdout        : unit -> t
@@ -545,11 +544,19 @@ end = struct
         ?(rotate = (fun () -> return ()))
         ?(close = (fun () -> return ()))
         ?(flush = (fun () -> return ()))
-        write = { write; rotate; close; flush }
+        write
+    =
+    let t = { write; rotate; close; flush } in
+    Gc.add_finalizer (Heap_block.create_exn t) (fun t ->
+      let t = Heap_block.value t in
+      don't_wait_for
+        (let%bind () = t.flush () in
+         t.close ()));
+    t
+  ;;
 
   let write t msgs = t.write msgs
   let rotate t     = t.rotate ()
-  let close t      = t.close ()
   let flush t      = t.flush ()
 
   let sexp_of_t _ = Sexp.Atom "<opaque>"
@@ -989,8 +996,9 @@ end = struct
   let close t =
     if not (is_closed t)
     then begin
-      (* pushing an empty Output.t to the log will cause the existing output to close
-         and release its resources *)
+      (* this will cause the log to flush its outputs, but because they may have been
+         reused it does not close them, they'll be closed automatically when they fall out
+         of scope. *)
       Pipe.write_without_pushback t.updates (New_output (Output.combine []));
       let finished = flushed t in
       Pipe.close t.updates;
@@ -1068,7 +1076,9 @@ let create_log_processor ~output =
              loop yield_every
            | New_output o ->
              output_message_queue (fun () ->
-               Output.close !output
+               (* we don't close the output because we may re-use it.  We rely on the
+                  finalizer on the output to call close once it falls out of scope. *)
+               Output.flush !output
                >>= fun () ->
                output := o;
                loop yield_every)

@@ -152,7 +152,9 @@ module Output : sig
       is called while this output is in effect.  This is useful for programs that want
       very precise control over rotation.
 
-      If [close] is provided it will be called when the log is closed. *)
+      If [close] is provided it will be called when the log falls out of scope. (Note that
+      it is not called directly even if you close a log which is using this output,
+      because outputs are sometimes reused.)  *)
   val create
     :  ?rotate:(unit -> unit Deferred.t)
     -> ?close:(unit -> unit Deferred.t)
