@@ -115,9 +115,9 @@ val consumer_left : t -> unit Deferred.t
 val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
-    [Unix_syscalls.openfile] to open the file.  *)
+    [Unix_syscalls.openfile] to open the file. *)
 val open_file
-  :  ?append      : bool  (** default is [false] *)
+  :  ?append      : bool  (** default is [false], meaning truncate instead *)
   -> ?buf_len     : int
   -> ?perm        : int   (** default is [0o666] *)
   -> ?line_ending : Line_ending.t  (** default is [Unix] *)
@@ -133,7 +133,7 @@ val open_file
     flush. *)
 val with_file
   :  ?perm        : int   (** default is [0o666] *)
-  -> ?append      : bool  (** default is [false] *)
+  -> ?append      : bool  (** default is [false], meaning truncate instead *)
   -> ?exclusive   : bool  (** default is [false] *)
   -> ?line_ending : Line_ending.t  (** default is [Unix] *)
   -> string

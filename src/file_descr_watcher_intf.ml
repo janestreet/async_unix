@@ -11,7 +11,7 @@
     2. [thread_safe_check], while not holding the async lock
     3. [post_check], while holding the async lock *)
 
-open Core
+open! Core
 open Import
 
 module Timeout = struct

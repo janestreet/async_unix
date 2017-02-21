@@ -1,5 +1,5 @@
 open! Core
-open! Async_kernel.Std
+open! Async_kernel
 open! Import
 
 (* We want to get a log of errors sent to [Monitor.try_with] after the initial return, so
@@ -28,4 +28,4 @@ until error log can be flushed."]);
         decr current_unflushed_errors));
 ;;
 
-let () = Async_kernel.Monitor0.try_with_log_exn := try_with_log_exn
+let () = Async_kernel_private.Monitor0.try_with_log_exn := try_with_log_exn

@@ -2,14 +2,13 @@ open! Core
 open! Import
 
 module Time_source = Async_kernel.Time_source
-module Scheduler = Async_kernel.Scheduler
 
-let run_cycles_until_no_jobs_remain = Scheduler.run_cycles_until_no_jobs_remain
+let run_cycles_until_no_jobs_remain = Kernel_scheduler.run_cycles_until_no_jobs_remain
 
 let%bench_module "Clock.every" =
   (module struct
 
-    let scheduler = Scheduler.t ()
+    let scheduler = Kernel_scheduler.t ()
     let time_source = scheduler.time_source
 
     let%bench "~continue-on-error:false" =

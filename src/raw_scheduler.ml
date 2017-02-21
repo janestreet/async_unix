@@ -587,7 +587,7 @@ let reset_in_forked_process () =
     | None -> ()
     | Some tfd -> Unix.close (tfd :> Unix.File_descr.t)
   end;
-  Async_kernel.Scheduler.reset_in_forked_process ();
+  Kernel_scheduler.reset_in_forked_process ();
   init ();
 ;;
 
@@ -617,7 +617,7 @@ let thread_safe_reset () =
 
 let make_async_unusable () =
   reset_in_forked_process ();
-  Async_kernel.Scheduler.make_async_unusable ();
+  Kernel_scheduler.make_async_unusable ();
   the_one_and_only_ref :=
     Ready_to_initialize (fun () ->
       raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])

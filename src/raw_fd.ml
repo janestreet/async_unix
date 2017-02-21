@@ -71,8 +71,7 @@ module Watching = struct
   type t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
-    | Watch_repeatedly
-      of Async_kernel.Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
+    | Watch_repeatedly of Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
     | Stop_requested
   [@@deriving sexp_of]
 

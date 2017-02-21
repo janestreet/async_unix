@@ -1,5 +1,5 @@
 open! Core
-open! Async_kernel.Std
+open! Async_kernel
 open! Import
 open! Std
 

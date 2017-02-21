@@ -1,6 +1,6 @@
 open! Core
 
-include Async_kernel.Config
+include Async_kernel.Async_kernel_config
 
 let file_descr_watcher =
   match file_descr_watcher with
