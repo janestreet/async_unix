@@ -533,11 +533,26 @@ end = struct
   type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
   type format = [ machine_readable_format | `Text ] [@@deriving sexp]
 
+  module Definitely_a_heap_block : sig
+    type t
+
+    val the_one_and_only : t
+  end = struct
+    type t = string
+
+    let the_one_and_only = String.make 1 ' '
+  end
+
   type t =
-    { write  : Message.t Queue.t -> unit Deferred.t
-    ; rotate : (unit -> unit Deferred.t)
-    ; close  : (unit -> unit Deferred.t)
-    ; flush  : (unit -> unit Deferred.t)
+    { write      : Message.t Queue.t -> unit Deferred.t
+    ; rotate     : (unit -> unit Deferred.t)
+    ; close      : (unit -> unit Deferred.t)
+    ; flush      : (unit -> unit Deferred.t)
+    (* experimentation shows that this record, without this field, can sometimes raise
+       when passed to Heap_block.create_exn, which we need to do to add a finalizer.  This
+       seems to occur when the functions are top-level and/or constant.  More
+       investigation is probably worthwhile. *)
+    ; heap_block : Definitely_a_heap_block.t
     }
 
   let create
@@ -546,7 +561,13 @@ end = struct
         ?(flush = (fun () -> return ()))
         write
     =
-    let t = { write; rotate; close; flush } in
+    let t =
+      { write
+      ; rotate
+      ; close
+      ; flush
+      ; heap_block = Definitely_a_heap_block.the_one_and_only }
+    in
     Gc.add_finalizer (Heap_block.create_exn t) (fun t ->
       let t = Heap_block.value t in
       don't_wait_for
@@ -577,7 +598,7 @@ end = struct
     let flush =
       (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.flush ()))
     in
-    { write; rotate; close; flush }
+    { write; rotate; close; flush; heap_block = Definitely_a_heap_block.the_one_and_only }
   ;;
 
   let basic_write format w msg =

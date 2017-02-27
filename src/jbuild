@@ -7,3 +7,5 @@
   (preprocess (pps (ppx_jane -annotated-ignores -ite-check -check-doc-comments)))))
 
 (enforce_style ())
+
+(jbuild_version jane_street)
