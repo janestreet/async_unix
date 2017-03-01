@@ -439,8 +439,8 @@ let unsetenv = Unix.unsetenv
 
 (* processes *)
 
-let fork_exec ~prog ~args ?use_path ?env () =
-  In_thread.run (fun () -> Unix.fork_exec ~prog ~args ?use_path ?env ())
+let fork_exec ~prog ~argv ?use_path ?env () =
+  In_thread.run (fun () -> Unix.fork_exec ~prog ~argv ?use_path ?env ())
 ;;
 
 type wait_on = Unix.wait_on [@@deriving sexp_poly]

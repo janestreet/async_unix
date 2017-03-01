@@ -1,7 +1,6 @@
 open! Core
 open! Async_kernel
 open! Import
-open! Std
 
 open Unix_syscalls
 
@@ -17,7 +16,7 @@ let%test_unit "fork_exec ~env last binding takes precedence" =
           ; `Extend env ]
           ~f:(fun env ->
             let%bind pid =
-              fork_exec () ~env ~prog:"sh" ~args:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]
+              fork_exec () ~env ~prog:"sh" ~argv:[ "sh"; "-c"; "echo $VAR > " ^ temp_file ]
             in
             let%map () = waitpid_exn pid in
             [%test_result: string] ~expect:"last\n" (In_channel.read_all temp_file))))

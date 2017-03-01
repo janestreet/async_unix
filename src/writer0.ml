@@ -56,6 +56,7 @@ type t =
   ; monitor       : Monitor.t
   ; inner_monitor : Monitor.t
   ; mutable background_writer_state    : [ `Running | `Not_running | `Stopped_permanently ]
+  ; background_writer_stopped          : unit Ivar.t
 
   (* [syscall] determines the batching approach that the writer uses to batch data
      together and flush it using the underlying write syscall. *)
@@ -138,6 +139,12 @@ type t =
   }
 [@@deriving fields, sexp_of]
 
+exception Inner_exn of (t * Sexp.t)
+
+let inner_raise_s t sexp =
+  raise (Inner_exn (t, sexp))
+;;
+
 type writer = t [@@deriving sexp_of]
 
 let set_raise_when_consumer_leaves t bool = t.raise_when_consumer_leaves <- bool
@@ -161,10 +168,13 @@ let invariant t : unit =
       ~buf:ignore
       ~background_writer_state:(check (function
         | `Stopped_permanently ->
-          assert (bytes_to_write t = 0)
+          assert (bytes_to_write t = 0);
+          assert (Ivar.is_full t.background_writer_stopped)
         | `Running | `Not_running ->
           assert (Bigstring.length t.buf > 0);
-          assert (Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)))))
+          assert (Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)));
+          assert (Ivar.is_empty t.background_writer_stopped)))
+      ~background_writer_stopped:ignore
       ~syscall:ignore
       ~bytes_written:(check (fun bytes_written ->
         assert (Int63.(zero <= bytes_written && bytes_written <= t.bytes_received))))
@@ -199,7 +209,7 @@ let invariant t : unit =
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
       ~line_ending:ignore
-  with exn -> raise_s [%message "writer invariant failed" (exn : exn) ~writer:(t : t)]
+  with exn -> inner_raise_s t [%message "writer invariant failed" (exn : exn)]
 ;;
 
 module Check_buffer_age : sig
@@ -403,6 +413,7 @@ let is_closed t =
 
 let is_open t = not (is_closed t)
 
+
 let writers_to_flush_at_shutdown : t Bag.t = Bag.create ()
 
 let final_flush ?force t =
@@ -493,10 +504,15 @@ let stop_permanently t =
   t.buf <- Bigstring.create 0;
   t.scheduled_back <- 0;
   t.back <- 0;
+  Ivar.fill_if_empty t.background_writer_stopped ();
   Queue.clear t.flushes;
 ;;
 
-let die t error = stop_permanently t; Error.raise error
+let stopped_permanently t =
+  Ivar.read t.background_writer_stopped
+;;
+
+let die t sexp = stop_permanently t; inner_raise_s t sexp
 
 type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin_io, sexp]
 
@@ -524,8 +540,18 @@ let create
       else buf_len
   in
   let id = Id.create () in
-  let monitor       = Monitor.create () in
-  let inner_monitor = Monitor.create () in
+  let monitor       =
+    Monitor.create ()
+      ?name:(if am_running_inline_test
+             then (Some "Writer.monitor")
+             else None)
+  in
+  let inner_monitor =
+    Monitor.create ()
+      ?name:(if am_running_inline_test
+             then (Some "Writer.inner_monitor")
+             else None)
+  in
   let consumer_left = Ivar.create () in
   let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
   let t =
@@ -543,6 +569,7 @@ let create
     ; bytes_written               = Int63.zero
     ; flushes                     = Queue.create ()
     ; background_writer_state     = `Not_running
+    ; background_writer_stopped   = Ivar.create ()
     ; close_state                 = `Open
     ; close_finished              = Ivar.create ()
     ; close_started               = Ivar.create ()
@@ -555,9 +582,17 @@ let create
     ; line_ending
     }
   in
-  Monitor.detach_and_iter_errors inner_monitor ~f:(fun exn ->
+  Monitor.detach_and_iter_errors inner_monitor ~f:(fun (exn : Exn.t) ->
+    let sexp =
+      match Monitor.extract_exn exn with
+      | Inner_exn (_, sexp) -> sexp
+      | exn -> [%sexp (exn : Exn.t)]
+    in
     Monitor.send_exn monitor
-      (Error.to_exn (Error.create "writer error" (exn, t) [%sexp_of: exn * t])));
+      (Exn.create_s
+         [%message "Writer error from inner_monitor"
+                     ~_:(sexp : Sexp.t)
+                     ~writer:(t : t)]));
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
   t
@@ -578,7 +613,7 @@ let can_write t =
 
 let ensure_can_write t =
   if not (can_write t)
-  then (raise_s [%message "attempt to use closed writer" ~_:(t : t)]);
+  then (inner_raise_s t [%message "attempt to use closed writer"]);
 ;;
 
 let open_file ?(append = false) ?buf_len ?(perm = 0o666) ?line_ending file =
@@ -660,7 +695,7 @@ let thread_io_cutoff = 262_144
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
   if not (is_closed t)
-  then (raise_s [%message "writer fd unexpectedly closed " ~writer:(t : t)]);
+  then (inner_raise_s t [%message "writer fd unexpectedly closed "]);
 ;;
 
 let rec start_write t =
@@ -673,12 +708,13 @@ let rec start_write t =
       if n >= 0
       then (write_finished t n)
       else (
-        die t (Error.create "write system call returned negative result" (t, n)
-                 [%sexp_of: t * int]))
+        die t
+          [%message  "write system call returned negative result"
+                       (n : int)])
     | `Error (Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _)) ->
       write_when_ready t
     | `Error (Unix.Unix_error (EBADF, _, _)) ->
-      die t (Error.create "write got EBADF" t [%sexp_of: t])
+      die t [%message "write got EBADF"]
     | `Error ((Unix.Unix_error
                  (( EPIPE
                   | ECONNRESET
@@ -694,7 +730,7 @@ let rec start_write t =
       Ivar.fill t.consumer_left ();
       stop_permanently t;
       if t.raise_when_consumer_leaves then (raise exn);
-    | `Error exn -> die t (Error.of_exn exn)
+    | `Error exn -> die t [%message "" ~_:(exn : Exn.t)]
   in
   let should_write_in_thread =
     not (Fd.supports_nonblock t.fd)
@@ -721,7 +757,7 @@ and write_when_ready t =
   assert (t.background_writer_state = `Running);
   Fd.ready_to t.fd `Write
   >>> function
-  | `Bad_fd -> die t (Error.create "writer ready_to got Bad_fd" t [%sexp_of: t])
+  | `Bad_fd -> die t [%message "writer ready_to got Bad_fd"]
   | `Closed -> fd_closed t
   | `Ready -> start_write t
 
@@ -733,7 +769,7 @@ and write_finished t bytes_written =
   Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:int63_bytes_written;
   t.bytes_written <- Int63.(int63_bytes_written + t.bytes_written);
   if Int63.(t.bytes_written > t.bytes_received)
-  then (die t (Error.create "writer wrote more bytes than it received" t [%sexp_of: t]));
+  then (die t [%message "writer wrote more bytes than it received"]);
   fill_flushes t;
   t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
   (* Remove processed iovecs from t.scheduled. *)
@@ -743,8 +779,7 @@ and write_finished t bytes_written =
     | None ->
       if bytes_written > 0
       then (
-        die t (Error.create "writer wrote nonzero amount but IO_queue is empty" t
-                 [%sexp_of: t]))
+        die t [%message "writer wrote nonzero amount but IO_queue is empty"])
     | Some ({ buf; pos; len }, kind) ->
       if bytes_written >= len
       then (
@@ -801,9 +836,9 @@ let maybe_start_writer t =
         in
         if not can_write_fd
         then (
-          raise_s [%message
+          inner_raise_s t [%message
             "not allowed to write due to file-descriptor flags"
-              (open_flags : open_flags) ~writer:(t : t)]);
+              (open_flags : open_flags)]);
         start_write t));
 ;;
 
@@ -887,10 +922,9 @@ let write_direct t ~f =
     let x, written = f t.buf ~pos ~len in
     if written < 0 || written > len
     then (
-      raise_s [%message "[write_direct]'s [~f] argument returned invalid [written]"
-                          (written : int)
-                          (len : int)
-                          ~writer:(t : t)]);
+      inner_raise_s t [%message "[write_direct]'s [~f] argument returned invalid [written]"
+                                  (written : int)
+                                  (len : int)]);
     t.back <- pos + written;
     got_bytes t written;
     maybe_start_writer t;

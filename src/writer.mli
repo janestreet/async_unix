@@ -409,6 +409,13 @@ val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
     during the time after [close t] before closing has finished. *)
 val can_write : t -> bool
 
+(** Errors raised within the writer can stop the background job that flushes out the
+    writer's buffers. [is_stopped_permanently] returns [true] when the background job has
+    stopped. [stopped_permanently] becomes determined when the background job has
+    stopped. *)
+val is_stopped_permanently : t -> bool
+val stopped_permanently    : t -> unit Deferred.t
+
 (** In addition to flushing its internal buffer prior to closing, a writer keeps track of
     producers that are feeding it data, so that when [Writer.close] is called, it does the
     following:

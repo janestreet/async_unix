@@ -1,7 +1,6 @@
 open! Core
 open! Async_kernel
 open! Import
-open! Std
 
 module Unix = Core.Unix
 

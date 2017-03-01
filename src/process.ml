@@ -82,32 +82,6 @@ let create_exn ?buf_len ?env ?stdin ?working_dir ~prog ~args () =
   create ?buf_len ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
 ;;
 
-module Output = struct
-  module Stable = struct
-    module V1 = struct
-      type t =
-        { stdout      : string
-        ; stderr      : string
-        ; exit_status : Unix.Exit_or_signal.t }
-      [@@deriving compare, sexp]
-    end
-  end
-
-  include Stable.V1
-end
-
-let wait t = force t.wait
-
-let collect_output_and_wait t =
-  let stdout = Reader.contents t.stdout in
-  let stderr = Reader.contents t.stderr in
-  let%bind () = Writer.close t.stdin ~force_close:(Deferred.never ()) in
-  let%bind exit_status = wait t in
-  let%bind stdout = stdout in
-  let%bind stderr = stderr in
-  return { Output. stdout; stderr; exit_status }
-;;
-
 module Lines_or_sexp = struct
   type t =
     | Lines of string list
@@ -125,6 +99,39 @@ module Lines_or_sexp = struct
     with _ -> Lines (String.split ~on:'\n' string)
   ;;
 end
+
+module Output = struct
+  module Stable = struct
+    module V1 = struct
+      type t =
+        { stdout      : string
+        ; stderr      : string
+        ; exit_status : Unix.Exit_or_signal.t }
+      [@@deriving compare, sexp]
+    end
+  end
+
+  include Stable.V1
+
+  let sexp_of_t t =
+    [%message ""
+                ~stdout:(Lines_or_sexp.create t.stdout : Lines_or_sexp.t)
+                ~stderr:(Lines_or_sexp.create t.stderr : Lines_or_sexp.t)
+                ~exit_status:(t.exit_status : Unix.Exit_or_signal.t)]
+  ;;
+end
+
+let wait t = force t.wait
+
+let collect_output_and_wait t =
+  let stdout = Reader.contents t.stdout in
+  let stderr = Reader.contents t.stderr in
+  let%bind () = Writer.close t.stdin ~force_close:(Deferred.never ()) in
+  let%bind exit_status = wait t in
+  let%bind stdout = stdout in
+  let%bind stderr = stderr in
+  return { Output. stdout; stderr; exit_status }
+;;
 
 module Failure = struct
 

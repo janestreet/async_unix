@@ -267,7 +267,7 @@ val getenv_exn : string -> string
 val putenv : key:string -> data:string -> unit
 val unsetenv : string -> unit
 
-(** [fork_exec ~prog ~args ?path ?env] forks and execs [prog] with [args], and returns the
+(** [fork_exec ~prog ~argv ?path ?env] forks and execs [prog] with [argv], and returns the
     child pid.  If [use_path = true] (the default) and [prog] doesn't contain a slash,
     then [fork_exec] searches the PATH environment variable for [prog].  If [env] is
     supplied, it specifies the environment when [prog] is executed.
@@ -277,7 +277,7 @@ val unsetenv : string -> unit
     environment.  See {!Unix.exec}. *)
 val fork_exec
   :  prog      : string
-  -> args      : string list
+  -> argv      : string list
   -> ?use_path : bool  (** default is [true] *)
   -> ?env      : [ env | `Replace_raw of string list ]
   -> unit
