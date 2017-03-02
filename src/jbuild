@@ -6,6 +6,5 @@
   (c_names (dump_core_on_job_delay_stubs))
   (preprocess (pps (ppx_jane -annotated-ignores -ite-check -check-doc-comments)))))
 
-(enforce_style ())
 
 (jbuild_version jane_street)

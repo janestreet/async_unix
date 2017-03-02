@@ -12,7 +12,7 @@
 open! Core
 open! Import
 
-module From_kernel = Async_kernel.Require_explicit_time_source
+module From_kernel = Async_kernel.Async_kernel_private.Require_explicit_time_source
 
 module type Require_explicit_time_source = sig
   (** We shadow [Time_ns] and [Scheduler] from [Async_kernel] because the local versions

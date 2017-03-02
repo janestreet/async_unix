@@ -145,6 +145,73 @@ let inner_raise_s t sexp =
   raise (Inner_exn (t, sexp))
 ;;
 
+let sexp_of_t
+      { id
+      ; fd
+      ; monitor
+      ; inner_monitor
+      ; background_writer_state
+      ; background_writer_stopped
+      ; syscall
+      ; bytes_received
+      ; bytes_written
+      ; scheduled = _
+      ; scheduled_bytes
+      ; buf       = _
+      ; scheduled_back
+      ; back
+      ; flushes   = _
+      ; close_state
+      ; close_finished
+      ; close_started
+      ; producers_to_flush_at_close
+      ; flush_at_shutdown_elt
+      ; check_buffer_age
+      ; consumer_left
+      ; raise_when_consumer_leaves
+      ; open_flags
+      ; line_ending
+      } =
+  let suppress_in_test x =
+    if am_running_inline_test
+    then None
+    else (Some x)
+  in
+  let monitor_name_in_test monitor =
+    if am_running_inline_test
+    then [%sexp (Monitor.name monitor : Info.t)]
+    else [%sexp (monitor : Monitor.t)]
+  in
+  [%sexp
+    { id                              : Id.t sexp_option = suppress_in_test id
+    ; fd                              : Fd.t sexp_option = suppress_in_test fd
+    ; monitor                         : Sexp.t = monitor_name_in_test monitor
+    ; inner_monitor                   : Sexp.t = monitor_name_in_test inner_monitor
+    ; background_writer_state         : [ `Running | `Not_running | `Stopped_permanently ]
+    ; background_writer_stopped       : unit Ivar.t
+    ; syscall                         : [ `Per_cycle | `Periodic of Time.Span.t ]
+    ; bytes_received                  : Int63.t
+    ; bytes_written                   : Int63.t
+    ; scheduled_bytes                 : int
+    ; scheduled_back                  : int
+    ; back                            : int
+    ; close_state                     : [ `Open | `Closed_and_flushing | `Closed ]
+    ; close_finished                  : unit Ivar.t
+    ; close_started                   : unit Ivar.t
+    ; num_producers_to_flush_at_close : int = Bag.length producers_to_flush_at_close
+    ; flush_at_shutdown_elt
+      : t sexp_opaque Bag.Elt.t option sexp_option
+        = suppress_in_test flush_at_shutdown_elt
+    ; check_buffer_age
+      : t sexp_opaque Check_buffer_age'.t Bag.Elt.t option sexp_option
+        = suppress_in_test check_buffer_age
+    ; consumer_left                   : unit Ivar.t
+    ; raise_when_consumer_leaves      : bool
+    ; open_flags                      : open_flags Deferred.t
+    ; line_ending                     : Line_ending.t
+    }]
+;;
+
 type writer = t [@@deriving sexp_of]
 
 let set_raise_when_consumer_leaves t bool = t.raise_when_consumer_leaves <- bool
@@ -691,11 +758,11 @@ let mk_iovecs t =
    should be the best. *)
 let thread_io_cutoff = 262_144
 
-(* If whe writer was closed, we should be quiet.  But if it wasn't, then someone was
+(* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
   if not (is_closed t)
-  then (inner_raise_s t [%message "writer fd unexpectedly closed "]);
+  then (die t [%message "writer fd unexpectedly closed "]);
 ;;
 
 let rec start_write t =
