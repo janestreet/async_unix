@@ -4,7 +4,7 @@
   (libraries (async_kernel
               core))
   (c_names (dump_core_on_job_delay_stubs))
-  (preprocess (pps (ppx_jane -annotated-ignores -ite-check -check-doc-comments)))))
+  (preprocess (pps (ppx_jane -annotated-ignores -ite-check -check-doc-comments ppx_driver.runner)))))
 
 
 (jbuild_version jane_street)

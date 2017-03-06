@@ -641,7 +641,7 @@ end = struct
 
   let write_immediately w format msgs =
     Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
-    Writer.bytes_written w
+    Writer.bytes_received w
   ;;
 
   let write' w format msgs =
@@ -811,7 +811,7 @@ end = struct
         write' (Lazy.force t.writer) t.format msgs
         >>| fun size ->
         t.last_messages <- t.last_messages + Queue.length msgs;
-        t.last_size     <- t.last_size + Int63.to_int_exn size;
+        t.last_size     <- Int63.to_int_exn size;
         t.last_time     <- current_time;
       ;;
 
