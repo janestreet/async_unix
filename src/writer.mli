@@ -586,3 +586,23 @@ val behave_nicely_in_pipeline
   :  ?writers : t list  (** defaults to [stdout; stderr] *)
   -> unit
   -> unit
+
+(** [set_synchronous_out_channel t out_channel] causes all future writes to [t] to
+    synchronously call [Out_channel.output*] functions to send data to the OS immediately.
+    Any writes that were called prior to setting the [out_channel] will [flushed].
+    [clear_synchronous_out_channel t] makes writes buffered and asynchronous again.
+    [set_synchronous_out_channel] is used by expect tests to ensure that the interleaving
+    between calls to [Core.printf] (and similar IO functions) and [Async.printf] generates
+    output with the same interleaving.  [{set,clear}_synchronous_out_channel] are
+    idempotent. *)
+val set_synchronous_out_channel : t -> Out_channel.t -> unit Deferred.t
+
+(** [clear_synchronous_out_channel t] restores [t] to its normal state, with the
+    background writer asynchronously feeding data to the OS. *)
+val clear_synchronous_out_channel :  t -> unit
+
+val with_synchronous_out_channel
+  :  t
+  -> Out_channel.t
+  -> f:(unit -> 'a Deferred.t)
+  -> 'a Deferred.t

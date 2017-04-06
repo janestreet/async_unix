@@ -40,6 +40,65 @@ module Open_flags = Unix.Open_flags
 
 type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
 
+module Backing_out_channel : sig
+  type t [@@deriving sexp_of]
+
+  include Invariant.S with type t := t
+
+  val create : Out_channel.t -> t
+  val output_char : t -> char -> unit
+  val output
+    :  t
+    -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
+    -> src               : 'a
+    -> src_len           : int
+    -> src_pos           : int
+    -> unit
+  val out_channel : t -> Out_channel.t
+  val flush : t -> unit
+end = struct
+  type t =
+    { mutable bigstring_buf : Bigstring.t
+    ; out_channel           : Out_channel.t
+    ; mutable string_buf    : string }
+  [@@deriving fields]
+
+  let sexp_of_t { bigstring_buf = _; out_channel; string_buf = _ } =
+    [%message (out_channel : Out_channel.t)]
+  ;;
+
+  let invariant t =
+    Invariant.invariant [%here] t [%sexp_of: t] (fun () ->
+      let _check f = Invariant.check_field t f in
+      Fields.iter
+        ~bigstring_buf:ignore
+        ~out_channel:ignore
+        ~string_buf:ignore)
+  ;;
+
+  let create out_channel =
+    { bigstring_buf   = Bigstring.create 0
+    ; out_channel     = out_channel
+    ; string_buf      = "" }
+  ;;
+
+  let output_char t char = Out_channel.output_char t.out_channel char
+
+  let output t ~blit_to_bigstring ~src ~src_len ~src_pos =
+    if src_len > Bigstring.length t.bigstring_buf
+    then (
+      t.bigstring_buf <- Bigstring.create (src_len * 2);
+      t.string_buf <- String.create (src_len * 2));
+    blit_to_bigstring ~src ~src_pos ~dst:t.bigstring_buf ~dst_pos:0 ~len:src_len;
+    Bigstring.To_string.blit ~len:src_len
+      ~src:t.bigstring_buf ~src_pos:0
+      ~dst:t.string_buf    ~dst_pos:0;
+    Out_channel.output t.out_channel ~buf:t.string_buf ~pos:0 ~len:src_len;
+  ;;
+
+  let flush t = Out_channel.flush t.out_channel
+end
+
 module Scheduled = struct
   type t = (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Deque.t
 
@@ -136,8 +195,11 @@ type t =
      leak even though client code doesn't explicitly wait on [open_flags]. *)
   ; open_flags                         : open_flags Deferred.t
   ; line_ending                        : Line_ending.t
+
+  (* If specified, subsequent writes are synchronously redirected here. *)
+  ; mutable backing_out_channel  : Backing_out_channel.t option
   }
-[@@deriving fields, sexp_of]
+[@@deriving fields]
 
 exception Inner_exn of (t * Sexp.t)
 
@@ -171,6 +233,7 @@ let sexp_of_t
       ; raise_when_consumer_leaves
       ; open_flags
       ; line_ending
+      ; backing_out_channel
       } =
   let suppress_in_test x =
     if am_running_inline_test
@@ -209,6 +272,9 @@ let sexp_of_t
     ; raise_when_consumer_leaves      : bool
     ; open_flags                      : open_flags Deferred.t
     ; line_ending                     : Line_ending.t
+    ; backing_out_channel
+      : Backing_out_channel.t sexp_option
+        = backing_out_channel
     }]
 ;;
 
@@ -276,6 +342,7 @@ let invariant t : unit =
       ~raise_when_consumer_leaves:ignore
       ~open_flags:ignore
       ~line_ending:ignore
+      ~backing_out_channel:(check (Option.invariant Backing_out_channel.invariant))
   with exn -> inner_raise_s t [%message "writer invariant failed" (exn : exn)]
 ;;
 
@@ -454,11 +521,50 @@ let flushed_time t =
 ;;
 
 let flushed t =
-  if t.bytes_written = t.bytes_received
-  then (return ())
-  else if Ivar.is_full t.close_finished
-  then (Deferred.never ())
-  else (Deferred.ignore (flushed_time t))
+  match t.backing_out_channel with
+  | Some backing_out_channel ->
+    Backing_out_channel.flush backing_out_channel;
+    return ()
+  | None ->
+    if t.bytes_written = t.bytes_received
+    then (return ())
+    else if Ivar.is_full t.close_finished
+    then (Deferred.never ())
+    else (Deferred.ignore (flushed_time t))
+;;
+
+let set_synchronous_out_channel t out_channel =
+  let%bind () = flushed t in
+  t.backing_out_channel <- Some (Backing_out_channel.create out_channel);
+  return ()
+;;
+
+let clear_synchronous_out_channel t =
+  if is_some t.backing_out_channel
+  then (
+    assert (bytes_to_write t = 0);
+    t.backing_out_channel <- None);
+;;
+
+let with_synchronous_out_channel t out_channel ~f =
+  let f' () =
+    let%bind () = set_synchronous_out_channel t out_channel in
+    f ()
+  in
+  match t.backing_out_channel with
+  | None ->
+    Monitor.protect f'
+      ~finally:(fun () ->
+        clear_synchronous_out_channel t;
+        return ())
+  | Some backing_out_channel ->
+    if phys_equal (Backing_out_channel.out_channel backing_out_channel) out_channel
+    then (f ())
+    else (
+      Monitor.protect f'
+        ~finally:(fun () ->
+          t.backing_out_channel <- Some backing_out_channel;
+          return ()))
 ;;
 
 let set_fd t fd =
@@ -647,6 +753,7 @@ let create
     ; raise_when_consumer_leaves
     ; open_flags
     ; line_ending
+    ; backing_out_channel         = None
     }
   in
   Monitor.detach_and_iter_errors inner_monitor ~f:(fun (exn : Exn.t) ->
@@ -890,9 +997,9 @@ let maybe_start_writer t =
     if bytes_to_write t > 0
     then (
       t.background_writer_state <- `Running;
-      (* We schedule the background writer thread to run with low priority, so that it runs
-         at the end of the cycle and that all of the calls to Writer.write will usually be
-         batched into a single system call. *)
+      (* We schedule the background writer thread to run with low priority, so that it
+         runs at the end of the cycle and that all of the calls to Writer.write will
+         usually be batched into a single system call. *)
       schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
         t.open_flags
         >>> fun open_flags ->
@@ -957,27 +1064,34 @@ let write_gen_internal
   if is_stopped_permanently t
   then (got_bytes t src_len)
   else (
-    let available = Bigstring.length t.buf - t.back in
-    if available >= src_len
-    then (
+    match t.backing_out_channel with
+    | Some backing_out_channel ->
       got_bytes t src_len;
-      let dst_pos = t.back in
-      t.back <- dst_pos + src_len;
-      blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
-    else if allow_partial_write
-    then (
-      got_bytes t available;
-      let dst_pos = t.back in
-      t.back <- dst_pos + available;
-      blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
-      let remaining = src_len - available in
-      let dst, dst_pos = give_buf t remaining in
-      blit_to_bigstring
-        ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
-    else (
-      let dst, dst_pos = give_buf t src_len in
-      blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
-    maybe_start_writer t)
+      Backing_out_channel.output backing_out_channel ~blit_to_bigstring
+        ~src ~src_len ~src_pos;
+      t.bytes_written <- Int63.(t.bytes_written + of_int src_len);
+    | None ->
+      let available = Bigstring.length t.buf - t.back in
+      if available >= src_len
+      then (
+        got_bytes t src_len;
+        let dst_pos = t.back in
+        t.back <- dst_pos + src_len;
+        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
+      else if allow_partial_write
+      then (
+        got_bytes t available;
+        let dst_pos = t.back in
+        t.back <- dst_pos + available;
+        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
+        let remaining = src_len - available in
+        let dst, dst_pos = give_buf t remaining in
+        blit_to_bigstring
+          ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
+      else (
+        let dst, dst_pos = give_buf t src_len in
+        blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
+      maybe_start_writer t)
 ;;
 
 let write_direct t ~f =
@@ -1079,15 +1193,21 @@ let write_char t c =
   then (got_bytes t 1)
   else (
     (* Check for the common case that the char can simply be put in the buffer. *)
-    if Bigstring.length t.buf - t.back >= 1
-    then (
+    match t.backing_out_channel with
+    | Some backing_out_channel ->
       got_bytes t 1;
-      t.buf.{ t.back } <- c;
-      t.back <- t.back + 1)
-    else (
-      let dst, dst_pos = give_buf t 1 in
-      dst.{ dst_pos } <- c);
-    maybe_start_writer t)
+      Backing_out_channel.output_char backing_out_channel c;
+      t.bytes_written <- Int63.(t.bytes_written + of_int 1)
+    | None ->
+      if Bigstring.length t.buf - t.back >= 1
+      then (
+        got_bytes t 1;
+        t.buf.{ t.back } <- c;
+        t.back <- t.back + 1)
+      else (
+        let dst, dst_pos = give_buf t 1 in
+        dst.{ dst_pos } <- c);
+      maybe_start_writer t)
 ;;
 
 let newline ?line_ending t =

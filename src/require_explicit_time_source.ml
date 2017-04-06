@@ -10,4 +10,4 @@ include (From_kernel : (module type of struct include From_kernel end
 module Scheduler = Scheduler
 module Time      = Time
 module Time_ns   = Time_ns
-
+module Clock     = Clock

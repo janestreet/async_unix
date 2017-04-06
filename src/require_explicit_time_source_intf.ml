@@ -40,4 +40,6 @@ module type Require_explicit_time_source = sig
     val now : unit -> t
     [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
+
+  module Clock : Clock_intf.Clock_deprecated with module Time := Time
 end
