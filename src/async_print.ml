@@ -32,6 +32,6 @@ let print_int i = print_string (Int.to_string i)
 
 let prerr_int i = prerr_string (Int.to_string i)
 
-let print_float f = print_string (Float.to_string f)
+let print_float f = print_string (Float.to_string_12 f)
 
-let prerr_float f = prerr_string (Float.to_string f)
+let prerr_float f = prerr_string (Float.to_string_12 f)

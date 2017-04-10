@@ -170,7 +170,8 @@ module Output : sig
 
   (** returns a tail of the filenames. When rotate is called, the previous filename is put
       on the tail *)
-  val rotating_file_with_tail : format -> basename:string -> Rotation.t -> t * string Tail.t
+  val rotating_file_with_tail
+    : format -> basename:string -> Rotation.t -> t * string Tail.t
 
   (** See {!Async_extended.Std.Log} for syslog and colorized console output. *)
 end
