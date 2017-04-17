@@ -512,7 +512,7 @@ module Output : sig
   val create
     :  ?rotate:(unit -> unit Deferred.t)
     -> ?close:(unit -> unit Deferred.t)
-    -> ?flush:(unit -> unit Deferred.t)
+    -> flush:(unit -> unit Deferred.t)
     -> (Message.t Queue.t -> unit Deferred.t)
     -> t
 
@@ -558,7 +558,7 @@ end = struct
   let create
         ?(rotate = (fun () -> return ()))
         ?(close = (fun () -> return ()))
-        ?(flush = (fun () -> return ()))
+        ~flush
         write
     =
     let t =
@@ -675,9 +675,11 @@ end = struct
     (* The writer output type takes no responsibility over the Writer.t it is given.  In
        particular it makes no attempt to ever close it. *)
     let create format w =
-      create (fun msgs ->
-        Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
-        return ())
+      create
+        ~flush:(fun () -> Writer.flushed w)
+        (fun msgs ->
+           Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
+           return ())
   end
 
   module Rotating_file : sig
@@ -1166,7 +1168,7 @@ let%test_unit "Level setting" =
   let answer =
     let open Or_error.Monad_infix in
     let initial_level = `Debug in
-    let output = [Output.create (fun _ -> return ())] in
+    let output = [Output.create ~flush:(fun () -> return ()) (fun _ -> return ())] in
     let log = create ~level:initial_level ~output ~on_error:`Raise in
     assert_log_level log initial_level
     >>= fun () ->
@@ -1291,7 +1293,7 @@ module type Global_intf = sig
   val level        : unit -> Level.t
   val set_level    : Level.t -> unit
   val set_output   : Output.t list -> unit
-  val get_output : unit -> Output.t list
+  val get_output   : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
   val would_log    : Level.t option -> bool
 

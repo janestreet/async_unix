@@ -145,8 +145,14 @@ module Output : sig
       output modules should make efforts to support them as well where it is
       meaningful/appropriate to do so.
 
-      The unit Deferred returned by the function should not be fulfilled until the all of
-      the messages in the given queue are completely handled (e.g. written to disk).
+      [flush] should return a deferred that is fulfilled only when all previously written
+      messages are durable (e.g. on disk, out on the network, etc.).  It is automatically
+      called on shutdown by Log, but isn't automatically called at any other time.  It can
+      be called manually by calling [Log.flushed t].
+
+      The unit Deferred returned by the function provides an opportunity for pushback if
+      that is important.  Only one batch of messages will be "in flight" at any time based
+      on this deferred.
 
       An optional [rotate] function may be given which will be called when [Log.rotate t]
       is called while this output is in effect.  This is useful for programs that want
@@ -158,7 +164,7 @@ module Output : sig
   val create
     :  ?rotate:(unit -> unit Deferred.t)
     -> ?close:(unit -> unit Deferred.t)
-    -> ?flush:(unit -> unit Deferred.t)
+    -> flush:(unit -> unit Deferred.t)
     -> (Message.t Queue.t -> unit Deferred.t)
     -> t
 
