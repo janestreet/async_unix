@@ -15,3 +15,5 @@ module Kernel_scheduler = Async_kernel_private.Scheduler
 module File_descr = Unix.File_descr
 
 let print_s sexp = Core.printf "%s\n%!" (sexp |> Sexp.to_string_hum)
+
+include Int.Replace_polymorphic_compare

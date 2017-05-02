@@ -621,7 +621,7 @@ module Internal = struct
       let rec loop pos =
         if pos = limit
         then None
-        else if ch = buf.{ pos }
+        else if Char.O.( ch = buf.{ pos } )
         then (Some pos)
         else (loop (pos + 1))
       in
@@ -632,7 +632,7 @@ module Internal = struct
     let rec loop ac total =
       with_nonempty_buffer' t (function
         | `Eof ->
-          k (Ok (if ac = []
+          k (Ok (if List.is_empty ac
                  then `Eof
                  else (`Eof_without_delim (Bigsubstring.concat_string (List.rev ac)))))
         | `Ok ->
@@ -683,7 +683,7 @@ module Internal = struct
       | Ok (`Eof | `Eof_without_delim _ as x) -> k x
       | Ok (`Ok line) ->
         k (`Ok (let len = String.length line in
-                if len >= 1 && line.[len - 1] = '\r'
+                if len >= 1 && Char.O.( line.[len - 1] = '\r' )
                 then (String.sub line ~pos:0 ~len:(len - 1))
                 else
                   line)))
@@ -847,7 +847,7 @@ module Internal = struct
         | Error _ as e -> k e
         | Ok len ->
           if !pos_ref - pos <> Bin_prot.Utils.size_header_length
-          then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
+          then (error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) Bin_prot.Utils.size_header_length ());
           if len > max_len
           then (error "max read length exceeded: %d > %d" len max_len ());
           if len < 0
@@ -869,7 +869,7 @@ module Internal = struct
               | Error _ as e -> k e
               | Ok v ->
                 if !pos_ref - pos <> len
-                then (error "pos_ref <> len, (%d <> %d)" !pos_ref len ());
+                then (error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ());
                 (match peek_or_read with
                  | Peek -> ()
                  | Read -> consume t need);

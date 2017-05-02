@@ -10,7 +10,7 @@ let invariant t =
   try
     Table.invariant ignore Fd.invariant t;
     Table.iteri t ~f:(fun ~key:file_descr ~data:fd ->
-      assert (file_descr = Fd.file_descr fd));
+      assert (File_descr.equal file_descr (Fd.file_descr fd)));
   with exn ->
     raise_s [%message "Fd_by_descr.invariant failure" (exn : exn) ~fd:(t : t)]
 ;;

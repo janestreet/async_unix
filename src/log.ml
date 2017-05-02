@@ -175,7 +175,7 @@ module Rotation = struct
           let rotation_time =
             first_occurrence_after last_time ~ofday:rotation_ofday ~zone:t.zone
           in
-          acc || current_time >= rotation_time)
+          acc || Time.( >= ) current_time rotation_time)
       ~zone:(fun acc _ -> acc)
       ~keep:(fun acc _ -> acc)
       ~naming_scheme:(fun acc _ -> acc)
@@ -252,8 +252,8 @@ end = struct
         Tuple.T2.compare ~cmp1:String.compare ~cmp2:String.compare
       in
       Time.(=.) t1.time t2.time
-      && t1.level = t2.level
-      && t1.message = t2.message
+      && [%compare.equal: Level.t option] t1.level t2.level
+      && Poly.equal t1.message t2.message
       (* The same key can appear more than once in tags, and order shouldn't matter
          when comparing *)
       && List.compare [%compare: String.t * String.t]
@@ -697,7 +697,7 @@ end = struct
       ;;
 
       let parse_filename_id ~basename filename =
-        if Filename.basename filename = basename ^ ".log"
+        if String.equal (Filename.basename filename) (basename ^ ".log")
         then (Id.of_string_opt None)
         else begin
           let open Option.Monad_infix in
@@ -781,7 +781,7 @@ end = struct
         Deferred.List.iter files ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
           let dst = make_filename ~dirname ~basename id' in
-          if src = t.filename then (Tail.extend t.log_files dst);
+          if String.equal src t.filename then (Tail.extend t.log_files dst);
           if Id.cmp_newest_first id id' <> 0
           then (Unix.rename ~src ~dst)
           else (return ()))

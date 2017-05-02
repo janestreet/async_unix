@@ -45,7 +45,7 @@ let getppid_exn () = Unix.getppid_exn ()
 let this_process_became_child_of_init ?(poll_delay = sec 1.) () =
   Deferred.create (fun i ->
     Clock.every poll_delay ~stop:(Ivar.read i) (fun () ->
-      if getppid_exn () = Pid.init then (Ivar.fill i ())))
+      if Pid.equal (getppid_exn ()) Pid.init then (Ivar.fill i ())))
 ;;
 
 let nice i = Unix.nice i
@@ -482,7 +482,7 @@ let wait_untraced = make_wait wait_nohang_untraced
 
 let waitpid pid =
   let%map pid', exit_or_signal = wait (`Pid pid) in
-  assert (pid = pid');
+  assert (Pid.equal pid pid');
   exit_or_signal;
 ;;
 

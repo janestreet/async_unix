@@ -463,7 +463,7 @@ let post_check_handle_fd t file_descr read_or_write value =
     request_stop_watching t fd read_or_write value)
   else (
     match t.timerfd with
-    | Some tfd when file_descr = (tfd :> Unix.File_descr.t) ->
+    | Some tfd when File_descr.equal file_descr (tfd :> Unix.File_descr.t) ->
       begin match read_or_write with
       | `Read ->
         (* We don't need to actually call [read] since we are using the

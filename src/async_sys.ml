@@ -36,7 +36,7 @@ let when_file_changes ?(poll_delay = sec 0.5) file =
       | Error _ -> ()
       | Ok st ->
         let mtime = st.mtime in
-        if mtime <> !last_reported_mtime
+        if not (Time.equal mtime !last_reported_mtime)
         then (
           last_reported_mtime := mtime;
           Pipe.write_without_pushback writer mtime);

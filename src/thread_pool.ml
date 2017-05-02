@@ -666,7 +666,9 @@ let%test_module _ =
       finished_with t;
       Thread_safe_ivar.fill finish_work ();
       wait_until_no_unfinished_work t;
-      assert (t.state = `Finished)
+      assert (match t.state with
+        | `Finished -> true
+        | _ -> false)
     ;;
 
     (* Check that the expected concurrency is used. *)
@@ -725,12 +727,15 @@ let%test_module _ =
           assert (!num_concurrent_jobs = expected_max_concurrent_jobs);
           assert (List.length !job_starts = expected_max_concurrent_jobs);
           if max_num_threads = 1
-          then (assert (!job_starts = List.init expected_max_concurrent_jobs ~f:Fn.id));
+          then (assert (
+            List.equal !job_starts
+              (List.init expected_max_concurrent_jobs ~f:Fn.id) ~equal:Int.equal));
           Thread_safe_ivar.fill worker_threads_should_continue ();
           wait_until_no_unfinished_work t;
           assert (!max_observed_concurrent_jobs = expected_max_concurrent_jobs);
           if max_num_threads = 1
-          then (assert (List.rev !job_starts = List.init num_jobs ~f:Fn.id));
+          then (assert (List.equal ~equal:Int.equal
+                          (List.rev !job_starts) (List.init num_jobs ~f:Fn.id)));
           assert (t.num_threads <= max_num_threads);
           finished_with t; ))
     ;;
@@ -828,9 +833,10 @@ let%test_module _ =
               check4 ~name:"new name" ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
                    add_work ?priority ?name t (fun () ->
-                     assert (get_name () = Option.value name ~default:default_thread_name);
-                     assert (getpriority ()
-                             = Option.value priority ~default:(default_priority t))));
+                     assert (String.equal (get_name ())
+                               (Option.value name ~default:default_thread_name));
+                     assert (Priority.equal (getpriority ())
+                               (Option.value priority ~default:(default_priority t)))));
               check4 ~name:"new name" ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
                    let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
@@ -843,10 +849,10 @@ let%test_module _ =
                    check4 ~name:"new name 2" ~priority:(Priority.decr initial_priority)
                      (fun ?name ?priority () ->
                         add_work_for_helper_thread ?priority ?name t helper_thread (fun () ->
-                          assert (get_name ()
-                                  = Option.value name ~default:default_thread_name);
-                          assert (getpriority ()
-                                  = Option.value priority ~default:default_priority)));
+                          assert (String.equal (get_name ())
+                                    (Option.value name ~default:default_thread_name));
+                          assert (Priority.equal (getpriority ())
+                                    (Option.value priority ~default:default_priority))));
                    finished_with_helper_thread t helper_thread;
                    Ok ());
               finished_with t;

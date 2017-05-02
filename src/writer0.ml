@@ -245,6 +245,9 @@ let sexp_of_t
     then [%sexp (Monitor.name monitor : Info.t)]
     else [%sexp (monitor : Monitor.t)]
   in
+  (* [open_flags] are non-deterministic across CentOS versions and have been suppressed in
+     tests.  Linux kernels (CentOS 6) expose O_CLOEXEC via fcntl(fd, F_GETFL), but newer
+     (CentOS 7) ones don't *)
   [%sexp
     { id                              : Id.t sexp_option = suppress_in_test id
     ; fd                              : Fd.t sexp_option = suppress_in_test fd
@@ -270,7 +273,8 @@ let sexp_of_t
         = suppress_in_test check_buffer_age
     ; consumer_left                   : unit Ivar.t
     ; raise_when_consumer_leaves      : bool
-    ; open_flags                      : open_flags Deferred.t
+    ; open_flags                      : open_flags Deferred.t sexp_option
+                                        = suppress_in_test open_flags
     ; line_ending                     : Line_ending.t
     ; backing_out_channel
       : Backing_out_channel.t sexp_option
@@ -314,7 +318,9 @@ let invariant t : unit =
       ~bytes_received:ignore
       ~scheduled:(check (fun (scheduled : Scheduled.t) ->
         Deque.iter scheduled ~f:(fun (iovec, kind) ->
-          if phys_equal t.buf iovec.buf then (assert (kind = `Keep)))))
+          if phys_equal t.buf iovec.buf then (assert (match kind with
+            | `Keep -> true
+            | _ -> false)))))
       ~scheduled_bytes:(check (fun scheduled_bytes ->
         assert (scheduled_bytes = Scheduled.length t.scheduled)))
       ~scheduled_back:(check (fun scheduled_back ->
@@ -334,7 +340,7 @@ let invariant t : unit =
              | `Closed | `Closed_and_flushing -> false)))
       ~producers_to_flush_at_close:ignore
       ~flush_at_shutdown_elt:(check (fun o ->
-        assert (is_none o = Ivar.is_full t.close_finished);
+        assert (Bool.equal (is_none o) (Ivar.is_full t.close_finished));
         Option.iter o ~f:(fun elt -> assert (phys_equal t (Bag.Elt.value elt)))))
       ~check_buffer_age:ignore
       ~consumer_left:(check (fun consumer_left ->
@@ -373,7 +379,9 @@ end = struct
         ~too_old:(check (fun ivar ->
           let imply a b = not a || b in
           assert (imply
-                    (t.bytes_received_at_now_minus_maximum_age > t.writer.bytes_written)
+                    (Int63.O.(
+                       t.bytes_received_at_now_minus_maximum_age >
+                       t.writer.bytes_written))
                     (Ivar.is_full ivar))))
         ~bytes_received_queue:(check (fun q ->
           let n =
@@ -440,14 +448,15 @@ end = struct
       sync e ~now:!now;
       let bytes_received = e.writer.bytes_received in
       let bytes_written  = e.writer.bytes_written  in
-      if bytes_received > e.bytes_seen
+      if Int63.O.( bytes_received > e.bytes_seen )
       then (
         e.bytes_seen <- bytes_received;
-        if bytes_received > bytes_written
+        if Int63.O.( bytes_received > bytes_written )
         then (
           Queue.enqueue e.bytes_received_queue e.writer.bytes_received;
           Queue.enqueue e.times_received_queue !now));
-      let too_old = e.bytes_received_at_now_minus_maximum_age > bytes_written in
+      let too_old =
+        Int63.O.( e.bytes_received_at_now_minus_maximum_age > bytes_written ) in
       match Ivar.is_full e.too_old, too_old with
       | true, true | false, false -> ()
       | true, false -> e.too_old <- Ivar.create ()
@@ -507,7 +516,7 @@ end
 
 
 let flushed_time_ns t =
-  if t.bytes_written = t.bytes_received
+  if Int63.O.( t.bytes_written = t.bytes_received )
   then (return (Time_ns.now ()))
   else if Ivar.is_full t.close_finished
   then (Deferred.never ())
@@ -526,7 +535,7 @@ let flushed t =
     Backing_out_channel.flush backing_out_channel;
     return ()
   | None ->
-    if t.bytes_written = t.bytes_received
+    if Int63.O.( t.bytes_written = t.bytes_received )
     then (return ())
     else if Ivar.is_full t.close_finished
     then (Deferred.never ())
@@ -865,6 +874,11 @@ let mk_iovecs t =
    should be the best. *)
 let thread_io_cutoff = 262_144
 
+let is_running = function
+  | `Running -> true
+  | _ -> false
+;;
+
 (* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
    monkeying around with the fd behind our back, and we should complain. *)
 let fd_closed t =
@@ -874,7 +888,7 @@ let fd_closed t =
 
 let rec start_write t =
   if debug then (Debug.log "Writer.start_write" t [%sexp_of: t]);
-  assert (t.background_writer_state = `Running);
+  assert (is_running t.background_writer_state);
   let iovecs, contains_mmapped, iovecs_len = mk_iovecs t in
   let handle_write_result = function
     | `Already_closed -> fd_closed t
@@ -928,7 +942,7 @@ let rec start_write t =
 
 and write_when_ready t =
   if debug then (Debug.log "Writer.write_when_ready" t [%sexp_of: t]);
-  assert (t.background_writer_state = `Running);
+  assert (is_running t.background_writer_state);
   Fd.ready_to t.fd `Write
   >>> function
   | `Bad_fd -> die t [%message "writer ready_to got Bad_fd"]
@@ -938,7 +952,7 @@ and write_when_ready t =
 and write_finished t bytes_written =
   if debug
   then (Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t]);
-  assert (t.background_writer_state = `Running);
+  assert (is_running t.background_writer_state);
   let int63_bytes_written = Int63.of_int bytes_written in
   Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:int63_bytes_written;
   t.bytes_written <- Int63.(int63_bytes_written + t.bytes_written);
@@ -1255,7 +1269,7 @@ let write_sexp_internal =
       (* If the string representation doesn't start/end with paren or double quote, we add
          a space after it to ensure that the parser can recognize the end of the sexp. *)
       let c = !blit_str.[0] in
-      if not (c = '(' || c = '"')
+      if not Char.O.( c = '(' || c = '"' )
       then (write_char t ' ')
 ;;
 
@@ -1396,7 +1410,8 @@ let stdout_and_stderr =
              let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
              (stats.st_dev, stats.st_ino)
            in
-           if Ppx_inline_test_lib.Runtime.testing || dev_and_ino stdout = dev_and_ino stderr
+           if Ppx_inline_test_lib.Runtime.testing
+           || [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
            then (t, t)
            else (t, create stderr))
     with
