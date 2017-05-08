@@ -272,6 +272,8 @@ module type Global_intf = sig
   val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
   val would_log    : Level.t option -> bool
 
+  val set_level_via_param : unit -> unit Command.Param.t
+
   (** logging functions as the functions that operate on a given log.  In this case they
       operate on a single log global to the module *)
   val raw
@@ -349,6 +351,9 @@ module Make_global () : Global_intf
     nuanced logging can be had by using the functions that operate on a distinct Log.t
     type. *)
 module Global : Global_intf
+
+(** Set the log level via a flag, if provided. *)
+val set_level_via_param : t -> unit Command.Param.t
 
 (** messages sent at a level less than the current level will not be output. *)
 val set_level : t -> Level.t -> unit

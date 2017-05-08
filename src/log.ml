@@ -1272,6 +1272,14 @@ let surroundf ?level ?time ?tags t fmt =
     fmt
 ;;
 
+let set_level_via_param log =
+  let open Command.Param in
+  map (flag "log-level" (optional Level.arg) ~doc:"LEVEL The log level") ~f:(function
+    | None -> ()
+    | Some level -> set_level log level
+  )
+;;
+
 let raw   ?time ?tags t fmt = printf ?time ?tags t fmt
 let debug ?time ?tags t fmt = printf ~level:`Debug ?time ?tags t fmt
 let info  ?time ?tags t fmt = printf ~level:`Info  ?time ?tags t fmt
@@ -1296,6 +1304,7 @@ module type Global_intf = sig
   val get_output   : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
   val would_log    : Level.t option -> bool
+  val set_level_via_param : unit -> unit Command.Param.t
 
   val raw          : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
   val info         : ?time:Time.t -> ?tags:(string * string) list -> ('a, unit, string, unit) format4 -> 'a
@@ -1384,6 +1393,9 @@ module Make_global() : Global_intf = struct
 
   let surroundf ?level ?time ?tags fmt =
     surroundf ?level ?time ?tags (Lazy.force log) fmt
+
+  let set_level_via_param () =
+    set_level_via_param (Lazy.force log)
 end
 
 module Blocking : sig
