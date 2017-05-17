@@ -1516,28 +1516,36 @@ end
 module Global = Make_global()
 
 module Reader = struct
+  let read_from_reader format r ~pipe_w =
+    match format with
+    | `Sexp | `Sexp_hum ->
+      let sexp_pipe = Reader.read_sexps r in
+      Pipe.transfer sexp_pipe pipe_w ~f:Message.t_of_sexp
+      >>| fun () ->
+      Pipe.close pipe_w
+    | `Bin_prot ->
+      let rec loop () =
+        Reader.read_bin_prot r Message.bin_reader_t
+        >>= function
+        | `Eof    ->
+          Pipe.close pipe_w;
+          return ()
+        | `Ok msg ->
+          Pipe.write pipe_w msg
+          >>= loop
+      in
+      loop ()
+  ;;
+
+  let pipe_of_reader format reader =
+    Pipe.create_reader ~close_on_exception:false (fun pipe_w ->
+      read_from_reader format reader ~pipe_w)
+  ;;
+
   let pipe format filename =
-    let pipe_r, pipe_w = Pipe.create () in
-    don't_wait_for (Reader.with_file filename ~f:(fun r ->
-      match format with
-      | `Sexp | `Sexp_hum ->
-        let sexp_pipe = Reader.read_sexps r in
-        Pipe.transfer sexp_pipe pipe_w ~f:Message.t_of_sexp
-        >>| fun () ->
-        Pipe.close pipe_w
-      | `Bin_prot ->
-        let rec loop () =
-          Reader.read_bin_prot r Message.bin_reader_t
-          >>= function
-          | `Eof    ->
-            Pipe.close pipe_w;
-            return ()
-          | `Ok msg ->
-            Pipe.write pipe_w msg
-            >>= loop
-        in
-        loop ()));
-    pipe_r
+    Pipe.create_reader ~close_on_exception:false (fun pipe_w ->
+      Reader.with_file filename ~f:(fun reader ->
+        read_from_reader format reader ~pipe_w))
   ;;
 
   module Expert = struct

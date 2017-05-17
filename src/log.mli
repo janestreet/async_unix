@@ -7,6 +7,7 @@
     A (limited) [Blocking] module is supplied to accommodate the portion of a program that
     runs outside of Async.
 *)
+
 open! Core
 open! Import
 
@@ -488,6 +489,11 @@ module Reader : sig
   val pipe
     :  [< Output.machine_readable_format ]
     -> string
+    -> Message.t Pipe.Reader.t
+
+  val pipe_of_reader
+    :  [< Output.machine_readable_format ]
+    -> Reader.t
     -> Message.t Pipe.Reader.t
 
   module Expert : sig
