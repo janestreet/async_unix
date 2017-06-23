@@ -586,18 +586,21 @@ end = struct
     (* There is a crazy test that verifies that we combine things correctly when the same
        rotate output is included 5 times in Log.create, so we must make this Sequential to
        enforce the rotate invariants and behavior. *)
-    let write =
-      (fun msg -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.write msg))
+    let iter_combine_exns =
+      (* No need for the Monitor overhead in the case of a single t *)
+      match ts with
+      | [single_t] -> (fun f -> f single_t)
+      | ts ->
+        (fun f ->
+           Deferred.List.map ~how:`Sequential ts
+             ~f:(fun t -> Monitor.try_with_or_error (fun () -> f t))
+           >>| Or_error.combine_errors_unit
+           >>| Or_error.ok_exn)
     in
-    let rotate =
-      (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.rotate ()))
-    in
-    let close =
-      (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.close ()))
-    in
-    let flush =
-      (fun () -> Deferred.List.iter ~how:`Sequential ts ~f:(fun t -> t.flush ()))
-    in
+    let write  = (fun msg -> iter_combine_exns (fun t -> t.write msg)) in
+    let rotate = (fun ()  -> iter_combine_exns (fun t -> t.rotate ())) in
+    let close  = (fun ()  -> iter_combine_exns (fun t -> t.close  ())) in
+    let flush  = (fun ()  -> iter_combine_exns (fun t -> t.flush  ())) in
     { write; rotate; close; flush; heap_block = Definitely_a_heap_block.the_one_and_only }
   ;;
 
