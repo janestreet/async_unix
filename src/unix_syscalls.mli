@@ -118,6 +118,8 @@ module File_kind : sig
   [@@deriving sexp]
 
   include Comparable.S with type t := t
+
+  val of_unix : Core.Unix.file_kind -> t
 end
 
 module Stats : sig
@@ -136,6 +138,7 @@ module Stats : sig
     ; ctime : Time.t }
   [@@deriving fields, sexp, bin_io, compare]
 
+  val of_unix : Core.Unix.stats -> t
   val to_string : t -> string
 end
 
