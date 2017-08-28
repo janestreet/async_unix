@@ -22,8 +22,15 @@ let set_default_force force = default_force_ref := force
 
 let shutting_down () = !shutting_down_ref
 
+(* Be careful to ensure [shutdown] doesn't raise just because
+   stderr is closed *)
+let ignore_exn f =
+  try f ()
+  with _ -> ()
+;;
+
 let shutdown ?force status =
-  if debug then (Debug.log "shutdown" status [%sexp_of: int]);
+  if debug then (ignore_exn (fun () -> Debug.log "shutdown" status [%sexp_of: int]));
   match !shutting_down_ref with
   | `Yes status' ->
     if status <> 0 && status' <> 0 && status <> status'
@@ -40,13 +47,15 @@ let shutdown ?force status =
                begin match result with
                | Ok () -> ()
                | Error error ->
-                 Core.Debug.eprints "at_shutdown function raised"
-                   (error, backtrace) [%sexp_of: Error.t * Backtrace.t];
+                 ignore_exn (fun () ->
+                   Core.Debug.eprints "at_shutdown function raised"
+                     (error, backtrace) [%sexp_of: Error.t * Backtrace.t]);
                end;
                if debug
                then (
-                 Debug.log "one at_shutdown function finished" backtrace
-                   [%sexp_of: Backtrace.t]);
+                 ignore_exn (fun () ->
+                   Debug.log "one at_shutdown function finished" backtrace
+                     [%sexp_of: Backtrace.t]));
                result)))
       (fun results ->
          match shutting_down () with
@@ -57,15 +66,20 @@ let shutdown ?force status =
              | Ok () -> status
              | Error _ -> if status = 0 then 1 else status
            in
-           exit status );
+           match (exit status : Nothing.t) with
+           | exception exn ->
+             ignore_exn (fun () ->
+               Core.Debug.eprints "Pervasives.exit raised" exn [%sexp_of: Exn.t]);
+             Core.Unix.exit_immediately (if status = 0 then 1 else status)
+           | _ -> .);
     let force =
       match force with
       | None -> !default_force_ref ()
       | Some f -> f
     in
     upon force (fun () ->
-      Debug.log_string "Shutdown forced.";
-      exit 1);
+      ignore_exn (fun () -> Debug.log_string "Shutdown forced.");
+      Core.Unix.exit_immediately 1);
 ;;
 
 let shutdown_on_unhandled_exn () =

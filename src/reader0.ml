@@ -1424,11 +1424,11 @@ type ('a, 'b) load_bin_prot
 
 let load_bin_prot ?exclusive ?max_len file bin_reader =
   match%map
-    with_file ?exclusive file ~f:(fun t ->
-      Monitor.try_with_or_error
-        ~here:[%here]
-        ~name:"Reader.load_bin_prot"
-        (fun () -> read_bin_prot ?max_len t bin_reader))
+    Monitor.try_with_or_error
+      ~here:[%here]
+      ~name:"Reader.load_bin_prot"
+      (fun () -> with_file ?exclusive file ~f:(fun t ->
+         read_bin_prot ?max_len t bin_reader))
   with
   | Ok (`Ok v)        -> Ok v
   | Ok `Eof           -> Or_error.error_string "Reader.load_bin_prot got unexpected eof"

@@ -601,7 +601,11 @@ module Socket = struct
       ; address_of_sockaddr_exn : Unix.sockaddr -> 'address
       ; sexp_of_address         : 'address -> Sexp.t }
       constraint 'address = [< Address.t ]
-      [@@deriving fields, sexp_of]
+      [@@deriving fields]
+
+    let sexp_of_t _ { address_of_sockaddr_exn = _; family; sexp_of_address = _ } =
+      [%sexp (family : Unix.socket_domain)]
+    ;;
 
     let to_string t =
       match t.family with

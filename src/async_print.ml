@@ -35,3 +35,10 @@ let prerr_int i = prerr_string (Int.to_string i)
 let print_float f = print_string (Float.to_string_12 f)
 
 let prerr_float f = prerr_string (Float.to_string_12 f)
+
+let print_s ?mach sexp =
+  print_endline
+    (match mach with
+     | Some () -> Sexp.to_string_mach sexp
+     | None    -> Sexp.to_string_hum  sexp)
+;;

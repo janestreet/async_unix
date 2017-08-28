@@ -13,6 +13,8 @@ val prerr_endline : string -> unit
 val print_newline : unit -> unit
 val prerr_newline : unit -> unit
 
+val print_s : ?mach:unit -> Sexplib.Sexp.t -> unit
+
 val printf  :             ('a, unit, string, unit) format4 -> 'a
 val fprintf : Writer.t -> ('a, unit, string, unit) format4 -> 'a
 val eprintf :             ('a, unit, string, unit) format4 -> 'a

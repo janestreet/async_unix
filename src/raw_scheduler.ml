@@ -639,33 +639,35 @@ let have_lock_do_cycle t =
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
-  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-  let[@inline always] make_file_descr_watcher_agree_with (fd : Fd.t)  =
-    fd.watching_has_changed <- false;
-    let desired =
-      Read_write.mapi fd.watching ~f:(fun read_or_write watching ->
-        match watching with
-        | Watch_once _ | Watch_repeatedly _ -> true
-        | Not_watching -> false
-        | Stop_requested ->
-          Read_write.set fd.watching read_or_write Not_watching;
-          dec_num_active_syscalls_fd t fd;
-          false)
+  match t.fds_whose_watching_has_changed with
+  | [] -> ()
+  | changed ->
+    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+    let[@inline always] make_file_descr_watcher_agree_with (fd : Fd.t)  =
+      fd.watching_has_changed <- false;
+      let desired =
+        Read_write.mapi fd.watching ~f:(fun read_or_write watching ->
+          match watching with
+          | Watch_once _ | Watch_repeatedly _ -> true
+          | Not_watching -> false
+          | Stop_requested ->
+            Read_write.set fd.watching read_or_write Not_watching;
+            dec_num_active_syscalls_fd t fd;
+            false)
+      in
+      if Debug.file_descr_watcher
+      then (
+        Debug.log "File_descr_watcher.set" (fd.file_descr, desired, F.watcher)
+          [%sexp_of: File_descr.t * bool Read_write.t * F.t]);
+      try
+        F.set F.watcher fd.file_descr desired
+      with exn ->
+        raise_s [%message
+          "sync_changed_fds_to_file_descr_watcher unable to set fd"
+            (desired : bool Read_write.t) (fd : Fd.t) (exn : exn) ~scheduler:(t : t)]
     in
-    if Debug.file_descr_watcher
-    then (
-      Debug.log "File_descr_watcher.set" (fd.file_descr, desired, F.watcher)
-        [%sexp_of: File_descr.t * bool Read_write.t * F.t]);
-    try
-      F.set F.watcher fd.file_descr desired
-    with exn ->
-      raise_s [%message
-        "sync_changed_fds_to_file_descr_watcher unable to set fd"
-          (desired : bool Read_write.t) (fd : Fd.t) (exn : exn) ~scheduler:(t : t)]
-  in
-  let changed = t.fds_whose_watching_has_changed in
-  t.fds_whose_watching_has_changed <- [];
-  List.iter changed ~f:make_file_descr_watcher_agree_with;
+    t.fds_whose_watching_has_changed <- [];
+    List.iter changed ~f:make_file_descr_watcher_agree_with;
 ;;
 
 let maybe_calibrate_tsc t =

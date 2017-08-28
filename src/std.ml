@@ -111,6 +111,7 @@ include struct
   let printf                     = Print.printf
   let print_int                  = Print.print_int
   let print_newline              = Print.print_newline
+  let print_s                    = Print.print_s
   let print_string               = Print.print_string
   let read_float                 = overwrite1
   let read_int                   = overwrite1
