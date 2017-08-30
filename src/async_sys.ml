@@ -9,21 +9,6 @@ let executable_name = Sys.executable_name
 let wrap1 f x1    = In_thread.run (fun () -> f x1)
 let wrap2 f x1 x2 = In_thread.run (fun () -> f x1 x2)
 
-let file_exists     = wrap1 Sys.file_exists
-let file_exists_exn = wrap1 Sys.file_exists_exn
-
-let when_file_exists ?(poll_delay = sec 0.5) file =
-  Deferred.create (fun i ->
-    let rec loop () =
-      file_exists file >>> function
-      | `Yes -> Ivar.fill i ()
-      | `No -> upon (Clock.after poll_delay) loop
-      | `Unknown ->
-        raise_s [%message "when_file_exists can not check file" (file : string)]
-    in
-    loop ())
-;;
-
 let when_file_changes ?(poll_delay = sec 0.5) file =
   let last_reported_mtime = ref Time.epoch in
   let (reader, writer) = Pipe.create () in
@@ -50,6 +35,7 @@ let when_file_changes ?(poll_delay = sec 0.5) file =
 let chdir            = wrap1 Sys.chdir
 let command          = wrap1 Sys.command
 let command_exn      = wrap1 Sys.command_exn
+let quote            = Sys.quote
 let getcwd           = wrap1 Sys.getcwd
 let home_directory   = wrap1 Sys.home_directory
 let ls_dir           = wrap1 Sys.ls_dir
@@ -59,6 +45,21 @@ let rename           = wrap2 Sys.rename
 
 let wrap_is f =
   fun ?follow_symlinks path -> In_thread.run (fun () -> f ?follow_symlinks path)
+;;
+
+let file_exists     = wrap_is Sys.file_exists
+let file_exists_exn = wrap_is Sys.file_exists_exn
+
+let when_file_exists ?follow_symlinks ?(poll_delay = sec 0.5) file =
+  Deferred.create (fun i ->
+    let rec loop () =
+      file_exists ?follow_symlinks file >>> function
+      | `Yes -> Ivar.fill i ()
+      | `No -> upon (Clock.after poll_delay) loop
+      | `Unknown ->
+        raise_s [%message "when_file_exists can not check file" (file : string)]
+    in
+    loop ())
 ;;
 
 let is_directory     = wrap_is Sys.is_directory

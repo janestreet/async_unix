@@ -238,9 +238,13 @@ val time_spent_waiting_for_io : unit -> Time_ns.Span.t
 (** [set_min_inter_cycle_timeout] sets the minimum timeout that the scheduler will pass to
     the OS when it checks for I/O between cycles.  The minimum is zero by default.
     Setting it to a nonzero value is used to increase thread fairness between the
-    scheduler and other threads.  A plausible setting is 100us.  This can also be set via
+    scheduler and other threads.  A plausible setting is 10us.  This can also be set via
     the [ASYNC_CONFIG] environment variable. *)
 val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit
+
+(** [may_sleep_for_thread_fairness] controls whether the scheduler calls [nanosleep] each
+    cycle to give other threads a chance to run.  The default is [false]. *)
+val set_may_sleep_for_thread_fairness : bool -> unit
 
 (** [num_jobs_run ()] returns the number of jobs that have been run since starting.  The
     returned value includes the currently running job. *)

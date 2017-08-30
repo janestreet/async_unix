@@ -590,6 +590,7 @@ let has_unstarted_work = has_unstarted_work
 let max_num_threads    = max_num_threads
 let num_threads        = num_threads
 let num_work_completed = num_work_completed
+let unfinished_work    = unfinished_work
 
 module Helper_thread = struct
   open Helper_thread

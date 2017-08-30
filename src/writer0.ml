@@ -799,12 +799,12 @@ let ensure_can_write t =
   then (inner_raise_s t [%message "attempt to use closed writer"]);
 ;;
 
-let open_file ?(append = false) ?buf_len ?(perm = 0o666) ?line_ending file =
+let open_file ?(append = false) ?buf_len ?syscall ?(perm = 0o666) ?line_ending file =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm >>| create ?buf_len ?line_ending
+  Unix.openfile file ~mode ~perm >>| create ?buf_len ?syscall ?line_ending
 ;;
 
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)

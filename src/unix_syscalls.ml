@@ -759,17 +759,14 @@ module Socket = struct
     setopt t Opt.reuseaddr reuseaddr;
     set_close_on_exec t.fd;
     let sockaddr = Address.to_sockaddr address in
-    let%map () =
-      Fd.syscall_in_thread_exn t.fd ~name:"bind"
-        (fun file_descr -> Unix.bind file_descr ~addr:sockaddr)
-    in
+    Fd.syscall_exn t.fd (fun file_descr -> Unix.bind file_descr ~addr:sockaddr);
     let info =
       Info.create "socket" (`bound_on address)
         (let sexp_of_address = sexp_of_address t in
          [%sexp_of: [ `bound_on of address ]])
     in
     Fd.replace t.fd (Socket `Bound) info;
-    t
+    return t
   ;;
 
   let listen ?(backlog = 10) t =

@@ -132,7 +132,8 @@ type t =
 
   (* configuration*)
   ; mutable max_inter_cycle_timeout        : Max_inter_cycle_timeout.t
-  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t }
+  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t
+  ; mutable may_sleep_for_thread_fairness  : bool }
 [@@deriving fields, sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
@@ -306,6 +307,7 @@ let invariant t : unit =
         assert (Time_ns.Span.( <= )
                   (Min_inter_cycle_timeout.raw min_inter_cycle_timeout)
                   (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout))))
+      ~may_sleep_for_thread_fairness:ignore
   with exn ->
     raise_s [%message "Scheduler.invariant failed" (exn : exn) ~scheduler:(t : t)]
 ;;
@@ -565,7 +567,8 @@ Async will be unable to timeout with sub-millisecond precision."]
     ; kernel_scheduler
     ; have_lock_do_cycle             = None
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
-    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout }
+    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout
+    ; may_sleep_for_thread_fairness = false }
   in
   t_ref := Some t;
   detect_stuck_thread_pool t;
@@ -711,6 +714,13 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     then (Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t]);
     let pre = F.pre_check F.watcher in
     unlock t;
+    (* If the thread pool has threads with work to do, then we yield via nanosleep, which
+       releases the OCaml lock and gives them a chance to run.  This is an
+       over-approximation of the condition that we actually want to check, which is
+       whether there are any threads waiting to acquire the OCaml lock. *)
+    if t.may_sleep_for_thread_fairness
+    && Thread_pool.unfinished_work t.thread_pool > 0
+    then (ignore (Unix.nanosleep 1E-9 : float));
     if Debug.file_descr_watcher
     then (
       Debug.log "File_descr_watcher.thread_safe_check"
@@ -814,13 +824,17 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   if raise_unhandled_exn
   then (Error.raise error)
   else (
+    (* One reason to run [do_at_exit] handlers before printing out the error message is
+       that it helps curses applications bring the terminal in a good state, otherwise the
+       error message might get corrupted.  Also, the OCaml top-level uncaught exception
+       handler does the same. *)
     (try Pervasives.do_at_exit () with _ -> ());
     Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
     if should_dump_core
     then (
       Debug.log_string "dumping core";
       Dump_core_on_job_delay.dump_core ());
-    exit 1);
+    Unix.exit_immediately 1);
 ;;
 
 let add_finalizer t heap_block f =
@@ -923,27 +937,28 @@ let start_busy_poller_thread_if_not_running t =
     t.busy_poll_thread_is_running <- true;
     let kernel_scheduler = t.kernel_scheduler in
     let _thread : Thread.t =
-      Thread.create (fun () ->
-        let rec loop () =
-          lock t;
-          if Busy_pollers.is_empty t.busy_pollers
-          then (
-            t.busy_poll_thread_is_running <- false;
-            unlock t;
-            (* We don't loop here, thus exiting the thread. *))
-          else (
-            Busy_pollers.poll t.busy_pollers;
-            if Kernel_scheduler.num_pending_jobs kernel_scheduler > 0
-            then (Kernel_scheduler.run_cycle kernel_scheduler);
-            unlock t;
-            (* The purpose of this [yield] is to release the OCaml lock while not holding
-               the async lock, so that the busy-poll loop spends a significant fraction of
-               its time not holding both locks, which thus allows other OCaml threads
-               that want to hold both locks the chance to run. *)
-            Thread.yield ();
-            loop ());
-        in
-        loop ())
+      Thread.create
+        (fun () ->
+           let rec loop () =
+             lock t;
+             if Busy_pollers.is_empty t.busy_pollers
+             then (
+               t.busy_poll_thread_is_running <- false;
+               unlock t;
+               (* We don't loop here, thus exiting the thread. *))
+             else (
+               Busy_pollers.poll t.busy_pollers;
+               if Kernel_scheduler.num_pending_jobs kernel_scheduler > 0
+               then (Kernel_scheduler.run_cycle kernel_scheduler);
+               unlock t;
+               (* The purpose of this [yield] is to release the OCaml lock while not
+                  holding the async lock, so that the busy-poll loop spends a significant
+                  fraction of its time not holding both locks, which thus allows other
+                  OCaml threads that want to hold both locks the chance to run. *)
+               Thread.yield ();
+               loop ());
+           in
+           loop ())
         ()
     in
     ());
@@ -984,6 +999,7 @@ let fold_fields (type a) ~init folder : a =
     ~have_lock_do_cycle:f
     ~max_inter_cycle_timeout:f
     ~min_inter_cycle_timeout:f
+    ~may_sleep_for_thread_fairness:f
 ;;
 
 let handle_thread_pool_stuck f =

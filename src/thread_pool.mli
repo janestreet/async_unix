@@ -66,6 +66,10 @@ val max_num_threads : t -> int
 (** [num_threads t] returns the number of threads that the pool [t] has created. *)
 val num_threads : t -> int
 
+(** [unfinished_work t] returns the number of jobs that have been submitted to [t]
+    but haven't yet finished. *)
+val unfinished_work : t -> int
+
 (** [default_priority t] returns the priority that will be used for work performed by
     [t], unless that work is added with an overriding priority. *)
 val default_priority : t -> Priority.t

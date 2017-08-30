@@ -120,6 +120,7 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 val open_file
   :  ?append      : bool  (** default is [false], meaning truncate instead *)
   -> ?buf_len     : int
+  -> ?syscall     : [ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?perm        : int   (** default is [0o666] *)
   -> ?line_ending : Line_ending.t  (** default is [Unix] *)
   -> string

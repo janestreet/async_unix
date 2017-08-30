@@ -8,14 +8,15 @@ open! Import
 val argv : string array
 val executable_name : string
 
-val file_exists     : string -> [`Yes | `No | `Unknown ] Deferred.t
-val file_exists_exn : string -> bool Deferred.t
+val file_exists     : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown ] Deferred.t
+val file_exists_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 
 (** [when_file_exists ?poll_delay file] returns a deferred that becomes determined when
     [file] exists.  The default poll delay is 0.5 seconds.  It raises an exception if it
     can not check whether the file is there, in the same cases [file_exists] returns
     [`Unknown]. *)
-val when_file_exists : ?poll_delay:Time.Span.t -> string -> unit Deferred.t
+val when_file_exists
+  : ?follow_symlinks:bool -> ?poll_delay:Time.Span.t -> string -> unit Deferred.t
 
 (** [when_file_changes file] polls [file] using [stat] and writes [file]'s mtime to the
     pipe every time it changes.  The first time in the pipe will be [file]'s current
@@ -36,6 +37,7 @@ val getenv : string -> string option
 val getenv_exn : string -> string
 val command     : string -> int  Deferred.t
 val command_exn : string -> unit Deferred.t
+val quote : string -> string
 val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t
 val readdir : string -> string array Deferred.t
