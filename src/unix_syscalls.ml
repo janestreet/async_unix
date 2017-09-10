@@ -616,6 +616,12 @@ module Socket = struct
       ; sexp_of_address         = Address.Inet.sexp_of_t }
     ;;
 
+    let inet6 =
+      { family                  = PF_INET6
+      ; address_of_sockaddr_exn = Address.Inet.of_sockaddr_exn
+      ; sexp_of_address         = Address.Inet.sexp_of_t }
+    ;;
+
     let unix =
       { family                  = PF_UNIX
       ; address_of_sockaddr_exn = Address.Unix.of_sockaddr_exn
@@ -633,6 +639,11 @@ module Socket = struct
 
     let tcp =
       { family      = Family.inet
+      ; socket_type = SOCK_STREAM }
+    ;;
+
+    let tcp6 =
+      { family      = Family.inet6
       ; socket_type = SOCK_STREAM }
     ;;
 

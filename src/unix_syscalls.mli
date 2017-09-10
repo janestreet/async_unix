@@ -392,8 +392,9 @@ module Socket : sig
   module Family : sig
     type 'a t constraint 'a = [< Address.t ]
 
-    val unix : Address.Unix.t t
-    val inet : Address.Inet.t t
+    val unix  : Address.Unix.t t
+    val inet  : Address.Inet.t t
+    val inet6 : Address.Inet.t t
 
     val to_string : 'a t -> string
   end
@@ -420,6 +421,7 @@ module Socket : sig
     type 'a t constraint 'a = [< Address.t ] [@@deriving sexp_of]
 
     val tcp        : Address.Inet.t t
+    val tcp6       : Address.Inet.t t
     val udp        : Address.Inet.t t
     val unix       : Address.Unix.t t
     val unix_dgram : Address.Unix.t t
