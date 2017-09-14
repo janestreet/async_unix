@@ -47,7 +47,7 @@ module Printf = struct
   let exitf        = _shadow
   let failwithf    = Core.Printf.failwithf
   let fprintf _    = _shadow
-  let ifprintf _   = _shadow
+  let ifprintf _   = Core.Printf.ifprintf
   let invalid_argf = Core.Printf.invalid_argf
   let kbprintf     = Core.Printf.kbprintf
   let kfprintf _ _ = _shadow
@@ -64,7 +64,6 @@ include struct
     let overwrite2 `This_is_async__Think_about_blocking = overwrite1
     let overwrite3 `This_is_async__Think_about_blocking = overwrite2
     let overwrite4 `This_is_async__Think_about_blocking = overwrite3
-    let overwritef f = ksprintf (fun _ -> `This_is_async__Think_about_blocking) f
   end
   open Overwrite_
 
@@ -76,6 +75,7 @@ include struct
   let flush_all                  = overwrite1
   let flush                      = overwrite1
   let fprintf                    = Print.fprintf
+  let ifprintf                   = Printf.ifprintf
   let in_channel_length          = overwrite1
   let input_binary_int           = overwrite1
   let input_byte                 = overwrite1
