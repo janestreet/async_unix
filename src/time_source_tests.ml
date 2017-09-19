@@ -9,7 +9,7 @@ let%bench_module "Clock.every" =
   (module struct
 
     let scheduler = Kernel_scheduler.t ()
-    let time_source = scheduler.time_source
+    let time_source = scheduler.time_source |> Time_source.of_synchronous
 
     let%bench "~continue-on-error:false" =
       let iv = Ivar.create () in
