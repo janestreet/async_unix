@@ -88,7 +88,7 @@ end = struct
     if src_len > Bigstring.length t.bigstring_buf
     then (
       t.bigstring_buf <- Bigstring.create (src_len * 2);
-      t.string_buf <- String.create (src_len * 2));
+      t.string_buf <- Bytes.create (src_len * 2));
     blit_to_bigstring ~src ~src_pos ~dst:t.bigstring_buf ~dst_pos:0 ~len:src_len;
     Bigstring.To_string.blit ~len:src_len
       ~src:t.bigstring_buf ~src_pos:0
@@ -852,7 +852,7 @@ let dummy_iovec = IOVec.empty IOVec.bigstring_kind
 
 let mk_iovecs t =
   schedule_unscheduled t `Keep;
-  let n_iovecs = Int.min (Deque.length t.scheduled) IOVec.max_iovecs in
+  let n_iovecs = Int.min (Deque.length t.scheduled) (Lazy.force IOVec.max_iovecs) in
   let iovecs = Array.create ~len:n_iovecs dummy_iovec in
   let contains_mmapped_ref = ref false in
   let iovecs_len = ref 0 in
@@ -1260,7 +1260,7 @@ let write_sexp_internal =
     let len = Buffer.length buffer in
     let blit_str_len = String.length !blit_str in
     if len > blit_str_len
-    then (blit_str := String.create (max len (max initial_size (2 * blit_str_len))));
+    then (blit_str := Bytes.create (max len (max initial_size (2 * blit_str_len))));
     Buffer.blit buffer 0 !blit_str 0 len;
     write t !blit_str ~len;
     match terminate_with with

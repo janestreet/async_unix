@@ -191,7 +191,8 @@ let interruptible_ready_to t read_or_write ~interrupt =
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
-  | `Unsupported -> return `Ready
+  | `Unsupported ->
+    return (if Deferred.is_determined interrupt then `Interrupted else `Ready)
   | `Watching ->
     stop_watching_upon_interrupt t read_or_write ready ~interrupt;
     Ivar.read ready

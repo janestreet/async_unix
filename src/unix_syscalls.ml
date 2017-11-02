@@ -561,6 +561,8 @@ module Socket = struct
         | ADDR_INET (a, i) -> `Inet (a, i)
         | u -> raise_s [%message "Socket.Address.inet" ~_:(u : Unix.sockaddr)]
       ;;
+
+      let to_sockaddr (`Inet (a, i)) = Unix.ADDR_INET (a, i)
     end
 
     module Unix = struct
@@ -574,6 +576,8 @@ module Socket = struct
         | ADDR_UNIX s -> `Unix s
         | u -> raise_s [%message "Socket.Address.unix" ~_:(u : Unix.sockaddr)]
       ;;
+
+      let to_sockaddr (`Unix s) = Unix.ADDR_UNIX s
     end
 
     type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
@@ -584,9 +588,9 @@ module Socket = struct
 
     let t_of_sexp = Blocking_sexp.t_of_sexp
 
-    let to_sockaddr : _ -> Core.Unix.sockaddr = function
-      | `Unix s      -> ADDR_UNIX s
-      | `Inet (a, i) -> ADDR_INET (a, i)
+    let to_sockaddr = function
+      | #Inet.t as t -> Inet.to_sockaddr t
+      | #Unix.t as t -> Unix.to_sockaddr t
     ;;
 
     let to_string = function
@@ -755,18 +759,33 @@ module Socket = struct
       Unix.mcast_leave ?ifname file_descr (Address.to_sockaddr address))
   ;;
 
-  let bind ?(reuseaddr = true) t address =
-    setopt t Opt.reuseaddr reuseaddr;
-    set_close_on_exec t.fd;
-    let sockaddr = Address.to_sockaddr address in
-    Fd.syscall_exn t.fd (fun file_descr -> Unix.bind file_descr ~addr:sockaddr);
+  let mark_bound t address =
     let info =
       Info.create "socket" (`bound_on address)
         (let sexp_of_address = sexp_of_address t in
          [%sexp_of: [ `bound_on of address ]])
     in
-    Fd.replace t.fd (Socket `Bound) info;
-    return t
+    Fd.replace t.fd (Socket `Bound) info
+
+  let bind ?(reuseaddr = true) t address =
+    setopt t Opt.reuseaddr reuseaddr;
+    set_close_on_exec t.fd;
+    let sockaddr = Address.to_sockaddr address in
+    let%map () =
+      Fd.syscall_in_thread_exn t.fd ~name:"bind" (fun file_descr ->
+        Unix.bind file_descr ~addr:sockaddr)
+    in
+    mark_bound t address;
+    t
+  ;;
+
+  let bind_inet ?(reuseaddr = true) t address =
+    setopt t Opt.reuseaddr reuseaddr;
+    set_close_on_exec t.fd;
+    let sockaddr = Address.to_sockaddr address in
+    Fd.syscall_exn t.fd (fun file_descr -> Unix.bind file_descr ~addr:sockaddr);
+    mark_bound t address;
+    t
   ;;
 
   let listen ?(backlog = 10) t =

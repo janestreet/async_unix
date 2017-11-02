@@ -29,6 +29,15 @@ let ignore_exn f =
   with _ -> ()
 ;;
 
+let exit_reliably status =
+  match (exit status : Nothing.t) with
+  | exception exn ->
+    ignore_exn (fun () ->
+      Core.Debug.eprints "Pervasives.exit raised" exn [%sexp_of: Exn.t]);
+    Core.Unix.exit_immediately (if status = 0 then 1 else status)
+  | _ -> .
+;;
+
 let shutdown ?force status =
   if debug then (ignore_exn (fun () -> Debug.log "shutdown" status [%sexp_of: int]));
   match !shutting_down_ref with
@@ -66,12 +75,7 @@ let shutdown ?force status =
              | Ok () -> status
              | Error _ -> if status = 0 then 1 else status
            in
-           match (exit status : Nothing.t) with
-           | exception exn ->
-             ignore_exn (fun () ->
-               Core.Debug.eprints "Pervasives.exit raised" exn [%sexp_of: Exn.t]);
-             Core.Unix.exit_immediately (if status = 0 then 1 else status)
-           | _ -> .);
+           exit_reliably status);
     let force =
       match force with
       | None -> !default_force_ref ()
@@ -79,7 +83,7 @@ let shutdown ?force status =
     in
     upon force (fun () ->
       ignore_exn (fun () -> Debug.log_string "Shutdown forced.");
-      Core.Unix.exit_immediately 1);
+      exit_reliably 1);
 ;;
 
 let shutdown_on_unhandled_exn () =

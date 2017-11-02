@@ -25,7 +25,7 @@ let%test_module "Fd" =
       Unix.set_nonblock fd;
       try
         while true do
-          let buf = String.create 1024 in
+          let buf = Bytes.create 1024 in
           let n = Unix.read fd ~buf ~pos:0 ~len:(String.length buf) in
           assert (n > 0);
           cell := !cell ^ String.sub buf ~pos:0 ~len:n

@@ -883,13 +883,13 @@ module Internal = struct
       else (
         raise_s [%message "Reader.read_marshal got EOF with bytes remaining" ~_:(n : int)])
     in
-    let header = String.create Marshal.header_size in
+    let header = Bytes.create Marshal.header_size in
     match%bind really_read t header with
     | `Eof n -> return (eofn n)
     | `Ok ->
       let len = Marshal.data_size header 0 in
-      let buf = String.create (len + Marshal.header_size) in
-      String.blit ~src:header ~dst:buf ~src_pos:0 ~dst_pos:0
+      let buf = Bytes.create (len + Marshal.header_size) in
+      Bytes.blit ~src:header ~dst:buf ~src_pos:0 ~dst_pos:0
         ~len:Marshal.header_size;
       let sub = Substring.create buf ~pos:Marshal.header_size ~len in
       match%map really_read_substring t sub with
@@ -927,7 +927,7 @@ module Internal = struct
 
   let contents t =
     let buf = Buffer.create 1024 in
-    let sbuf = String.create 1024 in
+    let sbuf = Bytes.create 1024 in
     let%bind () =
       Deferred.repeat_until_finished () (fun () ->
         match%map read t sbuf with
@@ -949,7 +949,7 @@ module Internal = struct
           raise_s [%message
             "Reader.recv got strange length" (length_str : string) ~reader:(t : t)]
         | Ok length ->
-          let buf = String.create length in
+          let buf = Bytes.create length in
           really_read t buf
           >>> function
           | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]

@@ -53,8 +53,9 @@ val io_stats : Io_stats.t
       foo.exe >/tmp/z.file 2>&1
     v}
 
-    if [Writer.stdout] and [Writer.stderr] weren't the same writer, then they could have
-    threads simultaneously writing to the same file, which could easily cause data loss. *)
+    If [Writer.stdout] and [Writer.stderr] weren't the same writer, then they could have
+    threads simultaneously writing to the same file, which could easily cause data
+    loss. *)
 val stdout : t Lazy.t
 val stderr : t Lazy.t
 
@@ -591,7 +592,7 @@ val behave_nicely_in_pipeline
 
 (** [set_synchronous_out_channel t out_channel] causes all future writes to [t] to
     synchronously call [Out_channel.output*] functions to send data to the OS immediately.
-    Any writes that were called prior to setting the [out_channel] will [flushed].
+    Any writes that were called prior to setting the [out_channel] will be [flushed].
     [clear_synchronous_out_channel t] makes writes buffered and asynchronous again.
     [set_synchronous_out_channel] is used by expect tests to ensure that the interleaving
     between calls to [Core.printf] (and similar IO functions) and [Async.printf] generates

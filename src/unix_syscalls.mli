@@ -346,6 +346,8 @@ module Socket : sig
 
       val create : string -> t
       val to_string : t -> string
+
+      val to_sockaddr : t -> Core.Unix.sockaddr
     end
 
     module Inet : sig
@@ -372,10 +374,13 @@ module Socket : sig
 
       val create : Inet_addr.t -> port:int -> t
       val create_bind_any : port:int -> t
+
       val addr : t -> Inet_addr.t
       val port : t -> int
       val to_string : t -> string
+
       val to_host_and_port : t -> Host_and_port.t
+      val to_sockaddr : t -> Core.Unix.sockaddr
     end
 
     type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
@@ -449,6 +454,14 @@ module Socket : sig
     -> ([ `Unconnected ], 'addr) t
     -> 'addr
     -> ([ `Bound ], 'addr) t Deferred.t
+
+  (** [bind_inet socket addr] is just like [bind] but is restricted to [Inet.t] addresses
+      and is therefore guaranteed not to block. *)
+  val bind_inet
+    :  ?reuseaddr : bool (** default is [true] *)
+    -> ([ `Unconnected ], Address.Inet.t) t
+    -> Address.Inet.t
+    -> ([ `Bound ], Address.Inet.t) t
 
   val listen
     :  ?backlog : int  (** default is 10; see {!Unix.listen} *)

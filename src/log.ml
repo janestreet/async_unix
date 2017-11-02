@@ -1,3 +1,26 @@
+module Stable = struct
+  open! Core.Core_stable
+
+  module Level = struct
+    module V1 = struct
+      type t =
+        [ `Debug
+        | `Info
+        | `Error
+        ] [@@deriving bin_io, sexp]
+    end
+  end
+
+  module Output = struct
+    module Format = struct
+      module V1 = struct
+        type machine_readable = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+        type t = [ machine_readable | `Text ] [@@deriving sexp]
+      end
+    end
+  end
+end
+
 open Core
 open Import
 
@@ -49,6 +72,10 @@ module Level = struct
       | `Debug, _                -> true
       end
   ;;
+
+  module Stable = struct
+    module V1 = Stable.Level.V1
+  end
 end
 
 module Rotation = struct
@@ -504,8 +531,16 @@ module Output : sig
      of type: Level.t -> string -> unit Deferred.t.  It is the responsibility of the write
      function to contain all state, and to clean up after itself.
   *)
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
-  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
+  module Format : sig
+    type machine_readable = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+    type t = [ machine_readable | `Text ] [@@deriving sexp]
+
+    module Stable : sig
+      module V1 : sig
+        type nonrec t = t [@@deriving sexp]
+      end
+    end
+  end
 
   type t [@@deriving sexp_of]
 
@@ -522,16 +557,22 @@ module Output : sig
 
   val stdout        : unit -> t
   val stderr        : unit -> t
-  val writer        : format -> Writer.t -> t
-  val file          : format -> filename:string -> t
-  val rotating_file : format -> basename:string -> Rotation.t -> t
+  val writer        : Format.t -> Writer.t -> t
+  val file          : Format.t -> filename:string -> t
+  val rotating_file : Format.t -> basename:string -> Rotation.t -> t
 
-  val rotating_file_with_tail : format -> basename:string -> Rotation.t -> t * string Tail.t
+  val rotating_file_with_tail : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
 
   val combine : t list -> t
 end = struct
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
-  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
+  module Format = struct
+    type machine_readable = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+    type t = [ machine_readable | `Text ] [@@deriving sexp]
+
+    module Stable = struct
+      module V1 = Stable.Output.Format.V1
+    end
+  end
 
   module Definitely_a_heap_block : sig
     type t
@@ -653,7 +694,7 @@ end = struct
   ;;
 
   module File : sig
-    val create : format -> filename:string -> t
+    val create : Format.t -> filename:string -> t
   end = struct
     let create format ~filename =
       let w = open_writer ~filename in
@@ -673,7 +714,7 @@ end = struct
   end
 
   module Log_writer : sig
-    val create : format -> Writer.t -> t
+    val create : Format.t -> Writer.t -> t
   end = struct
     (* The writer output type takes no responsibility over the Writer.t it is given.  In
        particular it makes no attempt to ever close it. *)
@@ -687,7 +728,7 @@ end = struct
 
   module Rotating_file : sig
     val create
-      :  format
+      :  Format.t
       -> basename:string
       -> Rotation.t
       -> t * string Tail.t
@@ -752,7 +793,7 @@ end = struct
         {         basename      : string
         ;         dirname       : string
         ;         rotation      : Rotation.t
-        ;         format        : format
+        ;         format        : Format.t
         ; mutable writer        : Writer.t Deferred.t Lazy.t
         ; mutable filename      : string
         ; mutable last_messages : int
@@ -1206,7 +1247,13 @@ let string ?level ?time ?tags t s =
 ;;
 
 let printf ?level ?time ?tags t fmt =
-  ksprintf (fun msg -> string ?level ?time ?tags t msg) fmt
+  if would_log t level then begin
+    ksprintf
+      (fun msg -> push_update t (Msg (Message.create ?level ?time ?tags (`String msg))))
+      fmt
+  end else begin
+    ifprintf () fmt
+  end
 ;;
 
 let add_uuid_to_tags tags =
@@ -1290,7 +1337,7 @@ let error ?time ?tags t fmt = printf ~level:`Error ?time ?tags t fmt
 
 let%bench_module "unused log messages" =
   (module struct
-    let (log : t) = create ~level:`Info ~output:[] ~on_error:`Raise
+    let (log : t) = create ~level:`Info ~output:[Output.file `Text ~filename:"/dev/null"] ~on_error:`Raise
 
     let%bench "unused printf" = debug log "blah"
     let%bench "unused printf w/subst" = debug log "%s" "blah"

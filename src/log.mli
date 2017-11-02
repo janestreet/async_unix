@@ -27,6 +27,12 @@ module Level : sig
   val arg : t Command.Spec.Arg_type.t
 
   val as_or_more_verbose_than : log_level:t -> msg_level:t option -> bool
+
+  module Stable : sig
+    module V1 : sig
+      type nonrec t = t [@@deriving bin_io, sexp]
+    end
+  end
 end
 
 module Message : sig
@@ -131,8 +137,16 @@ module Rotation : sig
 end
 
 module Output : sig
-  type machine_readable_format = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
-  type format = [ machine_readable_format | `Text ] [@@deriving sexp]
+  module Format : sig
+    type machine_readable = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
+    type t = [ machine_readable | `Text ] [@@deriving sexp]
+
+    module Stable : sig
+      module V1 : sig
+        type nonrec t = t [@@deriving sexp]
+      end
+    end
+  end
 
   type t
 
@@ -171,14 +185,14 @@ module Output : sig
 
   val stdout        : unit -> t
   val stderr        : unit -> t
-  val writer        : format -> Writer.t -> t
-  val file          : format -> filename:string -> t
-  val rotating_file : format -> basename:string -> Rotation.t -> t
+  val writer        : Format.t -> Writer.t -> t
+  val file          : Format.t -> filename:string -> t
+  val rotating_file : Format.t -> basename:string -> Rotation.t -> t
 
   (** returns a tail of the filenames. When rotate is called, the previous filename is put
       on the tail *)
   val rotating_file_with_tail
-    : format -> basename:string -> Rotation.t -> t * string Tail.t
+    : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
 
   (** See {!Async_extended.Std.Log} for syslog and colorized console output. *)
 end
@@ -487,12 +501,12 @@ module Reader : sig
       encountered when opening or reading the file will be thrown as exceptions into the
       monitor current at the time pipe is called. *)
   val pipe
-    :  [< Output.machine_readable_format ]
+    :  [< Output.Format.machine_readable ]
     -> string
     -> Message.t Pipe.Reader.t
 
   val pipe_of_reader
-    :  [< Output.machine_readable_format ]
+    :  [< Output.Format.machine_readable ]
     -> Reader.t
     -> Message.t Pipe.Reader.t
 
@@ -500,7 +514,7 @@ module Reader : sig
     (** [read_one format reader] reads a single log message from the reader, advancing the
         position of the reader to the next log entry. *)
     val read_one
-      :  [< Output.machine_readable_format ]
+      :  [< Output.Format.machine_readable ]
       -> Reader.t
       -> Message.t Reader.Read_result.t Deferred.t
   end

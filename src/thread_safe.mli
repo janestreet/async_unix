@@ -68,5 +68,7 @@ val run_in_async_wait_exn : (unit -> 'a Deferred.t) ->  'a
     Async's global state to its initial state.  This is useful if you need to first use
     Async to compute a value and then to daemonize (in which case you should [daemonize]
     with [~allow_threads_to_have_been_created:true]).  [reset_scheduler] can be called
-    from the main thread (before Async is started) or from a thread outside Async. *)
+    from the main thread (before Async is started) or from a thread outside Async.
+    [reset_scheduler] is known to be imperfect, and to have races in which there are still
+    threads running after it returns. *)
 val reset_scheduler : unit -> unit
