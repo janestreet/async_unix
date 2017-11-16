@@ -124,7 +124,7 @@ val fd : t -> Fd.t
 (** [read t ?pos ?len buf] reads up to [len] bytes into buf, blocking
     until some data is available or end-of-input is reached.  The resulting
     [i] satisfies [0 < i <= len]. *)
-val read : t -> ?pos:int -> ?len:int -> string -> int Read_result.t Deferred.t
+val read : t -> ?pos:int -> ?len:int -> Bytes.t -> int Read_result.t Deferred.t
 
 (** [peek t ~len] peeks exactly [len] bytes from [t]'s buffer.  It blocks until [len]
     bytes are available or end-of-input is reached. *)
@@ -209,7 +209,7 @@ val really_read
   :  t
   -> ?pos : int
   -> ?len : int
-  -> string
+  -> Bytes.t
   -> [ `Ok
      | `Eof of int
      ] Deferred.t
@@ -307,13 +307,13 @@ val peek_bin_prot
     can just call Marshal.from_string on the string, and cast it to the desired type
     (preferrably the actual type). similar to Marshal.from_channel, but suffers from the
     String-length limitation (16MB) on 32bit platforms. *)
-val read_marshal_raw : t -> string Read_result.t Deferred.t
+val read_marshal_raw : t -> Bytes.t Read_result.t Deferred.t
 
 (** Like read_marshal_raw, but unmarshal the value after reading it *)
 val read_marshal : t -> _ Read_result.t Deferred.t
 
 (** [recv t] returns a string that was written with Writer.send *)
-val recv : t -> string Read_result.t Deferred.t
+val recv : t -> Bytes.t Read_result.t Deferred.t
 
 (** [read_all t read_one] returns a pipe that receives all values read from [t] by
     repeatedly using [read_one t].  When the reader reaches EOF, it closes the reader,

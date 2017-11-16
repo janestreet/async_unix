@@ -13,7 +13,7 @@ type t =
      for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
      property is that if [already_interrupted] is true then [pipe] is nonempty*)
   ; mutable already_interrupted : bool
-  ; clearbuffer                 : string sexp_opaque }
+  ; clearbuffer                 : Bytes.t sexp_opaque }
 [@@deriving sexp_of]
 
 let invariant _ = ()
@@ -32,8 +32,11 @@ let create ~create_fd =
   in
   { pipe                = Read_write.create ~read:pipe_read ~write:pipe_write
   ; already_interrupted = false
-  ; clearbuffer         = String.make 1024 ' ' }
+  ; clearbuffer         = Bytes.make 1024 ' ' }
 ;;
+
+(* [bytes_w] is a toplevel to make sure it's not allocated multiple times. *)
+let bytes_w = Bytes.of_string "w"
 
 (* [thread_safe_interrupt]
    As the name implies, it is safe to call from any thread; [thread_safe_interrupt] does
@@ -51,7 +54,7 @@ let thread_safe_interrupt t =
     Fd.syscall_exn (Read_write.get t.pipe `Write) ~nonblocking:true
       (fun file_descr ->
          try
-           ignore (Unix.write_assume_fd_is_nonblocking file_descr "w" : int)
+           ignore (Unix.write_assume_fd_is_nonblocking file_descr bytes_w : int)
          with
            Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ()))
 ;;
@@ -69,7 +72,7 @@ let clear t =
              try
                let bytes_read =
                  Unix.read_assume_fd_is_nonblocking file_descr t.clearbuffer
-                   ~pos:0 ~len:(String.length t.clearbuffer)
+                   ~pos:0 ~len:(Bytes.length t.clearbuffer)
                in
                ignore (bytes_read : int);
                true

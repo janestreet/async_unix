@@ -236,6 +236,7 @@ val write_direct
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
     contents of the string are copied to an internal buffer before [write] returns, so
     clients can do whatever they want with [s] after that. *)
+val write_bytes     : ?pos:int -> ?len:int -> t -> Bytes.t                -> unit
 val write           : ?pos:int -> ?len:int -> t -> string                 -> unit
 val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t            -> unit
 val write_iobuf     : ?pos:int -> ?len:int -> t -> ([> read ], _) Iobuf.t -> unit

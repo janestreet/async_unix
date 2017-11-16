@@ -60,10 +60,10 @@ end = struct
   type t =
     { mutable bigstring_buf : Bigstring.t
     ; out_channel           : Out_channel.t
-    ; mutable string_buf    : string }
+    ; mutable bytes_buf     : Bytes.t }
   [@@deriving fields]
 
-  let sexp_of_t { bigstring_buf = _; out_channel; string_buf = _ } =
+  let sexp_of_t { bigstring_buf = _; out_channel; bytes_buf = _ } =
     [%message (out_channel : Out_channel.t)]
   ;;
 
@@ -73,13 +73,13 @@ end = struct
       Fields.iter
         ~bigstring_buf:ignore
         ~out_channel:ignore
-        ~string_buf:ignore)
+        ~bytes_buf:ignore)
   ;;
 
   let create out_channel =
     { bigstring_buf   = Bigstring.create 0
     ; out_channel     = out_channel
-    ; string_buf      = "" }
+    ; bytes_buf       = Bytes.of_string "" }
   ;;
 
   let output_char t char = Out_channel.output_char t.out_channel char
@@ -88,12 +88,12 @@ end = struct
     if src_len > Bigstring.length t.bigstring_buf
     then (
       t.bigstring_buf <- Bigstring.create (src_len * 2);
-      t.string_buf <- Bytes.create (src_len * 2));
+      t.bytes_buf <- Bytes.create (src_len * 2));
     blit_to_bigstring ~src ~src_pos ~dst:t.bigstring_buf ~dst_pos:0 ~len:src_len;
     Bigstring.To_string.blit ~len:src_len
       ~src:t.bigstring_buf ~src_pos:0
-      ~dst:t.string_buf    ~dst_pos:0;
-    Out_channel.output t.out_channel ~buf:t.string_buf ~pos:0 ~len:src_len;
+      ~dst:t.bytes_buf    ~dst_pos:0;
+    Out_channel.output t.out_channel ~buf:t.bytes_buf ~pos:0 ~len:src_len;
   ;;
 
   let flush t = Out_channel.flush t.out_channel
@@ -1145,6 +1145,12 @@ let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
       blit_to_bigstring src dst ~pos:dst_pos)
 ;;
 
+let write_bytes ?pos ?len t src =
+  write_gen_unchecked ?pos ?len t src
+    ~blit_to_bigstring:Bigstring.From_bytes.blit
+    ~length:Bytes.length
+;;
+
 let write ?pos ?len t src =
   write_gen_unchecked ?pos ?len t src
     ~blit_to_bigstring:Bigstring.From_string.blit
@@ -1165,7 +1171,7 @@ let write_iobuf ?pos ?len t iobuf =
 ;;
 
 let write_substring t substring =
-  write t (Substring.base substring)
+  write_bytes t (Substring.base substring)
     ~pos:(Substring.pos substring)
     ~len:(Substring.length substring)
 ;;
@@ -1197,6 +1203,7 @@ let write_gen_whole t src ~blit_to_bigstring ~length =
 let to_formatter t =
   Format.make_formatter
     (fun str pos len ->
+       let str = Bytes.of_string str in
        ensure_can_write t;
        write_substring t (Substring.create str ~pos ~len))
     ignore
@@ -1250,7 +1257,7 @@ end
 let write_sexp_internal =
   let initial_size = 10 * 1024 in
   let buffer = lazy (Buffer.create initial_size) in
-  let blit_str = ref "" in
+  let blit_str = ref (Bytes.create 0) in
   fun ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp ->
     let buffer = Lazy.force buffer in
     Buffer.clear buffer;
@@ -1258,17 +1265,17 @@ let write_sexp_internal =
     then (Sexp.to_buffer_hum ~buf:buffer ~indent:!Sexp.default_indent sexp)
     else (Sexp.to_buffer ~buf:buffer sexp);
     let len = Buffer.length buffer in
-    let blit_str_len = String.length !blit_str in
+    let blit_str_len = Bytes.length !blit_str in
     if len > blit_str_len
     then (blit_str := Bytes.create (max len (max initial_size (2 * blit_str_len))));
     Buffer.blit buffer 0 !blit_str 0 len;
-    write t !blit_str ~len;
+    write_bytes t !blit_str ~len;
     match terminate_with with
     | Newline -> newline t
     | Space_if_needed ->
       (* If the string representation doesn't start/end with paren or double quote, we add
          a space after it to ensure that the parser can recognize the end of the sexp. *)
-      let c = !blit_str.[0] in
+      let c = Bytes.get (!blit_str) 0 in
       if not Char.O.( c = '(' || c = '"' )
       then (write_char t ' ')
 ;;
@@ -1379,6 +1386,7 @@ let schedule_iobuf_consume t ?len iobuf =
   ensure_can_write t; schedule_iobuf_consume t ?len iobuf
 let write_gen ?pos ?len t src ~blit_to_bigstring  ~length =
   ensure_can_write t; write_gen ?pos ?len t src ~blit_to_bigstring ~length
+let write_bytes ?pos ?len t s       = ensure_can_write t; write_bytes ?pos ?len t s
 let write ?pos ?len t s             = ensure_can_write t; write ?pos ?len t s
 let write_line ?line_ending t s     = ensure_can_write t; write_line t s ?line_ending
 let writef t                        = ensure_can_write t; writef t

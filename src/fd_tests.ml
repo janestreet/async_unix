@@ -26,9 +26,9 @@ let%test_module "Fd" =
       try
         while true do
           let buf = Bytes.create 1024 in
-          let n = Unix.read fd ~buf ~pos:0 ~len:(String.length buf) in
+          let n = Unix.read fd ~buf ~pos:0 ~len:(Bytes.length buf) in
           assert (n > 0);
-          cell := !cell ^ String.sub buf ~pos:0 ~len:n
+          cell := !cell ^ Bytes.To_string.sub buf ~pos:0 ~len:n
         done
       with Unix.Unix_error ((EAGAIN | EWOULDBLOCK | EINTR), _, _) -> ()
     ;;
@@ -44,10 +44,10 @@ let%test_module "Fd" =
         let fdr_async = create Fifo fdr (Info.of_string "<pipe>") in
         let d = every_ready_to fdr_async `Read read_into_cell (fdr, read) in
         assert (String.equal !read "");
-        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
-        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
         let%bind () = close fdr_async in
@@ -69,14 +69,14 @@ let%test_module "Fd" =
             ~interrupt:(Ivar.read stop)
         in
         assert (String.equal !read "");
-        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
-        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
         Ivar.fill stop ();
-        assert (Unix.write fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
+        assert (Unix.write_substring fdw ~buf:"extra" ~pos:0 ~len:5 = 5);
         d)
       |> function
       | `Result `Interrupted -> assert (String.equal !read "foobar")
@@ -95,10 +95,10 @@ let%test_module "Fd" =
             ~interrupt:(Ivar.read stop)
         in
         assert (String.equal !read "");
-        assert (Unix.write fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"foo" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foo" in
         assert b;
-        assert (Unix.write fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
+        assert (Unix.write_substring fdw ~buf:"bar" ~pos:0 ~len:3 = 3);
         let%bind b = wait_until_cell_is_equal_to read "foobar" in
         assert b;
         let%bind () = close fdr_async in

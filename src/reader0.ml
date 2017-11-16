@@ -900,7 +900,7 @@ module Internal = struct
   let read_marshal t =
     match%map read_marshal_raw t with
     | `Eof -> `Eof
-    | `Ok buf -> `Ok (Marshal.from_string buf 0)
+    | `Ok buf -> `Ok (Marshal.from_bytes buf 0)
   ;;
 
   let read_all t read_one =
@@ -932,7 +932,7 @@ module Internal = struct
       Deferred.repeat_until_finished () (fun () ->
         match%map read t sbuf with
         | `Eof -> `Finished ()
-        | `Ok l -> Buffer.add_substring buf sbuf 0 l; `Repeat ())
+        | `Ok l -> Buffer.add_subbytes buf sbuf 0 l; `Repeat ())
     in
     let%map () = close t in
     Buffer.contents buf
