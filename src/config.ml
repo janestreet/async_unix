@@ -12,14 +12,23 @@ let file_descr_watcher =
     else Select
 
 let max_num_open_file_descrs =
-  match file_descr_watcher with
-  | Epoll | Epoll_if_timerfd -> max_num_open_file_descrs
-  | Select ->
-    if Max_num_open_file_descrs.equal
-         max_num_open_file_descrs
-         Max_num_open_file_descrs.default
-    then (Max_num_open_file_descrs.create_exn 1024)
-    else max_num_open_file_descrs
+  if not (Max_num_open_file_descrs.equal
+            max_num_open_file_descrs
+            Max_num_open_file_descrs.default)
+  then max_num_open_file_descrs
+  else (
+    match file_descr_watcher with
+    | Select ->
+      (* The maximum numeric value for a file descriptor watchable by [select] is limited
+         by [FD_SETSIZE], which happens to be 1024 on Linux. *)
+      Max_num_open_file_descrs.create_exn 1024
+    | Epoll | Epoll_if_timerfd ->
+      Int.min
+        (Max_num_open_file_descrs.(default |> raw))
+        (match Unix.RLimit.(get num_file_descriptors).max with
+         | Infinity -> Int.max_value
+         | Limit int64 -> int64 |> Int64.to_int_exn)
+      |> Max_num_open_file_descrs.create_exn)
 ;;
 
 let () =

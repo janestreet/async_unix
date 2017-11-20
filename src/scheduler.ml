@@ -28,6 +28,8 @@ let set_min_inter_cycle_timeout min_inter_cycle_timeout =
   t.min_inter_cycle_timeout <- Min_inter_cycle_timeout.create_exn min_inter_cycle_timeout;
 ;;
 
+let max_num_open_file_descrs () = max_num_open_file_descrs (t ())
+
 let max_num_threads () = max_num_threads (t ())
 
 let current_execution_context () = current_execution_context (t ())

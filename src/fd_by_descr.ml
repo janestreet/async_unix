@@ -15,6 +15,8 @@ let invariant t =
     raise_s [%message "Fd_by_descr.invariant failure" (exn : exn) ~fd:(t : t)]
 ;;
 
+let capacity = Table.num_keys
+
 let create ~num_file_descrs =
   Table.create
     ~num_keys:num_file_descrs

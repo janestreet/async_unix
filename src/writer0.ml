@@ -90,7 +90,7 @@ end = struct
       t.bigstring_buf <- Bigstring.create (src_len * 2);
       t.bytes_buf <- Bytes.create (src_len * 2));
     blit_to_bigstring ~src ~src_pos ~dst:t.bigstring_buf ~dst_pos:0 ~len:src_len;
-    Bigstring.To_string.blit ~len:src_len
+    Bigstring.To_bytes.blit ~len:src_len
       ~src:t.bigstring_buf ~src_pos:0
       ~dst:t.bytes_buf    ~dst_pos:0;
     Out_channel.output t.out_channel ~buf:t.bytes_buf ~pos:0 ~len:src_len;
@@ -542,9 +542,13 @@ let flushed t =
     else (Deferred.ignore (flushed_time t))
 ;;
 
+let set_synchronous_out_channel_internal t out_channel =
+  t.backing_out_channel <- Some (Backing_out_channel.create out_channel);
+;;
+
 let set_synchronous_out_channel t out_channel =
   let%bind () = flushed t in
-  t.backing_out_channel <- Some (Backing_out_channel.create out_channel);
+  set_synchronous_out_channel_internal t out_channel;
   return ()
 ;;
 
@@ -1408,9 +1412,6 @@ let stdout_and_stderr =
          parent. *)
       Scheduler.within_v ~monitor:Monitor.main
         (fun () ->
-           (* The following code checks to see if stdout and stderr point to the same
-              file, and if so, shares a single writer between them.  See the comment in
-              writer.mli for details. *)
            let stdout = Fd.stdout () in
            let stderr = Fd.stderr () in
            let t = create stdout in
@@ -1419,9 +1420,18 @@ let stdout_and_stderr =
              (stats.st_dev, stats.st_ino)
            in
            if Ppx_inline_test_lib.Runtime.testing
-           || [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-           then (t, t)
-           else (t, create stderr))
+           then (
+             (* In tests, we use synchronous output to improve determinism, especially
+                when mixing libraries that use Core and Async printing. *)
+             set_synchronous_out_channel_internal t Out_channel.stdout;
+             (t, t))
+           else if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+           then
+             (* If stdout and stderr point to the same file, we must share a single writer
+                between them.  See the comment in writer.mli for details. *)
+             (t, t)
+           else
+             (t, create stderr))
     with
     | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
     | Some v -> v)

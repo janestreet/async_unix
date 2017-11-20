@@ -12,6 +12,8 @@ include Invariant.S with type t := t
 
 val create : num_file_descrs:int -> t
 
+val capacity : t -> int
+
 val add : t -> Raw_fd.t -> unit Or_error.t
 
 val mem : t -> File_descr.t -> bool

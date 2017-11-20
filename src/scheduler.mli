@@ -17,7 +17,8 @@ type t = Raw_scheduler.t [@@deriving sexp_of]
 val t : unit -> t
 
 (** Accessors *)
-val max_num_threads : unit -> int
+val max_num_open_file_descrs : unit -> int
+val max_num_threads          : unit -> int
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
     running handlers, one by one without interruption, until there are no more handlers to

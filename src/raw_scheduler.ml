@@ -138,6 +138,8 @@ type t =
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
 
+let max_num_open_file_descrs t = Fd_by_descr.capacity t.fd_by_descr
+
 let current_execution_context t =
   Kernel_scheduler.current_execution_context t.kernel_scheduler;
 ;;
