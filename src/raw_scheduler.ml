@@ -93,8 +93,12 @@ type t =
   ; fd_by_descr                            : Fd_by_descr.t
 
   (* If we are using a file descriptor watcher that does not support sub-millisecond
-     timeout, this contains a timerfd used to handle the next expiration. *)
+     timeout, [timerfd] contains a timerfd used to handle the next expiration.
+     [timerfd_set_at] holds the the time at which [timerfd] is set to expire.  This
+     lets us avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_after] unless
+     we need to change that time. *)
   ; mutable timerfd                        : Linux_ext.Timerfd.t option
+  ; mutable timerfd_set_at                 : Time_ns.t
 
   (* A distinguished thread, called the "scheduler" thread, is continually looping,
      checking file descriptors for I/O and then running a cycle.  It manages
@@ -295,6 +299,7 @@ let invariant t : unit =
             (assert (List.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
                phys_equal fd fd'))))))
       ~timerfd:ignore
+      ~timerfd_set_at:ignore
       ~scheduler_thread_id:ignore
       ~interruptor:(check Interruptor.invariant)
       ~signal_manager:(check Raw_signal_manager.invariant)
@@ -553,9 +558,10 @@ Async will be unable to timeout with sub-millisecond precision."]
     ; have_called_go                 = false
     ; fds_whose_watching_has_changed = []
     ; file_descr_watcher
-    ; time_spent_waiting_for_io        = Tsc.Span.of_int_exn 0
+    ; time_spent_waiting_for_io      = Tsc.Span.of_int_exn 0
     ; fd_by_descr
     ; timerfd
+    ; timerfd_set_at                 = Time_ns.max_value
     ; scheduler_thread_id            = -1 (* set when [be_the_scheduler] is called *)
     ; interruptor
     ; signal_manager                 =
@@ -736,38 +742,69 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     lock t;
     check_result
   in
-  let check_file_descr_watcher_timeout_after span =
-    if Time_ns.Span.( <= ) span Time_ns.Span.zero
-    then (check_file_descr_watcher ~timeout:Immediately ())
-    else (
+  (* We compute the timeout as the last thing before [check_file_descr_watcher], because
+     we want to make sure the timeout is zero if there are any scheduled jobs.  The code
+     is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
+     possible.  In particular, we only call [Time_ns.now] if we need to compute the
+     timeout-after span.  And we only call [Linux_ext.Timerfd.set_after] if the time that
+     we want it to fire is different than the time it is already set to fire. *)
+  let compute_timeout_and_check_file_descr_watcher () =
+    let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
+    let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
+    let file_descr_watcher_timeout =
       match t.timerfd with
       | None ->
-        (* There is no timerfd, use the file descriptor watcher timeout. *)
-        check_file_descr_watcher ~timeout:After span
+        (* Since there is no timerfd, use the file descriptor watcher timeout. *)
+        if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+        then min_inter_cycle_timeout
+        else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
+        then max_inter_cycle_timeout
+        else (
+          let next_event_at =
+            Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
+          in
+          Time_ns.Span.min
+            max_inter_cycle_timeout
+            (Time_ns.Span.max
+               min_inter_cycle_timeout
+               (Time_ns.diff next_event_at (Time_ns.now ()))))
       | Some timerfd ->
-        Linux_ext.Timerfd.set_after timerfd span;
-        (* Since the timerfd will handle the wakeup, the file-descr watcher doesn't have
-           to. *)
-        check_file_descr_watcher ~timeout:Never ())
-  in
-  (* We compute the timeout as the last thing before [check_file_descr_watcher], because
-     we want to make sure the timeout is zero if there are any scheduled jobs. *)
-  let compute_timeout_and_check_file_descr_watcher () =
-    let timeout =
-      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-      then Time_ns.Span.zero
-      else if Kernel_scheduler.has_upcoming_event t.kernel_scheduler
-      then (Time_ns.diff
-              (Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler)
-              (Time_ns.now ()))
-      else (t.max_inter_cycle_timeout :> Time_ns.Span.t)
+        (* Set [timerfd] to fire if necessary, taking into account [can_run_a_job],
+           [min_inter_cycle_timeout], and [next_event_at]. *)
+        let have_min_inter_cycle_timeout =
+          Time_ns.Span.( > ) min_inter_cycle_timeout Time_ns.Span.zero
+        in
+        if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+        then (
+          if not have_min_inter_cycle_timeout
+          then Time_ns.Span.zero
+          else (
+            t.timerfd_set_at <- Time_ns.max_value;
+            Linux_ext.Timerfd.set_after timerfd min_inter_cycle_timeout;
+            max_inter_cycle_timeout))
+        else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
+        then max_inter_cycle_timeout
+        else (
+          let next_event_at =
+            Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
+          in
+          let set_timerfd_at =
+            if not have_min_inter_cycle_timeout
+            then next_event_at
+            else (
+              Time_ns.max
+                next_event_at
+                (Time_ns.add (Time_ns.now ()) min_inter_cycle_timeout))
+          in
+          if not (Time_ns.equal t.timerfd_set_at set_timerfd_at)
+          then (
+            t.timerfd_set_at <- set_timerfd_at;
+            Linux_ext.Timerfd.set_at timerfd set_timerfd_at);
+          max_inter_cycle_timeout)
     in
-    let timeout =
-      Time_ns.Span.max
-        (Time_ns.Span.min timeout (t.max_inter_cycle_timeout :> Time_ns.Span.t))
-        (t.min_inter_cycle_timeout :> Time_ns.Span.t)
-    in
-    check_file_descr_watcher_timeout_after timeout
+    if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
+    then (check_file_descr_watcher ~timeout:Immediately ())
+    else (check_file_descr_watcher ~timeout:After file_descr_watcher_timeout)
   in
   begin
     let interruptor_finished = Ivar.create () in
@@ -989,6 +1026,7 @@ let fold_fields (type a) ~init folder : a =
     ~time_spent_waiting_for_io:f
     ~fd_by_descr:f
     ~timerfd:f
+    ~timerfd_set_at:f
     ~scheduler_thread_id:f
     ~interruptor:f
     ~signal_manager:f
