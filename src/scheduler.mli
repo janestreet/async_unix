@@ -109,6 +109,11 @@ val cycle_start_ns : unit -> Time_ns.t
 val cycle_times    : unit -> Time.Span.t    Stream.t
 val cycle_times_ns : unit -> Time_ns.Span.t Stream.t
 
+(** [long_cycles ~at_least] returns a stream of cycles whose duration is at least
+    [at_least].  [long_cycles] is more efficient than [cycle_times] because it only
+    allocates a stream entry when there is a long cycle, rather than on every cycle. *)
+val long_cycles : at_least : Time_ns.Span.t -> Time_ns.Span.t Stream.t
+
 (** [report_long_cycle_times ?cutoff ()] sets up something that will print a warning to
     stderr whenever there is an Async cycle that is too long, as specified by [cutoff],
     whose default is 1s. *)

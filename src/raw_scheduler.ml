@@ -55,6 +55,8 @@ let cycle_start () = Time_ns.to_time (cycle_start_ns ())
 let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
 let cycle_times    () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span
 
+let long_cycles ~at_least = Kernel_scheduler.(long_cycles (t ())) ~at_least
+
 let event_precision_ns () = Kernel_scheduler.(event_precision (t ()))
 let event_precision () = Time_ns.Span.to_span (event_precision_ns ())
 
@@ -939,13 +941,11 @@ let is_running () =
 ;;
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
-  Stream.iter (cycle_times ())
+  Stream.iter (long_cycles ~at_least:(cutoff |> Time_ns.Span.of_span))
     ~f:(fun span ->
-      if Time.Span.(>) span cutoff
-      then (
-        eprintf "%s\n%!"
-          (Error.to_string_hum
-             (Error.create "long async cycle" span [%sexp_of: Time.Span.t]))))
+      eprintf "%s\n%!"
+        (Error.to_string_hum
+           (Error.create "long async cycle" span [%sexp_of: Time_ns.Span.t])))
 ;;
 
 let set_check_invariants bool =
