@@ -575,7 +575,7 @@ module Internal = struct
   let really_read_bigsubstring = Read_bigsubstring.really_read
 
   let really_read_bigstring t bigstring =
-    really_read_bigsubstring t (Bigsubstring.of_bigstring bigstring)
+    really_read_bigsubstring t (Bigsubstring.create bigstring)
   ;;
 
   let peek t ~len =

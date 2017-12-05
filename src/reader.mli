@@ -381,3 +381,8 @@ type ('a, 'b) load_bin_prot
   -> 'b Deferred.t
 val load_bin_prot      : ('a, 'a Or_error.t) load_bin_prot
 val load_bin_prot_exn  : ('a, 'a           ) load_bin_prot
+
+module Macro_loader : sig
+  val load_sexps_conv
+    : string -> (Sexp.t -> 'a) -> 'a Sexplib.Macro.annot_conv list Deferred.t
+end
