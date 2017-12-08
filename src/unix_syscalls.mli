@@ -306,25 +306,7 @@ val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
 val waitpid_exn : Pid.t -> unit             Deferred.t
 
 module Inet_addr : sig
-  type t = Unix.Inet_addr.t [@@deriving bin_io, compare, hash, sexp_of]
-
-  val t_of_sexp : Sexp.t -> t
-  [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
-
-  (** same as [Core.Unix] *)
-  module Stable        = Unix.Inet_addr.Stable
-  module Blocking_sexp = Unix.Inet_addr.Blocking_sexp
-  include Comparable.S with type t := t
-  val of_string : string -> t
-  val to_string : t -> string
-  val bind_any       : t
-  val bind_any_inet6 : t
-  val localhost       : t  (** [127.0.0.1] *)
-
-  val localhost_inet6 : t  (** ([::1]) *)
-
-  val inet4_addr_of_int32 : Int32.t -> t
-  val inet4_addr_to_int32_exn : t -> Int32.t
+  include module type of struct include Unix.Inet_addr end
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
       resulting IP address. *)
