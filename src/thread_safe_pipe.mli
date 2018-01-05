@@ -1,6 +1,6 @@
 (** A thread-safe pipe is a thread-safe interface to the write end of a normal
-    [Async.Pipe].  All operations except for [create] must be called from threads outside
-    Async.  [create] can be called from inside or outside Async.
+    [Async.Pipe].  {b All operations except for [create] must be called from threads
+    outside Async}, while [create] can be called from inside or outside Async.
 
     For [Pipe] functions that return a [unit Deferred.t], the analog in [Thread_safe_pipe]
     blocks.
@@ -10,6 +10,7 @@
 open! Core
 open! Import
 
+(** The writer end of the pipe. *)
 type 'a t [@@deriving sexp_of]
 
 (** [create ()] returns a reader end, which must be used inside Async, and a writer end,

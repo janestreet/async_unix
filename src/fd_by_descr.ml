@@ -2,56 +2,108 @@ open Core
 open Import
 
 module Fd = Raw_fd
-module Table = Bounded_int_table
 
-type t = (File_descr.t, Fd.t) Table.t [@@deriving sexp_of]
+type t = Fd.t Option_array.t [@@deriving sexp_of]
+
+let capacity t = Option_array.length t
 
 let invariant t =
   try
-    Table.invariant ignore Fd.invariant t;
-    Table.iteri t ~f:(fun ~key:file_descr ~data:fd ->
-      assert (File_descr.equal file_descr (Fd.file_descr fd)));
+    for i = 0 to capacity t - 1 do
+      match Option_array.get t i with
+      | None -> ()
+      | Some fd ->
+        Fd.invariant fd;
+        assert (File_descr.equal (i |> File_descr.of_int)  (Fd.file_descr fd));
+    done;
   with exn ->
     raise_s [%message "Fd_by_descr.invariant failure" (exn : exn) ~fd:(t : t)]
 ;;
 
-let capacity = Table.num_keys
-
 let create ~num_file_descrs =
-  Table.create
-    ~num_keys:num_file_descrs
-    ~key_to_int:File_descr.to_int
-    ~sexp_of_key:File_descr.sexp_of_t
-    ()
+  if num_file_descrs < 0
+  then (
+    raise_s [%message
+      "[Fd_by_descr.create] got negative [num_file_descrs]"
+        (num_file_descrs : int)]);
+  Option_array.create ~len:num_file_descrs
 ;;
 
-let mem t file_descr = Table.mem t file_descr
+let bounds_check t file_descr =
+  let i = file_descr |> File_descr.to_int in
+  0 <= i && i < capacity t
+;;
 
-let find     t file_descr = Table.find     t file_descr
-let find_exn t file_descr = Table.find_exn t file_descr
-
-let remove t (fd : Fd.t) = Table.remove t fd.file_descr
-
-let add t (fd : Fd.t) =
-  let file_descr = fd.file_descr in
-  match Table.add t ~key:file_descr ~data:fd with
-  | `Ok -> Ok ()
-  | `Duplicate _ ->
-    error_s [%message "\
-Attempt to register a file descriptor with Async that Async believes it is already \
-managing.  This likely indicates either a bug in Async or code outside of Async
-manipulating a file descriptor that Async is managing."]
-  | exception _ ->
-    error_s [%message
-      "\
-The file descriptor number is larger than the maximum Async allows, which probably means \
+let bounds_check_error t file_descr =
+  [%message
+    "\
+The file descriptor is not in the range that Async allows, which probably means \
 that the program has created too many file descriptors without closing them.  \
 You can cause Async to allow more file descriptors via the [ASYNC_CONFIG] environment \
 variable, like this: \
 ASYNC_CONFIG='((max_num_open_file_descrs <NUMBER>))' foo.exe arg1 arg2 ..."
-        ~max_file_descriptor_number:(Table.num_keys t - 1 : int)]
+      (file_descr : File_descr.t)
+      ~min_file_descr:0
+      ~max_file_descr:(capacity t - 1 : int)]
 ;;
 
-let fold t ~init ~f = Table.fold t ~init ~f:(fun ~key:_ ~data:fd a -> f a fd)
+let bounds_check_exn t file_descr =
+  if not (bounds_check t file_descr)
+  then (raise_s (bounds_check_error t file_descr));
+;;
 
-let iter t ~f = Table.iteri t ~f:(fun ~key:_ ~data:fd -> f fd)
+let mem t file_descr =
+  bounds_check t file_descr
+  && Option_array.is_some t (file_descr |> File_descr.to_int)
+;;
+
+
+let find t file_descr =
+  if not (bounds_check t file_descr)
+  then None
+  else (Option_array.get t (file_descr |> File_descr.to_int))
+;;
+
+let find_exn t file_descr =
+  bounds_check_exn t file_descr;
+  if Option_array.is_none t (file_descr |> File_descr.to_int)
+  then (
+    raise_s [%message
+      "[Fd_by_descr.find_exn] got unknown file_descr" (file_descr : File_descr.t)]);
+  Option_array.get_some_exn t (file_descr |> File_descr.to_int);
+;;
+
+let remove t (fd : Fd.t) =
+  bounds_check_exn t fd.file_descr;
+  Option_array.set_none t (fd.file_descr |> File_descr.to_int);
+;;
+
+let add t (fd : Fd.t) =
+  let file_descr = fd.file_descr in
+  if not (bounds_check t file_descr)
+  then (error_s (bounds_check_error t file_descr))
+  else if Option_array.is_some t (file_descr |> File_descr.to_int)
+  then (
+    error_s [%message "\
+Attempt to register a file descriptor with Async that Async believes it is already \
+managing."])
+  else (
+    Option_array.set_some t (file_descr |> File_descr.to_int) fd;
+    Ok ())
+;;
+
+let fold t ~init ~f =
+  let r = ref init in
+  for i = 0 to capacity t - 1 do
+    if Option_array.is_some t i
+    then (r := f !r (Option_array.get_some_exn t i));
+  done;
+  !r
+;;
+
+let iter t ~f =
+  for i = 0 to capacity t - 1 do
+    if Option_array.is_some t i
+    then (f (Option_array.get_some_exn t i));
+  done;
+;;

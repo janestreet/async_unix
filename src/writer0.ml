@@ -201,12 +201,6 @@ type t =
   }
 [@@deriving fields]
 
-exception Inner_exn of (t * Sexp.t)
-
-let inner_raise_s t sexp =
-  raise (Inner_exn (t, sexp))
-;;
-
 let sexp_of_t
       { id
       ; fd
@@ -349,7 +343,10 @@ let invariant t : unit =
       ~open_flags:ignore
       ~line_ending:ignore
       ~backing_out_channel:(check (Option.invariant Backing_out_channel.invariant))
-  with exn -> inner_raise_s t [%message "writer invariant failed" (exn : exn)]
+  with exn ->
+    raise_s [%message "writer invariant failed"
+                        (exn : exn)
+                        ~writer:(t : t)]
 ;;
 
 module Check_buffer_age : sig
@@ -698,7 +695,7 @@ let stopped_permanently t =
   Ivar.read t.background_writer_stopped
 ;;
 
-let die t sexp = stop_permanently t; inner_raise_s t sexp
+let die t sexp = stop_permanently t; raise_s sexp
 
 type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin_io, sexp]
 
@@ -770,15 +767,10 @@ let create
     }
   in
   Monitor.detach_and_iter_errors inner_monitor ~f:(fun (exn : Exn.t) ->
-    let sexp =
-      match Monitor.extract_exn exn with
-      | Inner_exn (_, sexp) -> sexp
-      | exn -> [%sexp (exn : Exn.t)]
-    in
     Monitor.send_exn monitor
       (Exn.create_s
          [%message "Writer error from inner_monitor"
-                     ~_:(sexp : Sexp.t)
+                     ~_:(Monitor.extract_exn exn : Exn.t)
                      ~writer:(t : t)]));
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
@@ -800,7 +792,8 @@ let can_write t =
 
 let ensure_can_write t =
   if not (can_write t)
-  then (inner_raise_s t [%message "attempt to use closed writer"]);
+  then (
+    raise_s [%message "attempt to use closed writer" ~_:(t : t)]);
 ;;
 
 let open_file ?(append = false) ?buf_len ?syscall ?(perm = 0o666) ?line_ending file =
@@ -1028,7 +1021,7 @@ let maybe_start_writer t =
         in
         if not can_write_fd
         then (
-          inner_raise_s t [%message
+          raise_s [%message
             "not allowed to write due to file-descriptor flags"
               (open_flags : open_flags)]);
         start_write t));
@@ -1121,9 +1114,10 @@ let write_direct t ~f =
     let x, written = f t.buf ~pos ~len in
     if written < 0 || written > len
     then (
-      inner_raise_s t [%message "[write_direct]'s [~f] argument returned invalid [written]"
-                                  (written : int)
-                                  (len : int)]);
+      raise_s [%message "[write_direct]'s [~f] argument returned invalid [written]"
+                          (written : int)
+                          (len : int)
+                          ~writer:(t : t)]);
     t.back <- pos + written;
     got_bytes t written;
     maybe_start_writer t;

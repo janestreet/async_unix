@@ -1,5 +1,8 @@
 (** The [Thread_safe] module has functions that are safe to call from threads outside
-    Async.
+    Async, such as the ones spawned by [In_thread.run].
+
+    This is in contrast with the rest of [Async] library which is generally not
+    thread-safe.
 
     All the [Thread_safe.block*] and [Thread_safe.run*] functions wake up the Async
     scheduler to ensure that it continues in a timely manner with whatever jobs got
@@ -19,11 +22,13 @@ val am_holding_async_lock : unit -> bool
     with value [v] once [fill v] is called.
 
     It is ok to call [deferred] from inside or outside Async.  [fill] must be called from
-    outside Async. *)
+    outside Async.
+*)
 val deferred : unit -> 'a Deferred.t * ('a -> unit)
 
 (** [run_in_async_with_optional_cycle f] acquires the Async lock and runs [f ()] while
-    holding the lock.  Depending on the result of [f], it may also run a cycle. *)
+    holding the lock.  Depending on the result of [f], it may also run a cycle.
+*)
 val run_in_async_with_optional_cycle
   :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
@@ -36,7 +41,8 @@ val run_in_async_with_optional_cycle
     [run_in_async] doesn't run a cycle.
 
     [run_in_async] does not automatically start the Async scheduler.  You still need to
-    call [Scheduler.go] elsewhere in your program. *)
+    call [Scheduler.go] elsewhere in your program.
+*)
 val run_in_async
   :  ?wakeup_scheduler : bool  (** default is [true] *)
   -> (unit -> 'a)
@@ -54,13 +60,15 @@ val run_in_async_exn
     running the cycle will cause the deferred to become determined.
 
     [block_on_async] will automatically start the scheduler if it isn't already
-    running. *)
+    running.
+*)
 val block_on_async     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 val block_on_async_exn : (unit -> 'a Deferred.t) -> 'a
 
 (** [run_in_async_wait f] is like [block_on_async f], except that it must be called from a
     thread outside Async.  Upon returning from [run_in_async_wait], it is guaranteed that
-    the caller does not have the Async lock. *)
+    the caller does not have the Async lock.
+*)
 val run_in_async_wait     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 val run_in_async_wait_exn : (unit -> 'a Deferred.t) ->  'a
 

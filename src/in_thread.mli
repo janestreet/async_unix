@@ -36,12 +36,15 @@ end
     then waits for pushback on [p]. *)
 val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
-(** [run ?priority ?thread ?name f] runs [f ()] in another thread and returns the result
-    as a Deferred in the Async world.  If [f ()] raises an exception (asynchronously,
-    since it is another thread) then that exception will be raised to the monitor that
-    called [run].
+(** [run ?priority ?thread ?name f] runs [f ()] in a separate thread outside Async and
+    returns the result as a Deferred in the Async world.  If [f ()] raises an exception
+    (asynchronously, since it is another thread) then that exception will be raised to the
+    monitor that called [run].
 
-    Async code should not be used from within [f].
+    WARNING: Async code MUST NOT be used from within [f].  By Async code we mean
+    pretty-much all functions of libraries making use of Async.  Only a few functions of
+    the Async library can be called inside [In_thread.run].  These are explicitly marked
+    as such, using the phrase "thread-safe".
 
     If [thread] is not supplied, then any thread from the thread pool could be used.  If
     you need to run routines in a specific thread (as is required by some libraries like
