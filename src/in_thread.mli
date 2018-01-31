@@ -51,8 +51,8 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     Sqlite), you should create a helper thread and supply it to [run].
 
     If [priority] is supplied, the priority of the thread in the linux scheduler will be
-    set to [priority] for the duration of [f ()], provided the thread is allowed to do so,
-    see `man setpriority`.
+    set to [priority] for the duration of [f ()], provided the thread is allowed to do so
+    (see [man setpriority]).
 
     If you call [run] several times with the same helper thread, the [f ()] calls will run
     in sequence, in the order in which they are supplied to [run].  Each [f ()] will

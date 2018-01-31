@@ -1,4 +1,4 @@
-(** Non-blocking, Async-friendly print functions *)
+(** Non-blocking, Async-friendly print functions. *)
 
 val print_char    : char -> unit
 val prerr_char    : char -> unit

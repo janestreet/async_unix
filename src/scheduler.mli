@@ -1,11 +1,11 @@
-(** Threading model:
+(** Dispatches and monitors Async processes.
 
-    Only one thread is running Async code at a time.  This is enforced by a single lock in
-    Async's scheduler data structure.  There are any number of threads running code
-    without holding the lock that get data from the outside world and want to affect the
-    Async world.  They do this by calling [Thread_safe.run_in_async*], which acquires the
-    lock, does a computation (e.g. fills an ivar), and then runs a "cycle" of Async
-    computations. *)
+    The threading model is as follows.  Only one thread runs Async code at a time.  This
+    is enforced by a single lock in Async's scheduler data structure.  There are any
+    number of threads running code without holding the lock that get data from the outside
+    world and want to affect the Async world.  They do this by calling
+    [Thread_safe.run_in_async*], which acquires the lock, does a computation (e.g., fills
+    an ivar), and then runs a "cycle" of Async computations. *)
 
 open! Core
 open! Import
@@ -17,16 +17,17 @@ type t = Raw_scheduler.t [@@deriving sexp_of]
 val t : unit -> t
 
 (** Accessors *)
+
 val max_num_open_file_descrs : unit -> int
 val max_num_threads          : unit -> int
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
     running handlers, one by one without interruption, until there are no more handlers to
-    run.  When Async is out of handlers it blocks until the outside world schedules more
+    run.  When Async is out of handlers, it blocks until the outside world schedules more
     of them.  Because of this, Async programs do not exit until [shutdown] is called.
 
     [go ()] calls [handle_signal Sys.sigpipe], which causes the SIGPIPE signal to be
-    ignored.  Low-level syscalls (e.g. write) still raise EPIPE.
+    ignored.  Low-level syscalls (e.g., write) still raise EPIPE.
 
     If any Async job raises an unhandled exception that is not handled by any monitor,
     Async execution ceases.  Then, by default, Async pretty prints the exception, and
@@ -37,9 +38,9 @@ val go
   -> unit
   -> never_returns
 
-(** [go_main] is like [go], except that one supplies a [main] function that will be run to
+(** [go_main] is like [go], except that you supply a [main] function that will be run to
     initialize the Async computation, and that [go_main] will fail if any Async has been
-    used prior to [go_main] being called.  Moreover it allows to configure more static
+    used prior to [go_main] being called.  Moreover it allows you to configure more static
     options of the scheduler. *)
 val go_main
   :  ?raise_unhandled_exn      : bool                         (** default is [false] *)
@@ -75,7 +76,7 @@ val within : ((unit -> unit) -> unit) with_options
 val within_v : ((unit -> 'a) -> 'a option) with_options
 
 (** [with_local key value ~f], when run in the current execution context, [e], runs [f]
-    right now in a new execution context, [e'], that is identical to [e], except that
+    right now in a new execution context, [e'], that is identical to [e] except that
     [find_local key = value].  As usual, [e'] will be in effect in asynchronous
     computations started by [f].  When [with_local] returns, the execution context is
     restored to [e]. *)
@@ -89,7 +90,7 @@ val find_local : 'a Univ_map.Key.t -> 'a option
     it to the Async queue to be run with other Async jobs. *)
 val schedule' : ((unit -> 'a Deferred.t) -> 'a Deferred.t) with_options
 
-(** Just like schedule', but doesn't require the thunk to return a deferred. *)
+(** Just like [schedule'], but doesn't require the thunk to return a deferred. *)
 val schedule : ((unit -> unit) -> unit) with_options
 
 (** [preserve_execution_context t f] saves the current execution context and returns a
@@ -127,7 +128,7 @@ val event_precision    : unit -> Time.Span.t
 val event_precision_ns : unit -> Time_ns.Span.t
 
 (** [force_current_cycle_to_end ()] causes no more normal priority jobs to run in the
-    current cycle, and for the end-of-cycle jobs (i.e. writes) to run, and then for the
+    current cycle, and for the end-of-cycle jobs (i.e., writes) to run, and then for the
     cycle to end. *)
 val force_current_cycle_to_end : unit -> unit
 
@@ -163,25 +164,26 @@ val set_detect_invalid_access_from_thread : bool -> unit
     impact, both in running time and space usage. *)
 val set_record_backtraces : bool -> unit
 
+type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
+
 (** [fold_fields ~init folder] folds [folder] over each field in the scheduler.  The
     fields themselves are not exposed -- [folder] must be a polymorphic function that
-    can work on any field.  So, it's only useful for generic operations, e.g. getting
+    can work on any field.  So, it's only useful for generic operations, e.g., getting
     the size of each field. *)
-type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 val fold_fields : init:'b -> 'b folder -> 'b
 
 val is_ready_to_initialize : unit -> bool
 
 (** If a process that has already created, but not started, the Async scheduler would like
-    to fork, and would like the child to have a clean Async, i.e. not inherit any of the
+    to fork, and would like the child to have a clean Async, i.e., not inherit any of the
     Async work that was done in the parent, it can call [reset_in_forked_process] at the
     start of execution in the child process.  After that, the child can do Async stuff and
     then start the Async scheduler. *)
 val reset_in_forked_process : unit -> unit
 
 (** [make_async_unusable ()] makes subsequent attempts to use the Async scheduler raise.
-    One use of [make_async_unusable] is if one forks from a process already running the
-    Async scheduler, and one wants to run non-Async OCaml code in the child process, with
+    One use case for [make_async_unusable] is if you fork from a process already running
+    the Async scheduler, and want to run non-Async OCaml code in the child process, with
     the guarantee that the child process does not use Async. *)
 val make_async_unusable : unit -> unit
 
@@ -197,10 +199,10 @@ val make_async_unusable : unit -> unit
     continuously, once per iteration of the busy loop, until it returns [`Stop_polling a]
     at which point the result of [add_busy_poller] will become determined.  [poll] will
     hold the Async lock while running, so it is fine to do ordinary Async operations,
-    e.g. fill an ivar.  The busy loop will run an ordinary Async cycle if any of the
+    e.g., fill an ivar.  The busy loop will run an ordinary Async cycle if any of the
     pollers add jobs.
 
-    [poll] will run in monitor in effect when [add_busy_poller] was called; exceptions
+    [poll] will run in the monitor in effect when [add_busy_poller] was called; exceptions
     raised by [poll] will be sent asynchronously to that monitor.  If [poll] raises, it
     will still be run on subsequent iterations of the busy loop. *)
 val add_busy_poller
@@ -208,8 +210,8 @@ val add_busy_poller
   -> 'a Deferred.t
 
 (** [handle_thread_pool_stuck f] causes [f] to run whenever Async detects its thread pool
-    is stuck (i.e. hasn't completed a job for over a second and has work waiting to
-    start).  Async checks every second.  By default, if thread pool has been stuck for
+    is stuck (i.e., hasn't completed a job for over a second and has work waiting to
+    start).  Async checks every second.  By default, if the thread pool has been stuck for
     less than 60s, Async will [eprintf] a message.  If more than 60s, Async will send an
     exception to the main monitor, which will abort the program unless there is a custom
     handler for the main monitor.
@@ -224,9 +226,9 @@ val default_handle_thread_pool_stuck :  stuck_for:Time_ns.Span.t -> unit
 val yield : unit -> unit Deferred.t
 
 (** [yield_until_no_jobs_remain ()] returns a deferred that becomes determined the next
-    time Async's job queue is empty.  This is useful in tests where one needs to wait for
-    the completion of all the jobs based on what's in the queue, but those jobs might
-    create other jobs not depend on I/O or the passage of wall-clock time. *)
+    time Async's job queue is empty.  This is useful in tests when one needs to wait for
+    the completion of all the jobs based on what's in the queue, when those jobs might
+    create other jobs -- without depending on I/O or the passage of wall-clock time. *)
 val yield_until_no_jobs_remain : unit -> unit Deferred.t
 
 (** [yield_every ~n] returns a function that will act as [yield] every [n] calls and as

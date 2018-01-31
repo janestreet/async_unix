@@ -3,8 +3,8 @@
     The idea is that in an Async program one does not use the standard Unix module, since
     in doing so one could accidentally block the whole program.
 
-    There are also a number of cosmetic changes (e.g. polymorphic variants) and other
-    improvements (e.g. phantom types on sockets) over the standard Unix module. *)
+    There are also a number of cosmetic changes (e.g., polymorphic variants) and other
+    improvements (e.g., phantom types on sockets) over the standard Unix module. *)
 
 open! Core
 open! Import
@@ -23,18 +23,18 @@ val getppid     : unit -> Pid.t option
 val getppid_exn : unit -> Pid.t
 
 (** [this_process_became_child_of_init] returns a deferred that becomes determined when
-    the current process becomes a child of init(8).  This is useful to determine if one's
-    parent has died, because in that case init will becomes one's parent.
+    the current process becomes a child of [init(8)].  This is useful for determining
+    whether one's parent has died, because in that case [init] will become one's parent.
 
-    See [Linux_ext.pr_set_pdeathsig : Signal.t -> unit] for related way to get information
-    about parent death.
+    See [Linux_ext.pr_set_pdeathsig : Signal.t -> unit] for a related way to get
+    information about parent death.
 
-    @poll_delay controls how often to check *)
+    [?poll_delay] controls how often to check. *)
 val this_process_became_child_of_init : ?poll_delay:Time.Span.t -> unit -> unit Deferred.t
 
 val nice : int -> int
 
-(** [cores ()] Returns the number of cores *)
+(** [cores ()] Returns the number of cores. *)
 val cores : (unit -> int Deferred.t) Or_error.t
 
 type open_flag =
@@ -104,13 +104,13 @@ val lockf : ?len:Int64.t -> Fd.t -> [`Read | `Write] -> unit Deferred.t
 val try_lockf : ?len:Int64.t -> Fd.t -> [`Read | `Write] -> bool
 
 (** [lockf_is_locked fd ?len] checks the lock on section of the open file [fd] specified
-    by the current file position and [len] (see man lockf).  If the section is unlocked or
-    locked by this process, it returns true, else it returns false.  It raises if [fd] is
-    closed. *)
+    by the current file position and [len] (see [man lockf]).  If the section is unlocked
+    or locked by this process, it returns true, else it returns false.  It raises if [fd]
+    is closed. *)
 val test_lockf : ?len:Int64.t -> Fd.t -> bool
 
 (** [unlockf fd ?len] unlocks the section of the open file [fd] specified by the current
-    file position and [len] (see man lockf).  It raises if [fd] is closed. *)
+    file position and [len] (see [man lockf]).  It raises if [fd] is closed. *)
 val unlockf : ?len:Int64.t -> Fd.t -> unit
 
 module File_kind : sig
@@ -388,11 +388,11 @@ module Socket : sig
     val to_string : 'a t -> string
   end
 
-  (** Sockets have a phantom type parameter that tracks the state of the socket
-      in order to eliminate certain errors in which socket functions are called
-      in the wrong order.  Initially, a socket is `Unconnected.  As various
-      socket functions are called, they return a socket with a new phantom state.
-      Here is a chart of the allowed state transitions.
+  (** Sockets have a phantom type parameter that tracks the state of the socket in order
+      to eliminate certain errors in which socket functions are called in the wrong order.
+      Initially, a socket is [`Unconnected].  As various socket functions are called, they
+      return a socket with a new phantom state.  Here is a chart of the allowed state
+      transitions.
 
       {v
         Unconnected ---connect--> Active
@@ -773,11 +773,11 @@ end
 
 module Ifaddr = Core.Unix.Ifaddr
 
-(** [getifaddrs] gets the information using the socket-based netlink interface, which
-    can block, see: https://www.infradead.org/~tgr/libnl/doc/core.html. *)
+(** Gets the information using the socket-based netlink interface, which can block; see
+    https://www.infradead.org/~tgr/libnl/doc/core.html. *)
 val getifaddrs : unit -> Ifaddr.t list Deferred.t
 
-(** Return the login name of the user executing the process.
+(** Returns the login name of the user executing the process.
 
     This returns a deferred because the username may need to be looked up in what is
     essentially a database elsewhere on the network (winbound user, or NIS). *)

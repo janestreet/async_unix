@@ -52,12 +52,6 @@ val create_exn : t            create
 (** [wait t = Unix.waitpid (pid t)] *)
 val wait : t -> Unix.Exit_or_signal.t Deferred.t
 
-(** [collect_output_and_wait t] closes [stdin t] and then begins collecting the output
-    produced on [t]'s [stdout] and [stderr], continuing to collect output until [t]
-    terminates and the pipes for [stdout] and [stderr] are closed.  Usually when [t]
-    terminates, the pipes are closed; however, [t] could fork other processes which
-    survive after [t] terminates and in turn keep the pipes open -- [wait] will not become
-    determined until both pipes are closed in all descendant processes. *)
 module Output : sig
   type t =
     { stdout      : string
@@ -72,6 +66,12 @@ module Output : sig
   end
 end
 
+(** [collect_output_and_wait t] closes [stdin t] and then begins collecting the output
+    produced on [t]'s [stdout] and [stderr], continuing to collect output until [t]
+    terminates and the pipes for [stdout] and [stderr] are closed.  Usually when [t]
+    terminates, the pipes are closed; however, [t] could fork other processes which
+    survive after [t] terminates and in turn keep the pipes open -- [wait] will not become
+    determined until both pipes are closed in all descendant processes. *)
 val collect_output_and_wait : t -> Output.t Deferred.t
 
 (** [run] [create]s a process, feeds it [stdin] if provided, and [wait]s for it to

@@ -1,3 +1,5 @@
+(** For shutting down an Async program. *)
+
 open! Core
 open! Import
 
@@ -43,9 +45,9 @@ val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 (** [default_force] returns the default [force] value used by [shutdown] and [exit]. *)
 val default_force : unit -> (unit -> unit Deferred.t)
 
-(** [set_default_force f] sets to [f] the default [force] value used by [shutdown] and
-    [exit].  Initially, the default value is [fun () -> after (sec 10.)].  A subsequent
-    call to [shutdown] or [exit] that doesn't supply [~force] will call [f] and will force
+(** [set_default_force f] sets the default [force] value used by [shutdown] and [exit] to
+    [f]. Initially, the default value is [fun () -> after (sec 10.)]. A subsequent call to
+    [shutdown] or [exit] that doesn't supply [~force] will call [f] and will force
     shutdown when its result becomes determined.
 
     [set_default_force] has no effect if [shutdown] or [exit] has already been called, or
@@ -71,7 +73,7 @@ val at_shutdown : (unit -> unit Deferred.t) -> unit
 
 (** [don't_finish_before d] causes [shutdown] to wait until [d] becomes determined before
     finishing.  It is like [at_shutdown (fun _ -> d)], except it is more efficient, and
-    will not take any space once [d] is determined.  There is a a single [at_shutdown]
+    will not take any space once [d] is determined.  There is a single [at_shutdown]
     shared among all deferreds supplied to [don't_finish_before].  [don't_finish_before]
     does not override the [force] argument passed to shutdown. *)
 val don't_finish_before : unit Deferred.t -> unit

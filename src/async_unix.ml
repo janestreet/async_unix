@@ -20,7 +20,7 @@ module Writer                       = Writer
 
 module Unix = struct
   module Fd = Fd
-  include Unix_syscalls
+  include Unix_syscalls (** @open *)
 end
 
 include Assign_try_with_log_exn (* see comment in assign_try_with_log_exn.mli *)

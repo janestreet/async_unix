@@ -36,7 +36,7 @@ val run_in_async_with_optional_cycle
 
 (** [run_in_async f] acquires the Async lock and runs [f ()] while holding the lock. It
     returns the result of [f ()] to the outside world.  The scheduler is woken up to
-    ensures the code that depends on [f ()] is run soon enough.
+    ensure the code that depends on [f ()] is run soon enough.
 
     [run_in_async] doesn't run a cycle.
 
@@ -75,8 +75,9 @@ val run_in_async_wait_exn : (unit -> 'a Deferred.t) ->  'a
 (** [reset_scheduler] stops the scheduler thread and any associated threads, and resets
     Async's global state to its initial state.  This is useful if you need to first use
     Async to compute a value and then to daemonize (in which case you should [daemonize]
-    with [~allow_threads_to_have_been_created:true]).  [reset_scheduler] can be called
-    from the main thread (before Async is started) or from a thread outside Async.
-    [reset_scheduler] is known to be imperfect, and to have races in which there are still
-    threads running after it returns. *)
+    with [~allow_threads_to_have_been_created:true]).
+
+    [reset_scheduler] can be called from the main thread (before Async is started) or from
+    a thread outside Async.  [reset_scheduler] is known to be imperfect, and to have races
+    in which there are still threads running after it returns. *)
 val reset_scheduler : unit -> unit

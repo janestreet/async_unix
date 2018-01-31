@@ -2,7 +2,7 @@
 
     Although this module is fully Async-safe it exposes almost no Deferreds.  This is
     partially a design choice to minimize the impact of logging in code, and partially the
-    result of organic design (i.e. older versions of this interface did the same thing).
+    result of organic design (i.e., older versions of this interface did the same thing).
 
     A (limited) [Blocking] module is supplied to accommodate the portion of a program that
     runs outside of Async.
@@ -66,30 +66,30 @@ module Message : sig
 end
 
 module Rotation : sig
-  (** description of boundaries for file rotation.
+  (** Description of boundaries for file rotation.
 
       If all fields are [None] the file will never be rotated.  Any field set to [Some]
       will cause rotation to happen when that boundary is crossed.  Multiple boundaries
-      may be set.  Log rotation always causes incrementing rotation conditions (e.g. size)
-      to reset.
+      may be set.  Log rotation always causes incrementing rotation conditions (e.g.,
+      size) to reset.
 
       The condition [keep] is special and does not follow the rules above.  When a log is
-      rotated [keep] is examined and logs that do not fall under its instructions are
+      rotated, [keep] is examined and logs that do not fall under its instructions are
       deleted.  This deletion takes place on rotation only, and so may not happen.  The
       meaning of keep options are:
 
       - [`All] -- never delete
-      - [`Newer_than span] --
-      delete files with a timestamp older than [Time.sub (Time.now ()) span].  This
-      normally means keeping files that contain at least one message logged within
-      span.  If span is short enough this option can delete a just rotated file.
-      - [`At_least i] -- keep the i most recent files
+      - [`Newer_than span] -- delete files with a timestamp older than [Time.sub (Time.now
+      ()) span].  This normally means keeping files that contain at least one message
+      logged within [span].  If [span] is short enough this option can delete a
+      just-rotated file.
+      - [`At_least i] -- keep the [i] most recent files
 
       Log rotation does not support symlinks, and you're encouraged to avoid them in
       production applications. Issues with symlinks:
-      - You can't tail symlinks without being careful (e.g. you must remember to pass
-      "-F" to
-      `tail`).
+
+      - You can't tail symlinks without being careful (e.g., you must remember to pass
+      [-F] to [`tail`]).
       - Symlinks are hard to reason about when the program crashes, especially on
       startup (i.e., is the symlink pointing me at the right log file?).
       - Atomicity is hard.
@@ -122,14 +122,14 @@ module Rotation : sig
     -> unit
     -> t
 
-  (** Sane log rotation defaults.
+  (** Sane defaults for log rotation.
 
       Writes dated log files. Files are rotated every time the day changes in the given
       zone (uses the machine's zone by default). If the dated log file already exists,
       it's appended to.
 
       Logs are never deleted. Best practice is to have an external mechanism archive old
-      logs for long term storage. *)
+      logs for long-term storage. *)
   val default
     :  ?zone : Time.Zone.t
     -> unit
@@ -150,7 +150,7 @@ module Output : sig
 
   type t
 
-  (** [create f] returns a t, given a function that actually performs the final output
+  (** [create f] returns a [t], given a function that actually performs the final output
       work. It is the responsibility of the write function to contain all state, and to
       clean up after itself when it is garbage collected (which may require a finalizer).
       The function should avoid modifying the contents of the queue; it's reused for each
@@ -161,11 +161,11 @@ module Output : sig
       meaningful/appropriate to do so.
 
       [flush] should return a deferred that is fulfilled only when all previously written
-      messages are durable (e.g. on disk, out on the network, etc.).  It is automatically
-      called on shutdown by Log, but isn't automatically called at any other time.  It can
-      be called manually by calling [Log.flushed t].
+      messages are durable (e.g., on disk, out on the network, etc.).  It is automatically
+      called on shutdown by [Log], but isn't automatically called at any other time.  It
+      can be called manually by calling [Log.flushed t].
 
-      The unit Deferred returned by the function provides an opportunity for pushback if
+      The [unit Deferred] returned by the function provides an opportunity for pushback if
       that is important.  Only one batch of messages will be "in flight" at any time based
       on this deferred.
 
@@ -174,7 +174,7 @@ module Output : sig
       very precise control over rotation.
 
       If [close] is provided it will be called when the log falls out of scope. (Note that
-      it is not called directly even if you close a log which is using this output,
+      it is not called directly, even if you close a log which is using this output,
       because outputs are sometimes reused.)  *)
   val create
     :  ?rotate:(unit -> unit Deferred.t)
@@ -189,8 +189,8 @@ module Output : sig
   val file          : Format.t -> filename:string -> t
   val rotating_file : Format.t -> basename:string -> Rotation.t -> t
 
-  (** returns a tail of the filenames. When rotate is called, the previous filename is put
-      on the tail *)
+  (** Returns a tail of the filenames. When [rotate] is called, the previous filename is
+      put on the tail *)
   val rotating_file_with_tail
     : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
 
@@ -219,7 +219,7 @@ module Blocking : sig
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
 
-  (** [raw] printf like logging for raw (no level) messages.  Raw messages are still
+  (** Printf-like logging for raw (no level) messages.  Raw messages are still
       output with a timestamp. *)
   val raw
     :  ?time : Time.t
@@ -227,28 +227,28 @@ module Blocking : sig
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [info] printf like logging at the `Info log level *)
+  (** Printf-like logging at the [`Info] log level *)
   val info
     :  ?time : Time.t
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [error] printf like logging at the `Error log level *)
+  (** Printf-like logging at the [`Error] log level *)
   val error
     :  ?time : Time.t
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [debug] printf like logging at the `Debug log level *)
+  (** Printf-like logging at the [`Debug] log level *)
   val debug
     :  ?time : Time.t
     -> ?tags : (string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** [sexp] logging of sexps. *)
+  (** Logging of sexps. *)
   val sexp
     :  ?level : Level.t
     -> ?time : Time.t
@@ -256,7 +256,8 @@ module Blocking : sig
     -> Sexp.t
     -> unit
 
-  (** [surround_s] logs before and after.  See more detailed comment for async surround. *)
+  (** [surround_s] logs before and after.  See more detailed comment for async
+      surround. *)
   val surround_s
     :  ?level : Level.t
     -> ?time : Time.t
@@ -276,7 +277,7 @@ end
 
 type t [@@deriving sexp_of]
 
-(** An interface for singleton logs *)
+(** An interface for singleton logs. *)
 module type Global_intf = sig
   val log : t Lazy.t
 
@@ -289,8 +290,9 @@ module type Global_intf = sig
 
   val set_level_via_param : unit -> unit Command.Param.t
 
-  (** logging functions as the functions that operate on a given log.  In this case they
-      operate on a single log global to the module *)
+  (** Functions that operate on a given log.  In this case they operate on a single log
+      global to the module. *)
+
   val raw
     :  ?time : Time.t
     -> ?tags : (string * string) list
@@ -358,50 +360,50 @@ module type Global_intf = sig
     -> 'a
 end
 
-(** This functor can be called to generate "singleton" logging modules *)
+(** This functor can be called to generate "singleton" logging modules. *)
 module Make_global () : Global_intf
 
 (** Programs that want simplistic single-channel logging can open this module.  It
     provides a global logging facility to a single output type at a single level.  More
-    nuanced logging can be had by using the functions that operate on a distinct Log.t
+    nuanced logging can be had by using the functions that operate on a distinct [Log.t]
     type. *)
 module Global : Global_intf
 
-(** Set the log level via a flag, if provided. *)
+(** Sets the log level via a flag, if provided. *)
 val set_level_via_param : t -> unit Command.Param.t
 
-(** messages sent at a level less than the current level will not be output. *)
+(** Messages sent at a level less than the current level will not be output. *)
 val set_level : t -> Level.t -> unit
 
-(** returns the last level passed to [set_level], which will be the log level
+(** Returns the last level passed to [set_level], which will be the log level
     checked as a threshold against the level of the next message sent. *)
 val level : t -> Level.t
 
-(** changes the output type of the log, which can be useful when daemonizing.
+(** Changes the output type of the log, which can be useful when daemonizing.
     The new output type will be applied to all subsequent messages. *)
 val set_output : t -> Output.t list -> unit
 
 val get_output : t -> Output.t list
 
-(** if [`Raise] is given then background errors raised by logging will be raised to the
+(** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
     by providing [`Call f]. *)
 val set_on_error : t -> [ `Raise | `Call of (Error.t -> unit) ] -> unit
 
-(** any call that writes to a log after [close] is called will raise. *)
+(** Any call that writes to a log after [close] is called will raise. *)
 val close : t -> unit Deferred.t
 
-(** returns true if [close] has been called *)
+(** Returns true if [close] has been called. *)
 val is_closed : t -> bool
 
-(** returns a Deferred.t that is fulfilled when the last message delivered to t before the
-    call to flushed is out the door. *)
+(** Returns a [Deferred.t] that is fulfilled when the last message delivered to [t] before
+    the call to [flushed] is out the door. *)
 val flushed : t -> unit Deferred.t
 
-(** informs the current [Output]s to rotate if possible *)
+(** Informs the current [Output]s to rotate if possible. *)
 val rotate : t -> unit Deferred.t
 
-(** create a new log.  See [set_level], [set_on_error] and [set_output] for
+(** Creates a new log.  See [set_level], [set_on_error] and [set_output] for
     more. *)
 val create
   :  level:Level.t
@@ -409,8 +411,8 @@ val create
   -> on_error:[ `Raise | `Call of (Error.t -> unit) ]
   -> t
 
-(** [raw] printf like logging for raw (no level) messages.  Raw messages are still
-    output with a timestamp. *)
+(** Printf-like logging for raw (no level) messages.  Raw messages are still output with a
+    timestamp. *)
 val raw
   :  ?time : Time.t
   -> ?tags : (string * string) list
@@ -418,14 +420,14 @@ val raw
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** [debug] printf like logging at the `Debug log level *)
+(** Printf-like logging at the [`Debug] log level. *)
 val debug
   :  ?time : Time.t
   -> ?tags : (string * string) list
   -> t
   -> ('a, unit, string, unit) format4 -> 'a
 
-(** [info] printf like logging at the `Info log level *)
+(** Printf-like logging at the [`Info] log level. *)
 val info
   :  ?time : Time.t
   -> ?tags : (string * string) list
@@ -433,7 +435,7 @@ val info
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** [error] printf like logging at the `Error log level *)
+(** Printf-like logging at the [`Error] log level. *)
 val error
   :  ?time : Time.t
   -> ?tags : (string * string) list
@@ -441,7 +443,7 @@ val error
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** [printf] generalized printf style logging *)
+(** Generalized printf-style logging. *)
 val printf
   :  ?level : Level.t
   -> ?time  : Time.t
@@ -450,7 +452,7 @@ val printf
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** [sexp] log sexps directly *)
+(** Log sexps directly. *)
 val sexp
   :  ?level:Level.t
   -> ?time:Time.t
@@ -459,7 +461,7 @@ val sexp
   -> Sexp.t
   -> unit
 
-(** [string] logging of string values *)
+(** Logging of string values. *)
 val string
   :  ?level : Level.t
   -> ?time  : Time.t
@@ -468,7 +470,7 @@ val string
   -> string
   -> unit
 
-(** [message] log a preexisting message *)
+(** Log a preexisting message. *)
 val message : t -> Message.t -> unit
 
 (** [surround t message f] logs [message] and a UUID once before calling [f] and again
@@ -499,7 +501,7 @@ val would_log : t -> Level.t option -> bool
 module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors
       encountered when opening or reading the file will be thrown as exceptions into the
-      monitor current at the time pipe is called. *)
+      monitor current at the time [pipe] is called. *)
   val pipe
     :  [< Output.Format.machine_readable ]
     -> string

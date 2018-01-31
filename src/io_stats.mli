@@ -1,3 +1,5 @@
+(** Gives stats about system IO usage. *)
+
 open! Core
 
 type t [@@deriving sexp]

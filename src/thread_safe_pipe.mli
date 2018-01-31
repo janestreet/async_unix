@@ -28,9 +28,11 @@ module Written_or_closed : sig
 end
 
 (** Functions that write elements to the pipe take an [If_closed.t] argument to specify
-    how to deal with the possibility that the pipe is closed: [Raise] on closed pipe, or
-    [Return] a variant indicating whether the pipe is closed.  This allows lightweight
-    syntax for calls that want to raise if the pipe is closed:
+    how to deal with the possibility that the pipe is closed.
+
+    The alternatives are to [Raise] on a closed pipe, or [Return] a variant indicating
+    whether the pipe is closed.  This allows lightweight syntax for calls that want to
+    raise if the pipe is closed:
 
     {[
       write t a ~if_closed:Raise ]}

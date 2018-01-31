@@ -1,4 +1,6 @@
+(** A {{!Async_kernel.Clock_intf.Clock}[Clock]} based on [Core.Time]. *)
+
 open! Core
 open! Import
 
-include Async_kernel.Clock_intf.Clock with module Time := Time
+include Async_kernel.Clock_intf.Clock with module Time := Time (** @open *)

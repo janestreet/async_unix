@@ -1,25 +1,27 @@
 (** [Writer] is Async's main API for output to a file descriptor.  It is the analog of
     [Core.Out_channel].
 
-    Each writer has an internal buffer, to which [Writer.write*] adds data.  Each writer
-    uses an Async microthread that makes [write()] system calls to move the data from the
-    writer's buffer to an OS buffer via the file descriptor.  There is no guarantee that
-    the data sync on the other side of the writer can keep up with the rate at which you
-    are writing.  If it cannot, the OS buffer will fill up and the writer's micro-thread
-    will be unable to send any bytes.  In that case, calls to [Writer.write*] will grow
-    the writer's buffer without bound, as long as your program produces data.  One
-    solution to this problem is to call [Writer.flushed] and not continue until that
-    becomes determined, which will only happen once the bytes in the writer's buffer have
-    been successfully transferred to the OS buffer.  Another solution is to check
-    [Writer.bytes_to_write] and not produce any more data if that is beyond some bound.
+    Each writer has an internal buffer, to which [Writer.write*] adds data. Each writer
+    uses an Async cooperative thread that makes [write()] system calls to move the data
+    from the writer's buffer to an OS buffer via the file descriptor.
 
-    There are two kinds of errors that one can handle with writers.  First, a writer can
-    be [close]d, which will cause future [write]s (and other operations) to synchronously
-    raise an excecption.  Second, the writer's microthread can fail due to a [write()]
-    system call failing.  This will cause an exception to be sent to the writer's monitor,
-    which will be a child of the monitor in effect when the writer is created.  One can
-    deal with such asynchronous exceptions in the usual way, by handling the stream
-    returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)]. *)
+    There is no guarantee that the data sync on the other side of the writer can keep up
+    with the rate at which you are writing. If it cannot, the OS buffer will fill up and
+    the writer's cooperative thread will be unable to send any bytes. In that case, calls
+    to [Writer.write*] will grow the writer's buffer without bound, as long as your
+    program produces data. One solution to this problem is to call [Writer.flushed] and
+    not continue until that becomes determined, which will only happen once the bytes in
+    the writer's buffer have been successfully transferred to the OS buffer. Another
+    solution is to check [Writer.bytes_to_write] and not produce any more data if that is
+    beyond some bound.
+
+    There are two kinds of errors that one can handle with writers. First, a writer can be
+    [close]d, which will cause future [write]s (and other operations) to synchronously
+    raise an exception. Second, the writer's cooperative thread can fail due to a
+    [write()] system call failing. This will cause an exception to be sent to the writer's
+    monitor, which will be a child of the monitor in effect when the writer is created.
+    One can deal with such asynchronous exceptions in the usual way, by handling the
+    stream returned by [Monitor.detach_and_get_error_stream (Writer.monitor writer)]. *)
 
 open! Core
 open! Import
@@ -34,7 +36,7 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-(** [io_stats] Overall IO statistics for all writers *)
+(** Overall IO statistics for all writers. *)
 val io_stats : Io_stats.t
 
 (** [stdout] and [stderr] are writers for file descriptors 1 and 2.  They are lazy because
@@ -45,7 +47,7 @@ val io_stats : Io_stats.t
     can be confusing, because [fd (force stderr)] will be [Fd.stdout], not [Fd.stderr].
     And subsequent modifications of [Fd.stderr] will have no effect on [Writer.stderr].
 
-    Unfortunately, the sharing is necessary because Async uses OS threads to do write()
+    Unfortunately, the sharing is necessary because Async uses OS threads to do [write()]
     syscalls using the writer buffer.  When calling a program that redirects stdout and
     stderr to the same file, as in:
 
@@ -53,7 +55,7 @@ val io_stats : Io_stats.t
       foo.exe >/tmp/z.file 2>&1
     v}
 
-    If [Writer.stdout] and [Writer.stderr] weren't the same writer, then they could have
+    if [Writer.stdout] and [Writer.stderr] weren't the same writer, then they could have
     threads simultaneously writing to the same file, which could easily cause data
     loss. *)
 val stdout : t Lazy.t
@@ -63,31 +65,31 @@ type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin
 
 
 (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
-    descriptor fd should not be in use for writing by anything else.
+    descriptor [fd] should not be in use for writing by anything else.
 
     By default, a write system call occurs at the end of a cycle in which bytes were
-    written.  One can supply ~syscall:(`Periodic span) to get better performance.  This
+    written.  One can supply [~syscall:(`Periodic span)] to get better performance.  This
     batches writes together, doing the write system call periodically according to the
     supplied span.
 
     A writer can asynchronously fail if the underlying write syscall returns an error,
-    e.g. EBADF, EPIPE, ECONNRESET, ....
+    e.g., [EBADF], [EPIPE], [ECONNRESET], ....
 
     [buffer_age_limit] specifies how backed up you can get before raising an exception.
     The default is [`Unlimited] for files, and 2 minutes for other kinds of file
     descriptors.  You can supply [`Unlimited] to turn off buffer-age checks.
 
     [raise_when_consumer_leaves] specifies whether the writer should raise an exception
-    when the consumer receiving bytes from the writer leaves, i.e. in Unix, the write
-    syscall returns EPIPE or ECONNRESET.  If [not raise_when_consumer_leaves], then the
-    writer will silently drop all writes after the consumer leaves, and the writer will
-    eventually fail with a writer-buffer-older-than error if the application remains open
-    long enough.
+    when the consumer receiving bytes from the writer leaves, i.e., in Unix, the write
+    syscall returns [EPIPE] or [ECONNRESET].  If [not raise_when_consumer_leaves], then
+    the writer will silently drop all writes after the consumer leaves, and the writer
+    will eventually fail with a writer-buffer-older-than error if the application remains
+    open long enough.
 
     [line_ending] determines how [newline] and [write_line] terminate lines by default.
-    If [line_ending = Unix] then end of line is ["\n"], if [line_ending = Dos] then end of
+    If [line_ending = Unix] then end of line is ["\n"]; if [line_ending = Dos] then end of
     line is ["\r\n"].  Note that [line_ending = Dos] is not equivalent to opening the file
-    in text mode because any "\n" characters being printed by other means (e.g. [write
+    in text mode because any "\n" characters being printed by other means (e.g., [write
     "\n"]) are still written verbatim (in Unix style). *)
 val create
   :  ?buf_len                    : int
@@ -101,8 +103,8 @@ val create
 val raise_when_consumer_leaves : t -> bool
 
 (** [set_raise_when_consumer_leaves t bool] sets the [raise_when_consumer_leaves] flag of
-    [t], which determies how [t] responds to a write system call raising EPIPE and
-    ECONNRESET (see [create]). *)
+    [t], which determies how [t] responds to a write system call raising [EPIPE] and
+    [ECONNRESET] (see [create]). *)
 val set_raise_when_consumer_leaves : t -> bool -> unit
 
 (** [set_buffer_age_limit t buffer_age_limit] replaces the existing buffer age limit with
@@ -143,14 +145,14 @@ val with_file
   -> f          : (t -> 'a Deferred.t)
   -> 'a Deferred.t
 
-(** [id t] @return an id for this writer that is unique among all other writers *)
+(** [id] returns an id for this writer that is unique among all other writers. *)
 val id : t -> Id.t
 
-(** [fd t] @return the Fd.t used to create this writer *)
+(** [fd] returns the [Fd.t] used to create this writer. *)
 val fd : t -> Fd.t
 
-(** [set_fd t fd] sets the fd used by [t] for its underlying system calls.  It first waits
-    until everything being sent to the current fd is flushed.  Of course, one must
+(** [set_fd t fd] sets the [fd] used by [t] for its underlying system calls.  It first
+    waits until everything being sent to the current [fd] is flushed.  Of course, one must
     understand how the writer works and what one is doing to use this. *)
 val set_fd : t -> Fd.t -> unit Deferred.t
 
@@ -246,12 +248,12 @@ val write_bigsubstring : t -> Bigsubstring.t -> unit
 
 val writef : t -> ('a, unit, string, unit) format4 -> 'a
 
-(** [to_formatter t] @return an OCaml-formatter that one can print to using
+(** [to_formatter] returns an OCaml-formatter that one can print to using
     {!Format.fprintf}.  Note that flushing the formatter will only submit all buffered
-    data to the writer, but does _not_ guarantee flushing to the operating system. *)
+    data to the writer, but does {e not} guarantee flushing to the operating system. *)
 val to_formatter : t -> Format.formatter
 
-(** [write_char t c] writes the character *)
+(** [write_char t c] writes the character. *)
 val write_char : t -> char -> unit
 
 (** [newline t] writes the end-of-line terminator.  [line_ending] can override [t]'s
@@ -289,7 +291,7 @@ val write_sexp
 
 (** [write_bin_prot] writes out a value using its bin_prot sizer/writer pair.  The format
     is the "size-prefixed binary protocol", in which the length of the data is written
-    before the data itself.  This is the format that Reader.read_bin_prot reads. *)
+    before the data itself.  This is the format that [Reader.read_bin_prot] reads. *)
 val write_bin_prot : t -> 'a Bin_prot.Type_class.writer -> 'a -> unit
 
 (** Writes out a value using its bin_prot writer.  Unlike [write_bin_prot], this doesn't
@@ -303,7 +305,7 @@ val write_bin_prot_no_size_header
   -> 'a
   -> unit
 
-(** Serialize data using marshal and write it to the writer *)
+(** [write_marshal] serializes data using [marshal] and writes it to the writer. *)
 val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
 
 (** Unlike the [write_] functions, all functions starting with [schedule_] require
@@ -313,7 +315,7 @@ val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
     copied to internal buffers.
 
     This is important if users need to send the same large data string to a huge number of
-    clients simultaneously (e.g. on a cluster), because these functions then avoid
+    clients simultaneously (e.g., on a cluster), because these functions then avoid
     needlessly exhausting memory by sharing the data. *)
 
 (** [schedule_bigstring t bstr] schedules a write of bigstring [bstr].  It is not safe to
@@ -360,8 +362,7 @@ val flushed_time_ns : t -> Time_ns.t Deferred.t
 val fsync : t -> unit Deferred.t
 val fdatasync : t -> unit Deferred.t
 
-(** [send t s] writes a string to the channel that can be read back
-    using Reader.recv *)
+(** [send] writes a string to the writer that can be read back using [Reader.recv]. *)
 val send : t -> string -> unit
 
 (** [monitor t] returns the writer's monitor. *)
@@ -370,7 +371,7 @@ val monitor : t -> Monitor.t
 (** [close ?force_close t] waits for the writer to be flushed, and then calls [Unix.close]
     on the underlying file descriptor.  [force_close] causes the [Unix.close] to happen
     even if the flush hangs.  By default [force_close] is [Deferred.never ()] for files
-    and [after (sec 5)] for other types of file descriptors (e.g. sockets).  If the close
+    and [after (sec 5)] for other types of file descriptors (e.g., sockets).  If the close
     is forced, data in the writer's buffer may not be written to the file descriptor.  You
     can check this by calling [bytes_to_write] after [close] finishes.
 
@@ -381,10 +382,10 @@ val monitor : t -> Monitor.t
     [close] will raise an exception if the [Unix.close] on the underlying file descriptor
     fails.
 
-    It is required to call [close] on a writer in order to close the underlying file
-    descriptor.  Not doing so will cause a file descriptor leak.  It also will cause a
-    space leak, because until the writer is closed, it is held on to in order to flush the
-    writer on shutdown.
+    You must call [close] on a writer in order to close the underlying file descriptor.
+    Not doing so will cause a file descriptor leak.  It also will cause a space leak,
+    because until the writer is closed, it is held on to in order to flush the writer on
+    shutdown.
 
     It is an error to call other operations on [t] after [close t] has been called, except
     that calls of [close] subsequent to the original call to [close] will return the same
@@ -393,7 +394,7 @@ val monitor : t -> Monitor.t
     [close_started  t] becomes determined as soon as [close] is called.
 
     [close_finished t] becomes determined after [t]'s underlying file descriptor has been
-    closed, i.e. it is the same as the result of [close].  [close_finished] differs from
+    closed, i.e., it is the same as the result of [close].  [close_finished] differs from
     [close] in that it does not have the side effect of initiating a close.
 
     [is_closed t] returns [true] iff [close t] has been called.
@@ -449,8 +450,8 @@ val bytes_received : t -> Int63.t
 
 (** [with_file_atomic ?temp_file ?perm ?fsync file ~f] creates a writer to a temp file,
     feeds that writer to [f], and when the result of [f] becomes determined, atomically
-    moves (i.e. uses [Unix.rename]) the temp file to [file].  If [file] currently exists,
-    it will be replaced, even if it is read only.  The temp file will be [file] (or
+    moves (using [Unix.rename]) the temp file to [file].  If [file] currently exists, it
+    will be replaced, even if it is read-only.  The temp file will be [file] (or
     [temp_file] if supplied) suffixed by a unique random sequence of six characters.  The
     temp file may need to be removed in case of a crash so it may be prudent to choose a
     temp file that can be easily found by cleanup tools.
@@ -582,9 +583,9 @@ val of_pipe
   -> string Pipe.Writer.t
   -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t
 
-(** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit status
-    zero if any of the consumers of [writers] go away.  It also sets the buffer age to
-    unlimited, in case there is a human (e.g. using [less]) on the other side of the
+(** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit with
+    status 0 if any of the consumers of [writers] go away.  It also sets the buffer age to
+    unlimited, in case there is a human (e.g., using [less]) on the other side of the
     pipeline. *)
 val behave_nicely_in_pipeline
   :  ?writers : t list  (** defaults to [stdout; stderr] *)
@@ -595,6 +596,7 @@ val behave_nicely_in_pipeline
     synchronously call [Out_channel.output*] functions to send data to the OS immediately.
     Any writes that were called prior to setting the [out_channel] will be [flushed].
     [clear_synchronous_out_channel t] makes writes buffered and asynchronous again.
+
     [set_synchronous_out_channel] is used by expect tests to ensure that the interleaving
     between calls to [Core.printf] (and similar IO functions) and [Async.printf] generates
     output with the same interleaving.  [{set,clear}_synchronous_out_channel] are

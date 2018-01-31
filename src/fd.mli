@@ -1,7 +1,8 @@
 (** An [Fd.t] is a wrapper around a Unix file descriptor, with additional information
     about the kind of file descriptor and logic to ensure that we don't use a file
-    descriptor that has been closed, or close a file descriptor that is in use.  Since
-    Async uses multiple threads to make read/write and other system calls on file
+    descriptor that has been closed, or close a file descriptor that is in use.
+
+    Since Async uses multiple threads to make read/write and other system calls on file
     descriptors, and Unix reuses descriptors after they are closed, Async has to be very
     careful that the file descriptor passed to a system call is referring to the file it
     intends, and not some other completely unrelated file that Unix has decided to assign
@@ -21,16 +22,16 @@
       syscall_in_thread_exn
     v}
 
-    The [Fd] module keeps track of which of these functions that are currently accessing
-    the file descriptor, and ensures that any close happens after they complete.  Also,
-    once close has been called, it refuses to provide further access to the file
-    descriptor, either by returning a variant, `Already_closed, or raising an exception.
+    The [Fd] module keeps track of which of these functions are currently accessing the
+    file descriptor, and ensures that any close happens after they complete.  Also, once
+    close has been called, it refuses to provide further access to the file descriptor,
+    either by returning a variant [`Already_closed] or by raising an exception.
 
     Some of the above functions take an optional [?nonblocking:bool] argument.  The
-    default is [false], but if it is set to true, then before supplying the underlying
+    default is [false], but if it is set to [true], then before supplying the underlying
     [file_descr], the [Fd] module will first call [Unix.set_nonblock file_descr], if it
     hasn't previously done so on that file descriptor.  This is intended to support making
-    nonblocking system calls (e.g. connect, read, write) directly within Async, without
+    nonblocking system calls (e.g., connect, read, write) directly within Async, without
     releasing the OCaml lock or the Async lock, and without using another thread. *)
 
 open! Core
@@ -41,10 +42,10 @@ module Kind : sig
     | Char  (** a terminal *)
     | Fifo  (** a pipe *)
     | File  (** a regular file *)
-    | Socket of [ `Unconnected  (** the result of socket() *)
-                | `Bound        (** the result of bind() *)
-                | `Passive      (** the result of listen() *)
-                | `Active       (** the result of connect() or accept() *) ]
+    | Socket of [ `Unconnected  (** the result of [socket()] *)
+                | `Bound        (** the result of [bind()] *)
+                | `Passive      (** the result of [listen()] *)
+                | `Active       (** the result of [connect()] or [accept()] *) ]
 
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
@@ -53,7 +54,7 @@ type t [@@deriving sexp_of]
 
 val info : t -> Info.t
 
-(** [to_string t] returns a pretty sexp of the representation of [t] *)
+(** [to_string t] returns a pretty sexp of the representation of [t]. *)
 val to_string : t -> string
 
 (** [create ?support_nonblock kind file_descr] creates a new [t] of the underlying kind
@@ -80,17 +81,17 @@ val kind : t -> Kind.t
 (** [supports_nonblock t] returns true if [t] supports nonblocking system calls. *)
 val supports_nonblock : t -> bool
 
-(** [clear_nonblock t] clears the ``non-blocking'' flag on [t] and causes and causes Async
-    to treat the fd as though it doesn't support nonblocking I/O.  This is useful for
-    applications that want to share a file descriptor between Async and non-Async code and
-    want to avoid [EWOULDBLOCK] or [EAGAIN] being seen by the non-Async code, which would
-    then cause a [Sys_blocked_io] exception.
+(** [clear_nonblock t] clears the [nonblocking] flag on [t] and causes Async to treat the
+    fd as though it doesn't support nonblocking I/O.  This is useful for applications that
+    want to share a file descriptor between Async and non-Async code and want to avoid
+    [EWOULDBLOCK] or [EAGAIN] being seen by the non-Async code, which would then cause a
+    [Sys_blocked_io] exception.
 
     [clear_nonblock t] has no effect if [not (supports_nonblock t)]. *)
 val clear_nonblock : t -> unit
 
 (** The [Close] module exists to collect [close] and its associated types, so they
-    can be easily reused elsewhere, e.g. [Unix_syscalls]. *)
+    can be easily reused elsewhere, e.g., [Unix_syscalls]. *)
 module Close : sig
   type socket_handling =
     | Shutdown_socket
@@ -102,8 +103,8 @@ module Close : sig
 
   (** [close t] prevents further use of [t], and makes [shutdown()] and [close()] system
       calls on [t]'s underlying file descriptor according to the
-      [file_descriptor_handling] argument and whether or not [t] is a socket, i.e. [kind t
-      = Socket `Active]:
+      [file_descriptor_handling] argument and whether or not [t] is a socket, i.e., [kind
+      t = Socket `Active]:
 
       {v
         | file_descriptor_handling                     | shutdown() | close() |
@@ -208,7 +209,7 @@ val ready_to
      | `Ready
      ] Deferred.t
 
-(** [interruptible_every_ready_to t read_write ~interrupt f a] enqueus a job to run [f a]
+(** [interruptible_every_ready_to t read_write ~interrupt f a] enqueues a job to run [f a]
     every time the file descriptor underlying [t] can be read from or written to without
     blocking and returns a deferred that will become determined when [interrupt] becomes
     determined or the file descriptor is closed. *)
@@ -291,16 +292,17 @@ val syscall_in_thread_exn
 val of_in_channel  : In_channel.t  -> Kind.t -> t
 val of_out_channel : Out_channel.t -> Kind.t -> t
 
-(** [of_in_channel_auto ic] is just like of_in_channel, but uses [fstat] to determine the
-    kind.  It makes some assumptions about sockets, specifically it assumes that a socket
-    is either listening, or connected to something (and it uses getsockopt to find out
-    which).  Don't pass an in_channel containing an unconnected non-listening socket. *)
+(** [of_in_channel_auto ic] is just like [of_in_channel], but uses [fstat] to determine
+    the kind.  It makes some assumptions about sockets, specifically it assumes that a
+    socket is either listening or connected to something (and it uses [getsockopt] to find
+    out which).  Don't pass an [in_channel] containing an unconnected non-listening
+    socket. *)
 val of_in_channel_auto : In_channel.t -> t Deferred.t
 
-(** [of_out_channel_auto ic] is just like of_out_channel, but uses [fstat] to determine
+(** [of_out_channel_auto ic] is just like [of_out_channel], but uses [fstat] to determine
     the kind.  It makes some assumptions about sockets, specifically it assumes that a
-    socket is either listening, or connected to something (and it uses getsockopt to find
-    out which).  Don't pass an in_channel containing an unconnected non listening
+    socket is either listening or connected to something (and it uses [getsockopt] to find
+    out which).  Don't pass an [in_channel] containing an unconnected non listening
     socket. *)
 val of_out_channel_auto : Out_channel.t -> t Deferred.t
 
