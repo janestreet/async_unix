@@ -258,6 +258,10 @@ val set_may_sleep_for_thread_fairness : bool -> unit
     returned value includes the currently running job. *)
 val num_jobs_run : unit -> int
 
+(** [num_pending_jobs] returns the number of jobs that are queued to run by the
+    scheduler. *)
+val num_pending_jobs : unit -> int
+
 module Expert : sig
   val set_on_start_of_cycle : (unit -> unit) -> unit
   val set_on_end_of_cycle   : (unit -> unit) -> unit

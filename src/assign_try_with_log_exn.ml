@@ -28,4 +28,4 @@ until error log can be flushed."]);
         decr current_unflushed_errors));
 ;;
 
-let () = Async_kernel_private.Monitor0.try_with_log_exn := try_with_log_exn
+let () = Async_kernel.Monitor.Expert.try_with_log_exn := try_with_log_exn

@@ -12,7 +12,7 @@
 open! Core
 open! Import
 
-module From_kernel = Async_kernel.Async_kernel_private.Require_explicit_time_source
+module From_kernel = Async_kernel.Require_explicit_time_source
 
 module type Require_explicit_time_source = sig
   (** We shadow [Time_ns] and [Scheduler] from [Async_kernel] because the local versions
@@ -41,5 +41,5 @@ module type Require_explicit_time_source = sig
     [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
-  module Clock : Clock_intf.Clock_deprecated with module Time := Time
+  module Clock : Async_kernel.Clock_ns.Clock_deprecated with module Time := Time
 end

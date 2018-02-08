@@ -1074,4 +1074,9 @@ let num_jobs_run () =
   Kernel_scheduler.num_jobs_run t.kernel_scheduler;
 ;;
 
+let num_pending_jobs () =
+  let t = t () in
+  Kernel_scheduler.num_pending_jobs t.kernel_scheduler;
+;;
+
 let%test_unit _ = invariant (t ())

@@ -10,7 +10,7 @@ module Min_inter_cycle_timeout  = Config.Min_inter_cycle_timeout
 
 module Debug            = Async_kernel_private.Debug
 module Job              = Async_kernel_private.Job
-module Kernel_scheduler = Async_kernel_private.Scheduler
+module Kernel_scheduler = Async_kernel_scheduler
 
 module File_descr = Unix.File_descr
 
