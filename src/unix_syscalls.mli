@@ -11,9 +11,9 @@ open! Import
 
 module Syscall_result = Unix.Syscall_result
 
-module Exit                   : module type of Unix.Exit
-module Exit_or_signal         : module type of Unix.Exit_or_signal
-module Exit_or_signal_or_stop : module type of Unix.Exit_or_signal_or_stop
+module Exit                   = Unix.Exit
+module Exit_or_signal         = Unix.Exit_or_signal
+module Exit_or_signal_or_stop = Unix.Exit_or_signal_or_stop
 
 val system     : string -> Exit_or_signal.t Deferred.t
 val system_exn : string -> unit             Deferred.t
@@ -71,7 +71,7 @@ val with_file
   -> f          : (Fd.t -> 'a Deferred.t)
   -> 'a Deferred.t
 
-module Open_flags : module type of Unix.Open_flags
+module Open_flags = Unix.Open_flags
 
 (** [fcntl_getfl] and [fcntl_setf] are deferred wrappers around the corresponding
     functions in [Core.Unix] for accessing the open-file-descriptor table. *)
@@ -313,7 +313,7 @@ module Inet_addr : sig
   val of_string_or_getbyname : string -> t Deferred.t
 end
 
-module Cidr : module type of Core.Unix.Cidr
+module Cidr = Core.Unix.Cidr
 
 module Protocol_family : sig
   type t = Unix.Protocol_family.t

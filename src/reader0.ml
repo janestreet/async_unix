@@ -102,7 +102,7 @@ module Internal = struct
       ; state                 : State.t
       ; available             : int
       ; pos                   : int
-      ; open_flags            : open_flags Deferred.t
+      ; open_flags            : open_flags Deferred.t sexp_option = open_flags |> unless_testing
       ; last_read_time        : Time.t sexp_option = last_read_time |> unless_testing
       ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
       ; close_finished        : unit Ivar.t
