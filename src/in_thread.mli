@@ -76,9 +76,9 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     - with [`Take_the_lock] it takes the Async lock and runs a cycle immediately
     - with [`Notify_the_scheduler] it just notifies the scheduler that the result is ready
     - with [`Best] it tries to take the lock and run a cycle, but will fallback to
-    [`Notify_the_scheduler] method if the Async lock is already held by someone else.
-    The default is [`Best], and one shouldn't need to change it -- it is useful only
-    for unit testing. *)
+      [`Notify_the_scheduler] method if the Async lock is already held by someone else.
+      The default is [`Best], and one shouldn't need to change it -- it is useful only
+      for unit testing. *)
 val run
   :  ?priority      : Priority.t
   -> ?thread        : Helper_thread.t

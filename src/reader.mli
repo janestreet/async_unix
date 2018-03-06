@@ -129,13 +129,6 @@ val peek : t -> len:int -> string Read_result.t Deferred.t
     [t]. *)
 val drain : t -> unit Deferred.t
 
-(** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer, and
-    whenever bytes are available, applies [handle_chunk] to them.  It waits to read again
-    until the deferred returned by [handle_chunk] becomes determined.
-
-    [read_one_chunk_at_a_time] continues reading until it reaches [`Eof] or [handle_chunk]
-    returns [`Stop] or [`Stop_consumed].  In the case of [`Stop] and [`Stop_consumed], one
-    may read from [t] after [read_one_chunk_at_a_time] returns. *)
 type 'a read_one_chunk_at_a_time_result =
   [ `Eof
   | `Stopped of 'a
@@ -163,6 +156,16 @@ type 'a handle_chunk_result =
         error if [n < 0 || c + n <= len]. *) ]
 [@@deriving sexp_of]
 
+(** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer, and
+    whenever bytes are available, applies [handle_chunk] to them.  It waits to read again
+    until the deferred returned by [handle_chunk] becomes determined.  If [handle_chunk]
+    returns [`Consumed], then [read_one_chunk_at_a_time] will wait for additional data to
+    arrive before calling [handle_chunk] again.  Thus, [handle_chunk] should consume as
+    much as possible.
+
+    [read_one_chunk_at_a_time] continues reading until it reaches [`Eof] or [handle_chunk]
+    returns [`Stop] or [`Stop_consumed].  In the case of [`Stop] and [`Stop_consumed], one
+    may read from [t] after [read_one_chunk_at_a_time] returns. *)
 val read_one_chunk_at_a_time
   :  t
   -> handle_chunk : (Bigstring.t

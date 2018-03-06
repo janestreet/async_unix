@@ -80,18 +80,18 @@ module Rotation : sig
 
       - [`All] -- never delete
       - [`Newer_than span] -- delete files with a timestamp older than [Time.sub (Time.now
-      ()) span].  This normally means keeping files that contain at least one message
-      logged within [span].  If [span] is short enough this option can delete a
-      just-rotated file.
+        ()) span].  This normally means keeping files that contain at least one message
+        logged within [span].  If [span] is short enough this option can delete a
+        just-rotated file.
       - [`At_least i] -- keep the [i] most recent files
 
       Log rotation does not support symlinks, and you're encouraged to avoid them in
       production applications. Issues with symlinks:
 
       - You can't tail symlinks without being careful (e.g., you must remember to pass
-      [-F] to [`tail`]).
+        [-F] to [`tail`]).
       - Symlinks are hard to reason about when the program crashes, especially on
-      startup (i.e., is the symlink pointing me at the right log file?).
+        startup (i.e., is the symlink pointing me at the right log file?).
       - Atomicity is hard.
       - Symlinks encourage tailing, which is a bad way to communicate information.
       - They complicate archiving processes (the symlink must be skipped).
