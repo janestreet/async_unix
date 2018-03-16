@@ -284,7 +284,7 @@ end = struct
       (* The same key can appear more than once in tags, and order shouldn't matter
          when comparing *)
       && List.compare [%compare: String.t * String.t]
-           (List.sort ~cmp:compare_tags t1.tags) (List.sort ~cmp:compare_tags t2.tags)
+           (List.sort ~compare:compare_tags t1.tags) (List.sort ~compare:compare_tags t2.tags)
          = 0
     ;;
 
@@ -780,7 +780,7 @@ end = struct
           current_log_files ~dirname ~basename
           >>| fun files ->
           let files =
-            List.sort files ~cmp:(fun (i1,_) (i2,_) -> Id.cmp_newest_first i1 i2)
+            List.sort files ~compare:(fun (i1,_) (i2,_) -> Id.cmp_newest_first i1 i2)
           in
           List.drop files i
         end
@@ -820,7 +820,7 @@ end = struct
         current_log_files ~dirname ~basename
         >>= fun files ->
         let files =
-          List.rev (List.sort files ~cmp:(fun (i1,_) (i2, _) -> Id.cmp_newest_first i1 i2))
+          List.rev (List.sort files ~compare:(fun (i1,_) (i2, _) -> Id.cmp_newest_first i1 i2))
         in
         Deferred.List.iter files ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in

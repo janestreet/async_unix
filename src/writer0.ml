@@ -392,7 +392,7 @@ end = struct
           | [] -> ()
           | times ->
             [%test_result: Time_ns.t list] ~expect:times
-              (List.sort times ~cmp:Time_ns.compare);
+              (List.sort times ~compare:Time_ns.compare);
             assert (Time_ns.Span.(<=)
                       (Time_ns.diff (List.last_exn times) (List.hd_exn times))
                       t.maximum_age)))
