@@ -33,5 +33,3 @@ let max_num_open_file_descrs () = max_num_open_file_descrs (t ())
 let max_num_threads () = max_num_threads (t ())
 
 let current_execution_context () = current_execution_context (t ())
-
-let set_may_sleep_for_thread_fairness b = (t ()).may_sleep_for_thread_fairness <- b

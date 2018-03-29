@@ -138,8 +138,7 @@ type t =
 
   (* configuration*)
   ; mutable max_inter_cycle_timeout        : Max_inter_cycle_timeout.t
-  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t
-  ; mutable may_sleep_for_thread_fairness  : bool }
+  ; mutable min_inter_cycle_timeout        : Min_inter_cycle_timeout.t }
 [@@deriving fields, sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
@@ -316,7 +315,6 @@ let invariant t : unit =
         assert (Time_ns.Span.( <= )
                   (Min_inter_cycle_timeout.raw min_inter_cycle_timeout)
                   (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout))))
-      ~may_sleep_for_thread_fairness:ignore
   with exn ->
     raise_s [%message "Scheduler.invariant failed" (exn : exn) ~scheduler:(t : t)]
 ;;
@@ -577,8 +575,7 @@ Async will be unable to timeout with sub-millisecond precision."]
     ; kernel_scheduler
     ; have_lock_do_cycle             = None
     ; max_inter_cycle_timeout        = Config.max_inter_cycle_timeout
-    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout
-    ; may_sleep_for_thread_fairness = false }
+    ; min_inter_cycle_timeout        = Config.min_inter_cycle_timeout }
   in
   t_ref := Some t;
   detect_stuck_thread_pool t;
@@ -724,13 +721,13 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     then (Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t]);
     let pre = F.pre_check F.watcher in
     unlock t;
-    (* If the thread pool has threads with work to do, then we yield via nanosleep, which
-       releases the OCaml lock and gives them a chance to run.  This is an
-       over-approximation of the condition that we actually want to check, which is
-       whether there are any threads waiting to acquire the OCaml lock. *)
-    if t.may_sleep_for_thread_fairness
-    && Thread_pool.unfinished_work t.thread_pool > 0
-    then (ignore (Unix.nanosleep 1E-9 : float));
+    (* We yield so that other OCaml threads (especially thread-pool threads) get a chance
+       to run.  This is a good point to yield, because we do not hold the Async lock,
+       which allows other threads to acquire it.  [Thread.yield] only yields if other
+       OCaml threads are waiting to acquire the OCaml lock, and is fast if not.  As of
+       OCaml 4.06, [Thread.yield] on Linux calls [nanosleep], which causes the Linux
+       scheduler to actually switch to other threads. *)
+    Thread.yield ();
     if Debug.file_descr_watcher
     then (
       Debug.log "File_descr_watcher.thread_safe_check"
@@ -1039,7 +1036,6 @@ let fold_fields (type a) ~init folder : a =
     ~have_lock_do_cycle:f
     ~max_inter_cycle_timeout:f
     ~min_inter_cycle_timeout:f
-    ~may_sleep_for_thread_fairness:f
 ;;
 
 let handle_thread_pool_stuck f =

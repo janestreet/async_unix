@@ -250,10 +250,6 @@ val time_spent_waiting_for_io : unit -> Time_ns.Span.t
     the [ASYNC_CONFIG] environment variable. *)
 val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit
 
-(** [may_sleep_for_thread_fairness] controls whether the scheduler calls [nanosleep] each
-    cycle to give other threads a chance to run.  The default is [false]. *)
-val set_may_sleep_for_thread_fairness : bool -> unit
-
 (** [num_jobs_run ()] returns the number of jobs that have been run since starting.  The
     returned value includes the currently running job. *)
 val num_jobs_run : unit -> int

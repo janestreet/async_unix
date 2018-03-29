@@ -3,7 +3,6 @@
   (public_name async_unix)
   (libraries (async_kernel
               core))
-  (flags (:standard -safe-string))
   (c_names (dump_core_on_job_delay_stubs))
   (preprocess (pps (ppx_jane -annotated-ignores -ite-check -check-doc-comments ppxlib.runner)))))
 
