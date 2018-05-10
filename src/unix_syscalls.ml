@@ -788,7 +788,7 @@ module Socket = struct
     t
   ;;
 
-  let listen ?(backlog = 10) t =
+  let listen ?(backlog = 64) t =
     let fd = t.fd in
     Fd.syscall_exn fd (fun file_descr -> Unix.listen file_descr ~backlog);
     Fd.replace fd (Socket `Passive) (Info.of_string "listening");

@@ -446,7 +446,7 @@ module Socket : sig
     -> ([ `Bound ], Address.Inet.t) t
 
   val listen
-    :  ?backlog : int  (** default is 10; see {!Unix.listen} *)
+    :  ?backlog : int  (** default is 64; see {!Unix.listen} *)
     -> ([ `Bound ], 'addr) t
     -> ([ `Passive ], 'addr) t
 
