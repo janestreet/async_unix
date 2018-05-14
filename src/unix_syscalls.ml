@@ -374,8 +374,8 @@ let mkfifo ?(perm = 0o666) name =
 ;;
 
 (* symlinks *)
-let symlink ~src ~dst =
-  In_thread.syscall_exn ~name:"symlink" (fun () -> Unix.symlink ~src ~dst)
+let symlink ~target ~link_name =
+  In_thread.syscall_exn ~name:"symlink" (fun () -> Unix.symlink ~target ~link_name)
 ;;
 
 let readlink filename =

@@ -1266,7 +1266,7 @@ let write_sexp_internal =
     let blit_str_len = Bytes.length !blit_str in
     if len > blit_str_len
     then (blit_str := Bytes.create (max len (max initial_size (2 * blit_str_len))));
-    Buffer.blit buffer 0 !blit_str 0 len;
+    Buffer.blit ~src:buffer ~src_pos:0 ~dst:!blit_str ~dst_pos:0 ~len;
     write_bytes t !blit_str ~len;
     match terminate_with with
     | Newline -> newline t

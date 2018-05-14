@@ -932,7 +932,7 @@ module Internal = struct
       Deferred.repeat_until_finished () (fun () ->
         match%map read t sbuf with
         | `Eof -> `Finished ()
-        | `Ok l -> Buffer.add_subbytes buf sbuf 0 l; `Repeat ())
+        | `Ok l -> Buffer.add_subbytes buf sbuf ~pos:0 ~len:l; `Repeat ())
     in
     let%map () = close t in
     Buffer.contents buf
