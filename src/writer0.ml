@@ -40,64 +40,7 @@ module Open_flags = Unix.Open_flags
 
 type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
 
-module Backing_out_channel : sig
-  type t [@@deriving sexp_of]
-
-  include Invariant.S with type t := t
-
-  val create : Out_channel.t -> t
-  val output_char : t -> char -> unit
-  val output
-    :  t
-    -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
-    -> src               : 'a
-    -> src_len           : int
-    -> src_pos           : int
-    -> unit
-  val out_channel : t -> Out_channel.t
-  val flush : t -> unit
-end = struct
-  type t =
-    { mutable bigstring_buf : Bigstring.t
-    ; out_channel           : Out_channel.t
-    ; mutable bytes_buf     : Bytes.t }
-  [@@deriving fields]
-
-  let sexp_of_t { bigstring_buf = _; out_channel; bytes_buf = _ } =
-    [%message (out_channel : Out_channel.t)]
-  ;;
-
-  let invariant t =
-    Invariant.invariant [%here] t [%sexp_of: t] (fun () ->
-      let _check f = Invariant.check_field t f in
-      Fields.iter
-        ~bigstring_buf:ignore
-        ~out_channel:ignore
-        ~bytes_buf:ignore)
-  ;;
-
-  let create out_channel =
-    { bigstring_buf   = Bigstring.create 0
-    ; out_channel     = out_channel
-    ; bytes_buf       = Bytes.of_string "" }
-  ;;
-
-  let output_char t char = Out_channel.output_char t.out_channel char
-
-  let output t ~blit_to_bigstring ~src ~src_len ~src_pos =
-    if src_len > Bigstring.length t.bigstring_buf
-    then (
-      t.bigstring_buf <- Bigstring.create (src_len * 2);
-      t.bytes_buf <- Bytes.create (src_len * 2));
-    blit_to_bigstring ~src ~src_pos ~dst:t.bigstring_buf ~dst_pos:0 ~len:src_len;
-    Bigstring.To_bytes.blit ~len:src_len
-      ~src:t.bigstring_buf ~src_pos:0
-      ~dst:t.bytes_buf    ~dst_pos:0;
-    Out_channel.output t.out_channel ~buf:t.bytes_buf ~pos:0 ~len:src_len;
-  ;;
-
-  let flush t = Out_channel.flush t.out_channel
-end
+module Backing_out_channel = Backing_out_channel
 
 module Scheduled = struct
   type t = (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Deque.t
@@ -112,10 +55,10 @@ type t =
   (* The writer uses a background job to flush data.  The job runs within [inner_monitor],
      which has a handler that wraps all errors to include [sexp_of_t t], and sends them to
      [monitor]. *)
-  ; monitor       : Monitor.t
-  ; inner_monitor : Monitor.t
-  ; mutable background_writer_state    : [ `Running | `Not_running | `Stopped_permanently ]
-  ; background_writer_stopped          : unit Ivar.t
+  ; monitor                         : Monitor.t
+  ; inner_monitor                   : Monitor.t
+  ; mutable background_writer_state : [ `Running | `Not_running | `Stopped_permanently ]
+  ; background_writer_stopped       : unit Ivar.t
 
   (* [syscall] determines the batching approach that the writer uses to batch data
      together and flush it using the underlying write syscall. *)
@@ -197,7 +140,7 @@ type t =
   ; line_ending                        : Line_ending.t
 
   (* If specified, subsequent writes are synchronously redirected here. *)
-  ; mutable backing_out_channel  : Backing_out_channel.t option
+  ; mutable backing_out_channel : Backing_out_channel.t option
   }
 [@@deriving fields]
 
@@ -539,14 +482,25 @@ let flushed t =
     else (Deferred.ignore (flushed_time t))
 ;;
 
-let set_synchronous_out_channel_internal t out_channel =
-  t.backing_out_channel <- Some (Backing_out_channel.create out_channel);
+let set_backing_out_channel t backing_out_channel =
+  t.backing_out_channel <- Some backing_out_channel;
+;;
+
+let set_synchronous_backing_out_channel t backing_out_channel =
+  let rec wait_until_no_bytes_to_write () =
+    if bytes_to_write t = 0
+    then (
+      set_backing_out_channel t backing_out_channel;
+      return ())
+    else (
+      let%bind () = flushed t in
+      wait_until_no_bytes_to_write ());
+  in
+  wait_until_no_bytes_to_write ();
 ;;
 
 let set_synchronous_out_channel t out_channel =
-  let%bind () = flushed t in
-  set_synchronous_out_channel_internal t out_channel;
-  return ()
+  set_synchronous_backing_out_channel t (Backing_out_channel.of_out_channel out_channel)
 ;;
 
 let clear_synchronous_out_channel t =
@@ -556,25 +510,22 @@ let clear_synchronous_out_channel t =
     t.backing_out_channel <- None);
 ;;
 
+let with_synchronous_backing_out_channel t backing_out_channel ~f =
+  let saved_backing_out_channel = t.backing_out_channel in
+  (* This code will flush a bit more eagerly than it needs to if
+     [with_synchronous_backing_out_channel t oc] is called recursively on the same [t] and
+     [oc].  The flush is caused by [set_synchronous_backing_out_channel].  In theory this
+     could happen but in practice is exceedingly unlikely. *)
+  Monitor.protect
+    (fun () ->
+       let%bind () = set_synchronous_backing_out_channel t backing_out_channel in
+       f ())
+    ~finally:(fun () -> t.backing_out_channel <- saved_backing_out_channel; return ())
+;;
+
 let with_synchronous_out_channel t out_channel ~f =
-  let f' () =
-    let%bind () = set_synchronous_out_channel t out_channel in
-    f ()
-  in
-  match t.backing_out_channel with
-  | None ->
-    Monitor.protect f'
-      ~finally:(fun () ->
-        clear_synchronous_out_channel t;
-        return ())
-  | Some backing_out_channel ->
-    if phys_equal (Backing_out_channel.out_channel backing_out_channel) out_channel
-    then (f ())
-    else (
-      Monitor.protect f'
-        ~finally:(fun () ->
-          t.backing_out_channel <- Some backing_out_channel;
-          return ()))
+  with_synchronous_backing_out_channel t ~f
+    (Backing_out_channel.of_out_channel out_channel)
 ;;
 
 let set_fd t fd =
@@ -1417,7 +1368,8 @@ let stdout_and_stderr =
            then (
              (* In tests, we use synchronous output to improve determinism, especially
                 when mixing libraries that use Core and Async printing. *)
-             set_synchronous_out_channel_internal t Out_channel.stdout;
+             set_backing_out_channel t
+               (Backing_out_channel.of_out_channel Out_channel.stdout);
              (t, t))
            else if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
            then

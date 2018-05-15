@@ -592,23 +592,46 @@ val behave_nicely_in_pipeline
   -> unit
   -> unit
 
-(** [set_synchronous_out_channel t out_channel] causes all future writes to [t] to
-    synchronously call [Out_channel.output*] functions to send data to the OS immediately.
-    Any writes that were called prior to setting the [out_channel] will be [flushed].
-    [clear_synchronous_out_channel t] makes writes buffered and asynchronous again.
+(** [set_synchronous_out_channel t out_channel] waits until [byte_to_write t = 0], and
+    then mutates [t] so that all future writes to [t] synchronously call
+    [Out_channel.output*] functions to send data to the OS immediately.
 
     [set_synchronous_out_channel] is used by expect tests to ensure that the interleaving
     between calls to [Core.printf] (and similar IO functions) and [Async.printf] generates
-    output with the same interleaving.  [{set,clear}_synchronous_out_channel] are
-    idempotent. *)
+    output with the same interleaving.  [set_synchronous_out_channel] is idempotent. *)
 val set_synchronous_out_channel : t -> Out_channel.t -> unit Deferred.t
 
 (** [clear_synchronous_out_channel t] restores [t] to its normal state, with the
-    background writer asynchronously feeding data to the OS. *)
+    background writer asynchronously feeding data to the OS.
+    [clear_synchronous_out_channel] is idempotent. *)
 val clear_synchronous_out_channel :  t -> unit
 
 val with_synchronous_out_channel
   :  t
   -> Out_channel.t
   -> f:(unit -> 'a Deferred.t)
+  -> 'a Deferred.t
+
+(** [Backing_out_channel] generalizes [Out_channel] to a narrow interface that can be used
+    to collect strings, etc. *)
+module Backing_out_channel : sig
+  type t [@@deriving sexp_of]
+
+  val create
+    :  output_char  : (char      -> unit)
+    -> output_chars : (bigstring -> len:int -> unit)
+    -> flush        : (unit      -> unit)
+    -> sexp         : (unit      -> Sexp.t)
+    -> t
+
+  val of_out_channel : Out_channel.t  -> t
+  val of_output_char : (char -> unit) -> t
+end
+
+val set_synchronous_backing_out_channel : t -> Backing_out_channel.t -> unit Deferred.t
+
+val with_synchronous_backing_out_channel
+  :  t
+  -> Backing_out_channel.t
+  -> f : (unit -> 'a Deferred.t)
   -> 'a Deferred.t
