@@ -635,3 +635,13 @@ val with_synchronous_backing_out_channel
   -> Backing_out_channel.t
   -> f : (unit -> 'a Deferred.t)
   -> 'a Deferred.t
+
+(**/**)
+
+module Private : sig
+  val set_bytes_received : t -> Int63.t -> unit
+  val set_bytes_written  : t -> Int63.t -> unit
+  module Check_buffer_age : sig
+    val internal_check_now_for_unit_test : now : Time_ns.t -> unit
+  end
+end

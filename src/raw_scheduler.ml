@@ -682,7 +682,7 @@ let sync_changed_fds_to_file_descr_watcher t =
 
 let maybe_calibrate_tsc t =
   let now = Tsc.now () in
-  if Tsc.compare now t.next_tsc_calibration >= 0 then (
+  if Tsc.( >= ) now t.next_tsc_calibration then (
     Tsc.Calibrator.calibrate ();
     t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000)); );
 ;;
@@ -1074,5 +1074,3 @@ let num_pending_jobs () =
   let t = t () in
   Kernel_scheduler.num_pending_jobs t.kernel_scheduler;
 ;;
-
-let%test_unit _ = invariant (t ())

@@ -168,6 +168,7 @@ module Async_unix_private = struct
   module Fd_by_descr            = Fd_by_descr
   module Raw_fd                 = Raw_fd
   module Raw_scheduler          = Raw_scheduler
+  module Syscall                = Syscall
   module Thread_pool            = Thread_pool
   module Thread_safe_ivar       = Thread_safe_ivar
 end

@@ -185,16 +185,6 @@ let collect_stdout_lines_and_wait =
 
 let collect_stdout_lines_and_wait_exn = map_collect collect_stdout_lines_and_wait ok_exn
 
-let%test_unit "first arg is not prog" =
-  let args = [ "219068700202774381" ] in
-  [%test_pred: string list Or_error.t]
-    (Poly.equal (Ok args))
-    (Thread_safe.block_on_async_exn
-       (fun () ->
-          create ~prog:"echo" ~args ()
-          >>=? collect_stdout_lines_and_wait))
-;;
-
 type 'a run
   =  ?accept_nonzero_exit : int list
   -> ?env                 : env

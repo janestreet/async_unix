@@ -521,3 +521,27 @@ module Reader : sig
       -> Message.t Reader.Read_result.t Deferred.t
   end
 end
+
+(**/**)
+
+module Private : sig
+  module Message : sig
+    type t = Message.t [@@deriving of_sexp]
+
+    include Equal.S with type t := t
+
+    val to_write_only_text : ?zone:Time.Zone.t -> t -> string
+
+    module Stable : sig
+      module Version : sig
+        type t [@@deriving of_sexp]
+      end
+      module V0 : sig
+        type t = Message.t [@@deriving sexp_of]
+      end
+      module V2 : sig
+        type t = Message.t [@@deriving sexp_of]
+      end
+    end
+  end
+end

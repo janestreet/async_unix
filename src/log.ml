@@ -234,6 +234,8 @@ end
 module Message : sig
   type t [@@deriving bin_io, sexp]
 
+  include Equal.S with type t := t
+
   val create
     :  ?level:Level.t
     -> ?time:Time.t
@@ -256,6 +258,10 @@ module Message : sig
   val write_bin_prot        : t -> Writer.t -> unit
 
   module Stable : sig
+    module Version : sig
+      type t [@@deriving of_sexp]
+    end
+
     module V0 : sig
       type nonrec t = t [@@deriving bin_io, sexp]
     end
@@ -273,33 +279,22 @@ end = struct
       ; tags    : (string * string) list
       }
     [@@deriving bin_io, sexp]
-
-    let (=) t1 t2 =
-      let compare_tags =
-        Tuple.T2.compare ~cmp1:String.compare ~cmp2:String.compare
-      in
-      Time.(=.) t1.time t2.time
-      && [%compare.equal: Level.t option] t1.level t2.level
-      && Poly.equal t1.message t2.message
-      (* The same key can appear more than once in tags, and order shouldn't matter
-         when comparing *)
-      && List.compare [%compare: String.t * String.t]
-           (List.sort ~compare:compare_tags t1.tags) (List.sort ~compare:compare_tags t2.tags)
-         = 0
-    ;;
-
-    let%test_unit _ =
-      let time    = Time.now () in
-      let level   = Some `Info in
-      let message = "test unordered tags" in
-      let t1 = { time; level; message; tags = [ "a", "a1"; "a", "a2"; "b", "b1" ] } in
-      let t2 = { time; level; message; tags = [ "a", "a2"; "a", "a1"; "b", "b1" ] } in
-      let t3 = { time; level; message; tags = [ "a", "a2"; "b", "b1"; "a", "a1" ] } in
-      assert (t1 = t2);
-      assert (t2 = t3)
-    ;;
   end
+
   open T
+  let equal t1 t2 =
+    let compare_tags =
+      Tuple.T2.compare ~cmp1:String.compare ~cmp2:String.compare
+    in
+    Time.(=.) t1.time t2.time
+    && [%compare.equal: Level.t option] t1.level t2.level
+    && Poly.equal t1.message t2.message
+    (* The same key can appear more than once in tags, and order shouldn't matter
+       when comparing *)
+    && List.compare [%compare: String.t * String.t]
+         (List.sort ~compare:compare_tags t1.tags) (List.sort ~compare:compare_tags t2.tags)
+       = 0
+  ;;
 
   (* Log messages are stored, starting with V2, as an explicit version followed by the
      message itself.  This makes it easier to move the message format forward while
@@ -420,36 +415,6 @@ end = struct
     { time; level; message; tags }
   ;;
 
-  let%test_unit _ =
-    let msg =
-      create ~level:`Info ~tags:["a", "tag"]
-        (`String "the quick brown message jumped over the lazy log")
-    in
-    let v0_sexp = Stable.V0.sexp_of_t msg in
-    let v2_sexp = Stable.V2.sexp_of_t msg in
-    assert (t_of_sexp v0_sexp = msg);
-    assert (t_of_sexp v2_sexp = msg)
-  ;;
-
-  let%test_unit _ =
-    let msg =
-      create ~level:`Info ~tags:["a", "tag"]
-        (`Sexp (Sexp.List [ Atom "foo"; Atom "bar" ]))
-    in
-    let v0_sexp = Stable.V0.sexp_of_t msg in
-    let v2_sexp = Stable.V2.sexp_of_t msg in
-    assert (t_of_sexp v0_sexp = { msg with message = `String "(foo bar)" });
-    assert (t_of_sexp v2_sexp = msg)
-  ;;
-
-  let%test_unit _ =
-    let msg = create ~level:`Info ~tags:[] (`String "") in
-    match sexp_of_t msg with
-    | List [ (Atom _) as version; _ ] ->
-      ignore (Stable.Version.t_of_sexp version : Stable.Version.t)
-    | _ -> assert false
-  ;;
-
   let time t    = t.time
   let level t   = t.level
 
@@ -483,31 +448,6 @@ end = struct
       :: prefix
       :: message t
       :: formatted_tags)
-  ;;
-
-  let%test_unit _ =
-    let check expect t =
-      let zone = Time.Zone.utc in
-      [%test_result: string] (to_write_only_text ~zone t) ~expect
-    in
-    check "2013-12-13 15:00:00.000000Z <message>"
-      { time    = Time.of_string "2013-12-13 15:00:00Z"
-      ; level   = None
-      ; tags    = []
-      ; message = `String "<message>"
-      };
-    check "2013-12-13 15:00:00.000000Z Info <message>"
-      { time    = Time.of_string "2013-12-13 15:00:00Z"
-      ; level   = Some `Info
-      ; tags    = []
-      ; message = `String "<message>"
-      };
-    check "2013-12-13 15:00:00.000000Z Info <message> -- [k1: v1] [k2: v2]"
-      { time    = Time.of_string "2013-12-13 15:00:00Z"
-      ; level   = Some `Info
-      ; tags    = ["k1", "v1"; "k2", "v2"]
-      ; message = `String "<message>"
-      }
   ;;
 
   let write_write_only_text t wr =
@@ -1199,33 +1139,6 @@ let set_level t level =
   t.current_level <- level
 ;;
 
-let%test_unit "Level setting" =
-  let assert_log_level log expected_level =
-    match (level log, expected_level) with
-    | `Info, `Info
-    | `Debug, `Debug
-    | `Error, `Error -> Ok ()
-    | actual_level, expected_level ->
-      Or_error.errorf "Expected %S but got %S"
-        (Level.to_string expected_level) (Level.to_string actual_level)
-  in
-  let answer =
-    let open Or_error.Monad_infix in
-    let initial_level = `Debug in
-    let output = [Output.create ~flush:(fun () -> return ()) (fun _ -> return ())] in
-    let log = create ~level:initial_level ~output ~on_error:`Raise in
-    assert_log_level log initial_level
-    >>= fun () ->
-    set_level log `Info;
-    assert_log_level log `Info
-    >>= fun () ->
-    set_level log `Debug;
-    set_level log `Error;
-    assert_log_level log `Error
-  in
-  Or_error.ok_exn answer
-;;
-
 (* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
 let would_log t msg_level =
@@ -1607,4 +1520,9 @@ module Reader = struct
       | `Bin_prot ->
         Reader.read_bin_prot reader Message.bin_reader_t
   end
+end
+
+module Private = struct
+  module Message = Message
+  module Stable = Stable
 end

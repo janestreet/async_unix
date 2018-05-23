@@ -161,3 +161,15 @@ val add_work_for_helper_thread
     [finished_with_helper_thread] multiple times on the same [helper_thread]; subsequent
     calls will have no effect. *)
 val finished_with_helper_thread : t -> Helper_thread.t -> unit
+
+(**/**)
+
+module Private : sig
+  val check_invariant : bool ref
+  val default_thread_name : string
+  val is_finished : t -> bool
+  val is_in_use : t -> bool
+
+  val set_last_thread_creation_failure : t -> Time.t -> unit
+  val set_thread_creation_failure_lockout : t -> Time.Span.t -> unit
+end
