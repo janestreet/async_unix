@@ -44,7 +44,10 @@ val last_read_time : t -> Time.t
     to create it in all programs that happen to link with Async. *)
 val stdin : t Lazy.t
 
-(** [open_file file] opens [file] for reading and returns a reader reading from it. *)
+(** [open_file file] opens [file] for reading and returns a reader reading from it.
+
+    This may raise an exception for the typical reasons that an [open(2)] system call may
+    fail.  If it does raise, it's guaranteed to be a [Unix_error] variant. *)
 val open_file
   :  ?buf_len       : int
   -> string
@@ -80,6 +83,10 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
 (** [with_file file f] opens [files], creates a reader with it, and passes the reader to
     [f].  It closes the reader when the result of [f] becomes determined, and returns
     [f]'s result.
+
+    This may raise an exception for the typical reasons that an [open(2)] system call may
+    fail.  If it does raise before [f] is called, it's guaranteed to be a [Unix_error]
+    variant.
 
     {b Note:} You need to be careful that all your IO is done when the deferred you return
     becomes determined. If for example you use [with_file] and call [lines], make sure

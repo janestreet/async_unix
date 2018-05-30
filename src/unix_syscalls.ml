@@ -491,7 +491,7 @@ let waitpid_exn pid =
   if Result.is_error exit_or_signal
   then (
     raise_s [%message
-      "child process didn't exit with status zero"
+      "child process didn't exit with status 0"
         ~child_pid:(pid : Pid.t) (exit_or_signal : Exit_or_signal.t)]);
 ;;
 
