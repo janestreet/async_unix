@@ -1522,6 +1522,24 @@ module Reader = struct
   end
 end
 
+module For_testing = struct
+  let create_output ~map_output =
+    let stdout = force Writer.stdout in
+    let we_flush_after_each_message_is_processed () = Deferred.unit in
+    Output.create
+      ~flush:we_flush_after_each_message_is_processed
+      (fun queue ->
+         Queue.iter queue ~f:(fun message ->
+           map_output (Message.message message)
+           |> print_endline);
+         Writer.flushed stdout)
+  ;;
+
+  let create ~map_output level =
+    let output = [create_output ~map_output] in
+    create ~output ~level ~on_error:`Raise
+end
+
 module Private = struct
   module Message = Message
   module Stable = Stable

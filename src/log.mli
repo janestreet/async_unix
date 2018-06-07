@@ -194,7 +194,7 @@ module Output : sig
   val rotating_file_with_tail
     : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
 
-  (** See {!Async_extended.Std.Log} for syslog and colorized console output. *)
+  (** See {!Log_extended} for syslog and colorized console output. *)
 end
 
 module Blocking : sig
@@ -210,7 +210,7 @@ module Blocking : sig
     val stdout : t
     val stderr : t
 
-    (** See {!Async_extended.Std.Log} for syslog and colorized console output. *)
+    (** See {!Log_extended} for syslog and colorized console output. *)
 
     val create : (Message.t -> unit) -> t
   end
@@ -520,6 +520,26 @@ module Reader : sig
       -> Reader.t
       -> Message.t Reader.Read_result.t Deferred.t
   end
+end
+
+module For_testing : sig
+  (** [create_output ~map_output] creates a [Log.Output.t] which will print only
+      [Message.message] to stdout, discarding any information about tags, levels, or
+      timestamps.
+
+      [map_output] will be applied to each string before printing, and is expected
+      to be used to replace portions of output or identify which log a message came from.
+
+      This function is best used with existing Log.ts, e.g. to replace Log.Global's
+      outputs in expect tests. If you just want a full Log.t, see [create] below. *)
+  val create_output : map_output:(string -> string) -> Output.t
+
+  (** [create_log ~map_output level] creates a [Log.t] with its level set to [level] using
+      the output returned by [create_output], and an [on_error] value of `Raise. *)
+  val create
+    :  map_output:(string -> string)
+    -> Level.t
+    -> t
 end
 
 (**/**)
