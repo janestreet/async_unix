@@ -183,8 +183,12 @@ module Output : sig
     -> (Message.t Queue.t -> unit Deferred.t)
     -> t
 
-  val stdout        : unit -> t
-  val stderr        : unit -> t
+  (** [stdout] defaults to [format=`Text] *)
+  val stdout        : ?format:Format.t -> unit -> t
+
+  (** [stderr] defaults to [format=`Text] *)
+  val stderr        : ?format:Format.t -> unit -> t
+
   val writer        : Format.t -> Writer.t -> t
   val file          : Format.t -> filename:string -> t
   val rotating_file : Format.t -> basename:string -> Rotation.t -> t
@@ -192,7 +196,21 @@ module Output : sig
   (** Returns a tail of the filenames. When [rotate] is called, the previous filename is
       put on the tail *)
   val rotating_file_with_tail
-    : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
+    :  Format.t
+    -> basename:string
+    -> Rotation.t
+    -> t * string Tail.t
+
+  (** [filter_to_level] wraps an output and gives you a new output which only
+      logs messages which are as/more verbose than [level].
+
+      This functionality is intended for when you have multiple outputs being displayed in
+      different places, and they need to be at different levels.
+
+      If you have one output (or multiple outputs all at the same level), it is better to
+      set the [Log.t]'s output directly with [set_level], which is equivalent and more
+      efficient. *)
+  val filter_to_level : t -> level:Level.t -> t
 
   (** See {!Log_extended} for syslog and colorized console output. *)
 end

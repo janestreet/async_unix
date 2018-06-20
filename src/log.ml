@@ -495,13 +495,15 @@ module Output : sig
   val rotate : t -> unit Deferred.t
   val flush  : t -> unit Deferred.t
 
-  val stdout        : unit -> t
-  val stderr        : unit -> t
+  val stdout        : ?format:Format.t -> unit -> t
+  val stderr        : ?format:Format.t -> unit -> t
   val writer        : Format.t -> Writer.t -> t
   val file          : Format.t -> filename:string -> t
   val rotating_file : Format.t -> basename:string -> Rotation.t -> t
 
   val rotating_file_with_tail : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
+
+  val filter_to_level : t -> level:Level.t -> t
 
   val combine : t list -> t
 end = struct
@@ -583,6 +585,19 @@ end = struct
     let close  = (fun ()  -> iter_combine_exns (fun t -> t.close  ())) in
     let flush  = (fun ()  -> iter_combine_exns (fun t -> t.flush  ())) in
     { write; rotate; close; flush; heap_block = Definitely_a_heap_block.the_one_and_only }
+  ;;
+
+  let filter_to_level t ~level =
+    let write messages =
+      let filtered_messages =
+        Queue.filter messages ~f:(fun message ->
+          Level.as_or_more_verbose_than
+            ~log_level:level
+            ~msg_level:(Message.level message))
+      in
+      t.write filtered_messages
+    in
+    create ~rotate:t.rotate ~close:t.close ~flush:t.flush write
   ;;
 
   let basic_write format w msg =
@@ -914,8 +929,21 @@ end = struct
   let file          = File.create
   let writer        = Log_writer.create
 
-  let stdout = Memo.unit (fun () -> Log_writer.create `Text (Lazy.force Writer.stdout))
-  let stderr = Memo.unit (fun () -> Log_writer.create `Text (Lazy.force Writer.stderr))
+  let stdout =
+    let make =
+      Memo.general (fun format ->
+        Log_writer.create format (Lazy.force Writer.stdout))
+    in
+    (fun ?(format=`Text) () -> make format)
+  ;;
+
+  let stderr =
+    let make =
+      Memo.general (fun format ->
+        Log_writer.create format (Lazy.force Writer.stderr))
+    in
+    (fun ?(format=`Text) () -> make format)
+  ;;
 end
 
 (* A log is a pipe that can take one of four messages.
