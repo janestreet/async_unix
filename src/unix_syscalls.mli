@@ -267,6 +267,8 @@ type env = Unix.env [@@deriving sexp]
 val environment : unit -> string array
 val getenv : string -> string option
 val getenv_exn : string -> string
+val unsafe_getenv : string -> string option
+val unsafe_getenv_exn : string -> string
 val putenv : key:string -> data:string -> unit
 val unsetenv : string -> unit
 

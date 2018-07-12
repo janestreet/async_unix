@@ -465,6 +465,17 @@ let request_stop_watching t fd read_or_write value =
       if not (i_am_the_scheduler t) then (thread_safe_wakeup_scheduler t);
 ;;
 
+let[@inline never] post_check_got_timerfd file_descr =
+  raise_s [%message
+    "File_descr_watcher returned the timerfd as ready to be written to"
+      (file_descr : File_descr.t)]
+;;
+
+let[@inline never] post_check_invalid_fd file_descr =
+  raise_s [%message
+    "File_descr_watcher returned unknown file descr" (file_descr : File_descr.t)]
+;;
+
 let post_check_handle_fd t file_descr read_or_write value =
   if Fd_by_descr.mem t.fd_by_descr file_descr
   then (
@@ -478,14 +489,9 @@ let post_check_handle_fd t file_descr read_or_write value =
         (* We don't need to actually call [read] since we are using the
            edge-triggered behavior. *)
         ()
-      | `Write ->
-        raise_s [%message
-          "File_descr_watcher returned the timerfd as ready to be written to"
-            (file_descr : File_descr.t)]
+      | `Write -> post_check_got_timerfd file_descr
       end
-    | _ ->
-      raise_s [%message
-        "File_descr_watcher returned unknown file descr" (file_descr : File_descr.t)])
+    | _ -> post_check_invalid_fd file_descr)
 ;;
 
 let create
@@ -648,6 +654,18 @@ let have_lock_do_cycle t =
     if not (i_am_the_scheduler t) then (thread_safe_wakeup_scheduler t);
 ;;
 
+let[@inline never] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
+  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+  Debug.log "File_descr_watcher.set" (file_descr, desired, F.watcher)
+    [%sexp_of: File_descr.t * bool Read_write.t * F.t];
+;;
+
+let[@inline never] sync_changed_fd_failed t fd desired exn =
+  raise_s [%message
+    "sync_changed_fds_to_file_descr_watcher unable to set fd"
+      (desired : bool Read_write.t) (fd : Fd.t) (exn : exn) ~scheduler:(t : t)]
+;;
+
 let sync_changed_fds_to_file_descr_watcher t =
   match t.fds_whose_watching_has_changed with
   | [] -> ()
@@ -666,15 +684,10 @@ let sync_changed_fds_to_file_descr_watcher t =
             false)
       in
       if Debug.file_descr_watcher
-      then (
-        Debug.log "File_descr_watcher.set" (fd.file_descr, desired, F.watcher)
-          [%sexp_of: File_descr.t * bool Read_write.t * F.t]);
+      then (log_sync_changed_fds_to_file_descr_watcher t fd.file_descr desired);
       try
         F.set F.watcher fd.file_descr desired
-      with exn ->
-        raise_s [%message
-          "sync_changed_fds_to_file_descr_watcher unable to set fd"
-            (desired : bool Read_write.t) (fd : Fd.t) (exn : exn) ~scheduler:(t : t)]
+      with exn -> sync_changed_fd_failed t fd desired exn
     in
     t.fds_whose_watching_has_changed <- [];
     List.iter changed ~f:make_file_descr_watcher_agree_with;
@@ -705,106 +718,14 @@ let dump_core_on_job_delay () =
       ~how_to_dump
 ;;
 
-let be_the_scheduler ?(raise_unhandled_exn = false) t =
+let init t =
   dump_core_on_job_delay ();
-  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler
     (fun () -> thread_safe_wakeup_scheduler t);
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
   Raw_signal_manager.manage t.signal_manager Signal.pipe;
-  (* We avoid allocation in [check_file_descr_watcher], since it is called every time in
-     the scheduler loop. *)
-  let check_file_descr_watcher ~timeout span_or_unit =
-    if Debug.file_descr_watcher
-    then (Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t]);
-    let pre = F.pre_check F.watcher in
-    unlock t;
-    (* We yield so that other OCaml threads (especially thread-pool threads) get a chance
-       to run.  This is a good point to yield, because we do not hold the Async lock,
-       which allows other threads to acquire it.  [Thread.yield] only yields if other
-       OCaml threads are waiting to acquire the OCaml lock, and is fast if not.  As of
-       OCaml 4.06, [Thread.yield] on Linux calls [nanosleep], which causes the Linux
-       scheduler to actually switch to other threads. *)
-    Thread.yield ();
-    if Debug.file_descr_watcher
-    then (
-      Debug.log "File_descr_watcher.thread_safe_check"
-        (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
-        [%sexp_of: [ `Never | `Immediately | `After of Time_ns.Span.t ] * t]);
-    let before = Tsc.now () in
-    let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
-    let after = Tsc.now () in
-    t.time_spent_waiting_for_io <-
-      Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);
-    lock t;
-    check_result
-  in
-  (* We compute the timeout as the last thing before [check_file_descr_watcher], because
-     we want to make sure the timeout is zero if there are any scheduled jobs.  The code
-     is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
-     possible.  In particular, we only call [Time_ns.now] if we need to compute the
-     timeout-after span.  And we only call [Linux_ext.Timerfd.set_after] if the time that
-     we want it to fire is different than the time it is already set to fire. *)
-  let compute_timeout_and_check_file_descr_watcher () =
-    let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
-    let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
-    let file_descr_watcher_timeout =
-      match t.timerfd with
-      | None ->
-        (* Since there is no timerfd, use the file descriptor watcher timeout. *)
-        if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-        then min_inter_cycle_timeout
-        else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
-        then max_inter_cycle_timeout
-        else (
-          let next_event_at =
-            Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
-          in
-          Time_ns.Span.min
-            max_inter_cycle_timeout
-            (Time_ns.Span.max
-               min_inter_cycle_timeout
-               (Time_ns.diff next_event_at (Time_ns.now ()))))
-      | Some timerfd ->
-        (* Set [timerfd] to fire if necessary, taking into account [can_run_a_job],
-           [min_inter_cycle_timeout], and [next_event_at]. *)
-        let have_min_inter_cycle_timeout =
-          Time_ns.Span.( > ) min_inter_cycle_timeout Time_ns.Span.zero
-        in
-        if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-        then (
-          if not have_min_inter_cycle_timeout
-          then Time_ns.Span.zero
-          else (
-            t.timerfd_set_at <- Time_ns.max_value;
-            Linux_ext.Timerfd.set_after timerfd min_inter_cycle_timeout;
-            max_inter_cycle_timeout))
-        else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
-        then max_inter_cycle_timeout
-        else (
-          let next_event_at =
-            Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
-          in
-          let set_timerfd_at =
-            if not have_min_inter_cycle_timeout
-            then next_event_at
-            else (
-              Time_ns.max
-                next_event_at
-                (Time_ns.add (Time_ns.now ()) min_inter_cycle_timeout))
-          in
-          if not (Time_ns.equal t.timerfd_set_at set_timerfd_at)
-          then (
-            t.timerfd_set_at <- set_timerfd_at;
-            Linux_ext.Timerfd.set_at timerfd set_timerfd_at);
-          max_inter_cycle_timeout)
-    in
-    if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
-    then (check_file_descr_watcher ~timeout:Immediately ())
-    else (check_file_descr_watcher ~timeout:After file_descr_watcher_timeout)
-  in
   begin
     let interruptor_finished = Ivar.create () in
     let interruptor_read_fd = Interruptor.read_fd t.interruptor in
@@ -823,30 +744,131 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
     | `Unsupported | `Already_closed -> problem_with_interruptor ()
     end;
     upon (Ivar.read interruptor_finished) (fun _ -> problem_with_interruptor ());
-  end;
+  end
+;;
+
+(* We avoid allocation in [check_file_descr_watcher], since it is called every time in
+   the scheduler loop. *)
+let check_file_descr_watcher t ~timeout span_or_unit =
+  let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+  if Debug.file_descr_watcher
+  then (Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t]);
+  let pre = F.pre_check F.watcher in
+  unlock t;
+  (* We yield so that other OCaml threads (especially thread-pool threads) get a chance
+     to run.  This is a good point to yield, because we do not hold the Async lock,
+     which allows other threads to acquire it.  [Thread.yield] only yields if other
+     OCaml threads are waiting to acquire the OCaml lock, and is fast if not.  As of
+     OCaml 4.06, [Thread.yield] on Linux calls [nanosleep], which causes the Linux
+     scheduler to actually switch to other threads. *)
+  Thread.yield ();
+  if Debug.file_descr_watcher
+  then (
+    Debug.log "File_descr_watcher.thread_safe_check"
+      (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
+      [%sexp_of: [ `Never | `Immediately | `After of Time_ns.Span.t ] * t]);
+  let before = Tsc.now () in
+  let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
+  let after = Tsc.now () in
+  t.time_spent_waiting_for_io <-
+    Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);
+  lock t;
+  (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
+     processing that needs to happen in response to [thread_safe_interrupt].  That
+     way, even if [Interruptor.clear] clears out an interrupt that hasn't been
+     serviced yet, the interrupt will still be serviced by the immediately following
+     processing. *)
+  Interruptor.clear t.interruptor;
+  if Debug.file_descr_watcher
+  then (
+    Debug.log "File_descr_watcher.post_check" (check_result, t)
+      [%sexp_of: F.Check_result.t * t]);
+  F.post_check F.watcher check_result;
+;;
+
+(* We compute the timeout as the last thing before [check_file_descr_watcher], because
+   we want to make sure the timeout is zero if there are any scheduled jobs.  The code
+   is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
+   possible.  In particular, we only call [Time_ns.now] if we need to compute the
+   timeout-after span.  And we only call [Linux_ext.Timerfd.set_after] if the time that
+   we want it to fire is different than the time it is already set to fire. *)
+let compute_timeout_and_check_file_descr_watcher t =
+  let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
+  let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
+  let file_descr_watcher_timeout =
+    match t.timerfd with
+    | None ->
+      (* Since there is no timerfd, use the file descriptor watcher timeout. *)
+      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+      then min_inter_cycle_timeout
+      else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
+      then max_inter_cycle_timeout
+      else (
+        let next_event_at =
+          Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
+        in
+        Time_ns.Span.min
+          max_inter_cycle_timeout
+          (Time_ns.Span.max
+             min_inter_cycle_timeout
+             (Time_ns.diff next_event_at (Time_ns.now ()))))
+    | Some timerfd ->
+      (* Set [timerfd] to fire if necessary, taking into account [can_run_a_job],
+         [min_inter_cycle_timeout], and [next_event_at]. *)
+      let have_min_inter_cycle_timeout =
+        Time_ns.Span.( > ) min_inter_cycle_timeout Time_ns.Span.zero
+      in
+      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+      then (
+        if not have_min_inter_cycle_timeout
+        then Time_ns.Span.zero
+        else (
+          t.timerfd_set_at <- Time_ns.max_value;
+          Linux_ext.Timerfd.set_after timerfd min_inter_cycle_timeout;
+          max_inter_cycle_timeout))
+      else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
+      then max_inter_cycle_timeout
+      else (
+        let next_event_at =
+          Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
+        in
+        let set_timerfd_at =
+          if not have_min_inter_cycle_timeout
+          then next_event_at
+          else (
+            Time_ns.max
+              next_event_at
+              (Time_ns.add (Time_ns.now ()) min_inter_cycle_timeout))
+        in
+        if not (Time_ns.equal t.timerfd_set_at set_timerfd_at)
+        then (
+          t.timerfd_set_at <- set_timerfd_at;
+          Linux_ext.Timerfd.set_at timerfd set_timerfd_at);
+        max_inter_cycle_timeout)
+  in
+  if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
+  then (check_file_descr_watcher t ~timeout:Immediately ())
+  else (check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout)
+;;
+
+let one_iter t =
+  maybe_calibrate_tsc t;
+  sync_changed_fds_to_file_descr_watcher t;
+  compute_timeout_and_check_file_descr_watcher t;
+  if debug then (Debug.log_string "handling delivered signals");
+  Raw_signal_manager.handle_delivered t.signal_manager;
+  have_lock_do_cycle t;
+;;
+
+let be_the_scheduler ?(raise_unhandled_exn = false) t =
+  init t;
   let rec loop () =
     (* At this point, we have the lock. *)
     if Kernel_scheduler.check_invariants t.kernel_scheduler then (invariant t);
-    maybe_calibrate_tsc t;
     match Kernel_scheduler.uncaught_exn t.kernel_scheduler with
     | Some error -> unlock t; error
     | None ->
-      sync_changed_fds_to_file_descr_watcher t;
-      let check_result = compute_timeout_and_check_file_descr_watcher () in
-      (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
-         processing that needs to happen in response to [thread_safe_interrupt].  That
-         way, even if [Interruptor.clear] clears out an interrupt that hasn't been
-         serviced yet, the interrupt will still be serviced by the immediately following
-         processing. *)
-      Interruptor.clear t.interruptor;
-      if Debug.file_descr_watcher
-      then (
-        Debug.log "File_descr_watcher.post_check" (check_result, t)
-          [%sexp_of: F.Check_result.t * t]);
-      F.post_check F.watcher check_result;
-      if debug then (Debug.log_string "handling delivered signals");
-      Raw_signal_manager.handle_delivered t.signal_manager;
-      have_lock_do_cycle t;
+      one_iter t;
       loop ();
   in
   let exn =
@@ -863,9 +885,9 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   then (Error.raise error)
   else (
     (* One reason to run [do_at_exit] handlers before printing out the error message is
-       that it helps curses applications bring the terminal in a good state, otherwise the
-       error message might get corrupted.  Also, the OCaml top-level uncaught exception
-       handler does the same. *)
+       that it helps curses applications bring the terminal in a good state, otherwise
+       the error message might get corrupted.  Also, the OCaml top-level uncaught
+       exception handler does the same. *)
     (try Pervasives.do_at_exit () with _ -> ());
     Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
     if should_dump_core
