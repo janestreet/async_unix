@@ -42,8 +42,12 @@ type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
 
 module Backing_out_channel = Backing_out_channel
 
+module Destroy_or_keep = struct
+  type t = Destroy | Keep [@@deriving sexp_of]
+end
+
 module Scheduled = struct
-  type t = (Bigstring.t IOVec.t * [ `Destroy | `Keep ]) Deque.t
+  type t = (Bigstring.t IOVec.t * Destroy_or_keep.t) Deque.t
 
   let length (t : t) = Deque.fold t ~init:0 ~f:(fun n (iovec, _) -> n + iovec.len)
 end
@@ -256,8 +260,8 @@ let invariant t : unit =
       ~scheduled:(check (fun (scheduled : Scheduled.t) ->
         Deque.iter scheduled ~f:(fun (iovec, kind) ->
           if phys_equal t.buf iovec.buf then (assert (match kind with
-            | `Keep -> true
-            | _ -> false)))))
+            | Keep -> true
+            | Destroy -> false)))))
       ~scheduled_bytes:(check (fun scheduled_bytes ->
         assert (scheduled_bytes = Scheduled.length t.scheduled)))
       ~scheduled_back:(check (fun scheduled_back ->
@@ -799,7 +803,7 @@ let schedule_unscheduled t kind =
 let dummy_iovec = IOVec.empty IOVec.bigstring_kind
 
 let mk_iovecs t =
-  schedule_unscheduled t `Keep;
+  schedule_unscheduled t Keep;
   let n_iovecs = Int.min (Deque.length t.scheduled) (Lazy.force IOVec.max_iovecs) in
   let iovecs = Array.create ~len:n_iovecs dummy_iovec in
   let contains_mmapped_ref = ref false in
@@ -923,8 +927,8 @@ and write_finished t bytes_written =
            destroyed immediately unless they are still in use for buffering.  *)
         begin
           match kind with
-          | `Destroy -> Bigstring.unsafe_destroy buf
-          | `Keep -> ()
+          | Destroy -> Bigstring.unsafe_destroy buf
+          | Keep -> ()
         end;
         remove_done (bytes_written - len))
       else (
@@ -937,7 +941,7 @@ and write_finished t bytes_written =
   in
   remove_done bytes_written;
   (* See if there's anything else to do. *)
-  schedule_unscheduled t `Keep;
+  schedule_unscheduled t Keep;
   if Deque.is_empty t.scheduled
   then (
     t.back <- 0;
@@ -1000,14 +1004,14 @@ let give_buf t desired =
        of the buffer length will waste slightly less than one quarter of the buffer. *)
     if desired > buf_len / 2
     then (
-      schedule_unscheduled t `Keep;
+      schedule_unscheduled t Keep;
       (* Preallocation size too small; allocate dedicated buffer *)
       let buf = Bigstring.create desired in
-      add_iovec t `Destroy (IOVec.of_bigstring ~len:desired buf)
+      add_iovec t Destroy (IOVec.of_bigstring ~len:desired buf)
         ~count_bytes_as_received:false; (* we already counted them above *)
       (buf, 0))
     else (
-      schedule_unscheduled t `Destroy;
+      schedule_unscheduled t Destroy;
       (* Preallocation size sufficient; preallocate new buffer *)
       let buf = Bigstring.create buf_len in
       t.buf <- buf;
@@ -1259,33 +1263,26 @@ let write_bin_prot_no_size_header t ~size write v =
     maybe_start_writer t)
 ;;
 
-let write_marshal t ~flags v =
-  schedule_unscheduled t `Keep;
-  let iovec = IOVec.of_bigstring (Bigstring_marshal.marshal ~flags v) in
-  add_iovec t `Destroy iovec ~count_bytes_as_received:true;
-  maybe_start_writer t
-;;
-
 let send t s =
   write t (string_of_int (String.length s) ^ "\n");
   write t s;
 ;;
 
-let schedule_iovec t iovec =
-  schedule_unscheduled t `Keep;
-  add_iovec t `Keep iovec ~count_bytes_as_received:true;
+let schedule_iovec ?(destroy_or_keep = Destroy_or_keep.Keep) t iovec =
+  schedule_unscheduled t Keep;
+  add_iovec t destroy_or_keep iovec ~count_bytes_as_received:true;
   maybe_start_writer t;
 ;;
 
 let schedule_iovecs t iovecs =
-  schedule_unscheduled t `Keep;
-  Queue.iter iovecs ~f:(add_iovec t `Keep ~count_bytes_as_received:true);
+  schedule_unscheduled t Keep;
+  Queue.iter iovecs ~f:(add_iovec t Keep ~count_bytes_as_received:true);
   Queue.clear iovecs;
   maybe_start_writer t;
 ;;
 
-let schedule_bigstring t ?pos ?len bstr =
-  schedule_iovec t (IOVec.of_bigstring ?pos ?len bstr)
+let schedule_bigstring ?destroy_or_keep t ?pos ?len bstr =
+  schedule_iovec t (IOVec.of_bigstring ?pos ?len bstr) ?destroy_or_keep
 ;;
 
 let schedule_bigsubstring t bigsubstring =
@@ -1323,7 +1320,8 @@ let fdatasync t =
 
 let write_bin_prot t sw_arg v       = ensure_can_write t; write_bin_prot t sw_arg v
 let send t s                        = ensure_can_write t; send t s
-let schedule_iovec t iovec          = ensure_can_write t; schedule_iovec t iovec
+let schedule_iovec ?destroy_or_keep t iovec =
+  ensure_can_write t; schedule_iovec ?destroy_or_keep t iovec
 let schedule_iovecs t iovecs        = ensure_can_write t; schedule_iovecs t iovecs
 let schedule_bigstring t ?pos ?len bstr =
   ensure_can_write t; schedule_bigstring t ?pos ?len bstr
@@ -1339,7 +1337,6 @@ let write_bytes ?pos ?len t s       = ensure_can_write t; write_bytes ?pos ?len 
 let write ?pos ?len t s             = ensure_can_write t; write ?pos ?len t s
 let write_line ?line_ending t s     = ensure_can_write t; write_line t s ?line_ending
 let writef t                        = ensure_can_write t; writef t
-let write_marshal t ~flags v        = ensure_can_write t; write_marshal t ~flags v
 let write_sexp ?hum ?terminate_with t s =
   ensure_can_write t; write_sexp ?hum ?terminate_with t s
 let write_iobuf ?pos ?len t iobuf   = ensure_can_write t; write_iobuf ?pos ?len t iobuf

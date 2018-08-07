@@ -305,9 +305,6 @@ val write_bin_prot_no_size_header
   -> 'a
   -> unit
 
-(** [write_marshal] serializes data using [marshal] and writes it to the writer. *)
-val write_marshal : t -> flags : Marshal.extern_flags list -> _ -> unit
-
 (** Unlike the [write_] functions, all functions starting with [schedule_] require
     flushing or closing of the writer after returning before it is safe to modify the
     bigstrings which were directly or indirectly passed to these functions.  The reason is
@@ -338,10 +335,18 @@ val schedule_iobuf_consume
   -> ([> read], Iobuf.seek) Iobuf.t
   -> unit Deferred.t
 
+module Destroy_or_keep : sig
+  type t = Destroy | Keep [@@deriving sexp_of]
+end
+
 (** [schedule_iovec t iovec] schedules a write of I/O-vector [iovec].  It is not safe to
     change the bigstrings underlying the I/O-vector until the writer has been successfully
     flushed or closed after this operation. *)
-val schedule_iovec : t -> Bigstring.t Unix.IOVec.t -> unit
+val schedule_iovec
+  :  ?destroy_or_keep : Destroy_or_keep.t  (** default is [Keep] *)
+  -> t
+  -> Bigstring.t Unix.IOVec.t
+  -> unit
 
 (** [schedule_iovecs t iovecs] like {!schedule_iovec}, but takes a whole queue [iovecs] of
     I/O-vectors as argument.  The queue is guaranteed to be empty when this function

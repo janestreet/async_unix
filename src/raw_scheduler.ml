@@ -906,8 +906,16 @@ let add_finalizer_exn t x f =
     (fun heap_block -> f (Heap_block.value heap_block))
 ;;
 
+let set_task_id () =
+  Async_kernel_config.task_id := fun () ->
+    let pid       = Unix.getpid () in
+    let thread_id = Thread.id (Thread.self ()) in
+    [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]] (`pid pid, `thread_id thread_id)
+;;
+
 let go ?raise_unhandled_exn () =
   if debug then (Debug.log_string "Scheduler.go");
+  set_task_id ();
   let t = the_one_and_only ~should_lock:false in
   (* [go] is called from the main thread and so must acquire the lock if the thread has
      not already done so implicitly via use of an async operation that uses
