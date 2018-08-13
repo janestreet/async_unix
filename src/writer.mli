@@ -617,6 +617,26 @@ val with_synchronous_out_channel
   -> f:(unit -> 'a Deferred.t)
   -> 'a Deferred.t
 
+(** [use_synchronous_stdout_and_stderr ()] causes all subsequent writes to
+    stdout and stderr to occur synchronously (after any pending writes have
+    flushed).
+
+    This ensures [printf]-family writes happen immediately, which avoids two
+    common sources of confusion:
+
+    {ul
+    {li unexpected interleaving of [Core.printf] and [Async.printf] calls; and}
+    {li [Async.printf] calls that don't get flushed before an application exits}}
+
+    The disadvantages are:
+
+    {ul
+    {li this makes writes blocking, which can delay unrelated asynchronous jobs until
+    the consumer stops pushing back; and}
+    {li the errors raised by write are different and it won't respect
+    {!behave_nicely_in_pipeline} anymore}} *)
+val use_synchronous_stdout_and_stderr : unit -> unit Deferred.t
+
 (** [Backing_out_channel] generalizes [Out_channel] to a narrow interface that can be used
     to collect strings, etc. *)
 module Backing_out_channel : sig

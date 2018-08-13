@@ -18,7 +18,8 @@ type t =
 [@@deriving fields, sexp_of]
 
 type 'a create
-  =  ?buf_len     : int
+  =  ?argv0       : string
+  -> ?buf_len     : int
   -> ?env         : env
   -> ?stdin       : string
   -> ?working_dir : string
@@ -28,6 +29,7 @@ type 'a create
   -> 'a Deferred.t
 
 let create
+      ?argv0
       ?buf_len
       ?(env = `Extend [])
       ?stdin:write_to_stdin
@@ -38,7 +40,7 @@ let create
   =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
-      Core.Unix.create_process_env ~prog ~args ~env ?working_dir ())
+      Core.Unix.create_process_env ~prog ~args ~env ?working_dir ?argv0 ())
   with
   | Error exn -> Or_error.of_exn exn
   | Ok { pid; stdin; stdout; stderr } ->
@@ -78,8 +80,8 @@ let create
     Ok t
 ;;
 
-let create_exn ?buf_len ?env ?stdin ?working_dir ~prog ~args () =
-  create ?buf_len ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
+let create_exn ?argv0 ?buf_len ?env ?stdin ?working_dir ~prog ~args () =
+  create ?argv0 ?buf_len ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
 ;;
 
 module Lines_or_sexp = struct

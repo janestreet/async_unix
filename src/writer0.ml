@@ -1383,6 +1383,24 @@ let stdout_and_stderr =
 let stdout = lazy (fst (Lazy.force stdout_and_stderr))
 let stderr = lazy (snd (Lazy.force stdout_and_stderr))
 
+let use_synchronous_stdout_and_stderr () =
+  let stdout, stderr = Lazy.force stdout_and_stderr in
+  let ts_and_channels =
+    (stdout, Out_channel.stdout)
+    :: (
+      (* We only set [stderr] if it is distinct from [stdout]. *)
+      match phys_equal stdout stderr with
+      | true ->
+        [  ]
+      | false ->
+        [ stderr, Out_channel.stderr
+        ])
+  in
+  List.map ts_and_channels ~f:(fun (t, out_channel) ->
+    set_synchronous_out_channel t out_channel)
+  |> Deferred.all_unit
+;;
+
 (* This test is here rather than in a [test] directory because we want it to run
    immediately after [stdout] and [stderr] are defined, so that they haven't yet been
    forced. *)

@@ -33,12 +33,16 @@ type env = Unix.env [@@deriving sexp]
     If [working_dir] is supplied, then the child process will [chdir()] there before
     calling [exec()].
 
+    If [argv0] is given, it is used (instead of [prog]) as the first element of the [argv]
+    array passed to [exec].
+
     [create] returns [Error] if it is unable to create the child process.  This can happen
     in any number of situations (unable to fork, unable to create the pipes, unable to cd
     to [working_dir], etc.).  [create] does not return [error] if [exec] fails; instead,
     it returns [OK t], where [wait t] returns an [Error]. *)
 type 'a create
-  =  ?buf_len     : int
+  =  ?argv0       : string
+  -> ?buf_len     : int
   -> ?env         : env  (** default is [`Extend []] *)
   -> ?stdin       : string
   -> ?working_dir : string
