@@ -1,6 +1,7 @@
-(** This module overrides everything in the [Sys] module that might block.  Functions do
-    the same thing as their counterparts in [Sys], but instead return deferreds.  For a
-    description of their semantics see the documentation for the [Sys] module. *)
+(** This module overrides everything in the [Core.Sys] module that might block.  Functions
+    do the same thing as their counterparts in [Core.Sys], but instead return deferreds.
+    For a description of their semantics see the documentation for the [Core.Sys]
+    module. *)
 
 open! Core
 open! Import
@@ -56,4 +57,3 @@ val ocaml_version : string
 val execution_mode : unit -> [ `Bytecode | `Native ]
 
 val c_int_size : unit -> int
-
