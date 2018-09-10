@@ -2,6 +2,8 @@ open Core
 
 include Async_kernel
 
+
+module Thread_pool_cpuset       = Config.Thread_pool_cpu_affinity
 module Epoll_max_ready_events   = Config.Epoll_max_ready_events
 module Max_inter_cycle_timeout  = Config.Max_inter_cycle_timeout
 module Max_num_open_file_descrs = Config.Max_num_open_file_descrs

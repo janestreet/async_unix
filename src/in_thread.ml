@@ -14,7 +14,15 @@ let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
       match when_finished with
       | `Take_the_async_lock  -> lock t; true
       | `Notify_the_scheduler -> false
-      | `Best                 -> try_lock t
+      | `Best                 ->
+        begin match thread_pool_cpu_affinity t with
+        | Inherit  -> try_lock t
+        | Cpuset _ ->
+          (* If the user specified an affinity for the thread pool, they presumably intend
+             for Async jobs to be affinitized differently from thread-pool threads, so we
+             don't even attempt to run jobs on the thread-pool thread. *)
+          false
+        end
     in
     if locked
     then (

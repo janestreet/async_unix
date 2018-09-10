@@ -172,6 +172,8 @@ Async was unable to add a file descriptor to its table of open file descriptors"
         ~scheduler:(if am_running_inline_test then None else (Some t) : t sexp_option)]
 ;;
 
+let thread_pool_cpu_affinity t = Thread_pool.cpu_affinity t.thread_pool
+
 let lock t =
   (* The following debug message is outside the lock, and so there can be races between
      multiple threads printing this message. *)
@@ -495,13 +497,16 @@ let post_check_handle_fd t file_descr read_or_write value =
 ;;
 
 let create
+      ?(thread_pool_cpu_affinity = Config.thread_pool_cpu_affinity)
       ?(file_descr_watcher       = Config.file_descr_watcher)
       ?(max_num_open_file_descrs = Config.max_num_open_file_descrs)
       ?(max_num_threads          = Config.max_num_threads)
       () =
   if debug then (Debug.log_string "creating scheduler");
   let thread_pool =
-    ok_exn (Thread_pool.create ~max_num_threads:(Max_num_threads.raw max_num_threads))
+    ok_exn (Thread_pool.create ()
+              ~cpu_affinity:thread_pool_cpu_affinity
+              ~max_num_threads:(Max_num_threads.raw max_num_threads))
   in
   let num_file_descrs = Max_num_open_file_descrs.raw max_num_open_file_descrs in
   let fd_by_descr = Fd_by_descr.create ~num_file_descrs in

@@ -1,6 +1,8 @@
 open Core
 open Import
 
+module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
+
 module Thread_id : sig
   type t [@@deriving sexp_of]
 
@@ -164,15 +166,20 @@ module Internal = struct
 
     let stop t = Work_queue.enqueue t.work_queue Stop
 
-    let initialize_ocaml_thread t =
+    let initialize_ocaml_thread t (cpu_affinity : Cpu_affinity.t) =
       set_thread_name t.name;
-      (* We call [getpriority] to see whether we need to set the priority.  This is only
-         used for initialization, not for ongoing work.  This is not a performance
-         optimization.  It is done so that in programs that don't use priorities, we never
-         call [setpriority], and thus prevent problems due to the user's "ulimit -e" being
-         too restrictive. *)
+      (* We call [getpriority] to see whether we need to set the priority.  This is not a
+         performance optimization.  It is done so that in programs that don't use
+         priorities, we never call [setpriority], and thus prevent problems due to the
+         user's "ulimit -e" being too restrictive.  The use of [getpriority] is limited to
+         initialization, and is not used elsewhere in this module. *)
       if not (Priority.equal (getpriority ()) t.priority)
       then (setpriority t.priority);
+      begin match cpu_affinity with
+      | Inherit -> ()
+      | Cpuset cpuset ->
+        Or_error.ok_exn Core.Thread.setaffinity_self_exn (cpuset |> Cpu_affinity.Cpuset.raw)
+      end;
     ;;
 
     let set_name t name =
@@ -208,6 +215,8 @@ module Internal = struct
     (* [max_num_threads] is the maximum number of threads that the thread pool is allowed
        to create. *)
     ; max_num_threads                         : int
+    (* [cpu_affinity] is the desired CPU affinity for threads in this pool. *)
+    ; cpu_affinity                            : Cpu_affinity.t
     (* [num_threads] is the number of threads that have been created by the pool.  The
        thread pool guarantees that [num_threads <= max_num_threads]. *)
     ; mutable num_threads                     : int
@@ -244,6 +253,7 @@ module Internal = struct
             assert (t.unfinished_work = 0);
             assert (t.num_threads = 0)))
         ~finished:ignore
+        ~cpu_affinity:ignore
         ~mutex:(check Mutex.invariant)
         ~default_priority:ignore
         ~max_num_threads:(check (fun max_num_threads ->
@@ -295,8 +305,15 @@ module Internal = struct
 
   let has_unstarted_work t = not (Queue.is_empty t.work_queue)
 
-  let create ~max_num_threads =
-    if max_num_threads < 1
+  let create ?(cpu_affinity = Cpu_affinity.Inherit) ~max_num_threads () =
+    if (match cpu_affinity with
+      | Inherit -> false
+      | Cpuset _ -> Or_error.is_error Core.Thread.setaffinity_self_exn)
+    then (
+      Or_error.error_string
+        "Thread_pool.create setaffinity not supported on this platform"
+    )
+    else if max_num_threads < 1
     then (
       error "Thread_pool.create max_num_threads was < 1" max_num_threads
         [%sexp_of: int])
@@ -307,6 +324,7 @@ module Internal = struct
         ; finished                                = Thread_safe_ivar.create ()
         ; mutex                                   = Mutex.create ()
         ; default_priority                        = getpriority ()
+        ; cpu_affinity
         ; max_num_threads
         ; num_threads                             = 0
         ; thread_by_id                            = Thread_id.Table.create ()
@@ -333,6 +351,7 @@ module Internal = struct
           ~finished:(fun _ -> Thread_safe_ivar.fill t.finished ())
           ~mutex:ignore
           ~default_priority:ignore
+          ~cpu_affinity:ignore
           ~max_num_threads:ignore
           ~num_threads:(set 0)
           ~thread_creation_failure_lockout:ignore
@@ -388,7 +407,7 @@ module Internal = struct
     let ocaml_thread =
       Or_error.try_with (fun () ->
         Core.Thread.create (fun () ->
-          Thread.initialize_ocaml_thread thread;
+          Thread.initialize_ocaml_thread thread t.cpu_affinity;
           let rec loop () =
             match Squeue.pop thread.work_queue with
             | Stop -> ()
@@ -578,8 +597,8 @@ let critical_section t ~f =
 
 let invariant t = critical_section t ~f:(fun () -> invariant t)
 
-let create ~max_num_threads =
-  Result.map (create ~max_num_threads) ~f:(fun t ->
+let create ?cpu_affinity ~max_num_threads () =
+  Result.map (create ?cpu_affinity ~max_num_threads ()) ~f:(fun t ->
     if !check_invariant then (invariant t);
     t)
 ;;
@@ -591,6 +610,7 @@ let finished_with t = critical_section t ~f:(fun () -> finished_with t)
    allow the finishing threads to acquire [t]'s lock. *)
 let block_until_finished t = Thread_safe_ivar.read t.finished
 
+let cpu_affinity       = cpu_affinity
 let default_priority   = default_priority
 let has_unstarted_work = has_unstarted_work
 let max_num_threads    = max_num_threads

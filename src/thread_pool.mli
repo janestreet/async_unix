@@ -25,19 +25,26 @@
     accomplished elsewhere by using Async finalizers, which are run from ordinary Async
     jobs, and thus do not hold the thread-pool lock.
 
-    One can control the priority of threads in the pool (in the sense of
-    [Linux_ext.setpriority]).  Work added to the pool can optionally be given a priority,
-    and the pool will set the priority of the thread that runs it for the duration of the
-    work.  Helper threads can also be given a priority, which will be used for all work
-    run by the helper thread, unless the work has an overriding priority.  The thread pool
-    has a "default" priority that will be used for all work and helper threads that have
-    no specified priority.  The default is simply the priority in effect when [create] is
-    called.
+    One can control the priority and affinity of threads in the pool (priority in the
+    sense of [Linux_ext.setpriority]).
+    Work added to the pool can optionally be given a priority, and the
+    pool will set the priority of the thread that runs it for the duration of the work.
+    Helper threads can also be given a priority, which will be used for
+    all work run by the helper thread, unless the work has an overriding priority.
+    The thread pool has a "default" priority that will be used for all work
+    and helper threads that have no specified priority.
+    The default priority is the priority in effect when [create] is called.
 
-    Behavior is unspecified if work calls [setpriority] directly. *)
+    Affinity, on the other hand, can only be specified when you create a pool.
+    The default affinity is the affinity in effect when a new thread happens to be created
+    (e.g. when you call [add_work]).
+
+    Behavior is unspecified if work calls [setpriority] or [setaffinity] directly. *)
 
 open! Core
 open! Import
+
+module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
 
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
@@ -45,9 +52,23 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-(** [create ~max_num_threads] returns a new thread pool.  It is an error if
-    [max_num_threads < 1]. *)
-val create : max_num_threads:int -> t Or_error.t
+(** [create ?cpuset ~max_num_threads] returns a new thread pool.  It is an
+    error if [max_num_threads < 1].
+
+    If [cpuset] is specified, then every thread will be affinitized to those
+    CPU cores upon creation.
+
+    If [cpuset] is not specified, then every thread will inherit the
+    affinitization of the thread (typically the main thread) that created it. *)
+val create
+  :  ?cpu_affinity:Cpu_affinity.t  (** default is [Inherit] *)
+  -> max_num_threads:int
+  -> unit
+  -> t Or_error.t
+
+(** [cpu_affinity t] returns the CPU affinity that [t] was created with.  All
+    threads created by [t] will be created with this affinity. *)
+val cpu_affinity : t -> Cpu_affinity.t
 
 (** [finished_with t] makes it an error to subsequently call [add_work* t] or
     [create_helper_thread t].  And, once all current work in [t] is finished, destroys all
