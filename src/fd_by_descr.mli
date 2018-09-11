@@ -11,18 +11,11 @@ type t [@@deriving sexp_of]
 include Invariant.S with type t := t
 
 val create : num_file_descrs:int -> t
-
 val capacity : t -> int
-
 val add : t -> Raw_fd.t -> unit Or_error.t
-
 val mem : t -> File_descr.t -> bool
-
-val find     : t -> File_descr.t -> Raw_fd.t option
+val find : t -> File_descr.t -> Raw_fd.t option
 val find_exn : t -> File_descr.t -> Raw_fd.t
-
 val remove : t -> Raw_fd.t -> unit
-
 val fold : t -> init:'a -> f:('a -> Raw_fd.t -> 'a) -> 'a
-
 val iter : t -> f:(Raw_fd.t -> unit) -> unit

@@ -43,7 +43,7 @@ val shutdown_on_unhandled_exn : unit -> unit
 val exit : ?force:unit Deferred.t -> int -> _ Deferred.t
 
 (** [default_force] returns the default [force] value used by [shutdown] and [exit]. *)
-val default_force : unit -> (unit -> unit Deferred.t)
+val default_force : unit -> unit -> unit Deferred.t
 
 (** [set_default_force f] sets the default [force] value used by [shutdown] and [exit] to
     [f]. Initially, the default value is [fun () -> after (sec 10.)]. A subsequent call to
@@ -59,7 +59,7 @@ val set_default_force : (unit -> unit Deferred.t) -> unit
 
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
     what status. *)
-val shutting_down : unit -> [ `No | `Yes of int ]
+val shutting_down : unit -> [`No | `Yes of int]
 
 (** [at_shutdown f] causes [f ()] to be run when [shutdown] is called, and for [shutdown]
     to wait until the returned deferred finishes.  If [f] raises (synchronously or

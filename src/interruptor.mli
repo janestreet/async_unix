@@ -8,10 +8,7 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-val create
-  :  create_fd : (Raw_fd.Kind.t -> Unix.File_descr.t -> Info.t -> Raw_fd.t)
-  -> t
-
+val create : create_fd:(Raw_fd.Kind.t -> Unix.File_descr.t -> Info.t -> Raw_fd.t) -> t
 val read_fd : t -> Raw_fd.t
 
 (** [thread_safe_interrupt t] causes [read_fd t] to become ready for reading. *)

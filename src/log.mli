@@ -18,14 +18,12 @@ module Level : sig
   type t =
     [ `Debug
     | `Info  (** default level *)
-    | `Error
-    ]
+    | `Error ]
   [@@deriving bin_io, compare, sexp]
 
   include Stringable with type t := t
 
   val arg : t Command.Spec.Arg_type.t
-
   val as_or_more_verbose_than : log_level:t -> msg_level:t option -> bool
 
   module Stable : sig
@@ -42,16 +40,16 @@ module Message : sig
     :  ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
-    -> [ `String of string | `Sexp of Sexp.t ]
+    -> [`String of string | `Sexp of Sexp.t]
     -> t
 
-  val time        : t -> Time.t
-  val message     : t -> string
-  val raw_message : t -> [ `String of string | `Sexp of Sexp.t ]
-  val level       : t -> Level.t option
-  val set_level   : t -> Level.t option -> t
-  val tags        : t -> (string * string) list
-  val add_tags    : t -> (string * string) list -> t
+  val time : t -> Time.t
+  val message : t -> string
+  val raw_message : t -> [`String of string | `Sexp of Sexp.t]
+  val level : t -> Level.t option
+  val set_level : t -> Level.t option -> t
+  val tags : t -> (string * string) list
+  val add_tags : t -> (string * string) list -> t
 
   module Stable : sig
     module V0 : sig
@@ -107,18 +105,22 @@ module Rotation : sig
         the renaming. *)
     val rotate_one : t -> t
 
-    val to_string_opt    : t -> string option
-    val of_string_opt    : string option -> t option
+    val to_string_opt : t -> string option
+    val of_string_opt : string option -> t option
     val cmp_newest_first : t -> t -> int
   end
 
+
   val create
-    :  ?messages     : int
-    -> ?size         : Byte_units.t
-    -> ?time         : Time.Ofday.t
-    -> ?zone         : Time.Zone.t
-    -> keep          : [ `All | `Newer_than of Time.Span.t | `At_least of int ]
-    -> naming_scheme : [ `Numbered | `Timestamped | `Dated | `User_defined of (module Id_intf)]
+    :  ?messages:int
+    -> ?size:Byte_units.t
+    -> ?time:Time.Ofday.t
+    -> ?zone:Time.Zone.t
+    -> keep:[`All | `Newer_than of Time.Span.t | `At_least of int]
+    -> naming_scheme:[ `Numbered
+                     | `Timestamped
+                     | `Dated
+                     | `User_defined of (module Id_intf) ]
     -> unit
     -> t
 
@@ -130,16 +132,22 @@ module Rotation : sig
 
       Logs are never deleted. Best practice is to have an external mechanism archive old
       logs for long-term storage. *)
-  val default
-    :  ?zone : Time.Zone.t
-    -> unit
-    -> t
+  val default : ?zone:Time.Zone.t -> unit -> t
 end
 
 module Output : sig
   module Format : sig
-    type machine_readable = [`Sexp | `Sexp_hum | `Bin_prot ] [@@deriving sexp]
-    type t = [ machine_readable | `Text ] [@@deriving sexp]
+
+    type machine_readable =
+      [ `Sexp
+      | `Sexp_hum
+      | `Bin_prot ]
+    [@@deriving sexp]
+
+    type t =
+      [ machine_readable
+      | `Text ]
+    [@@deriving sexp]
 
     module Stable : sig
       module V1 : sig
@@ -184,13 +192,13 @@ module Output : sig
     -> t
 
   (** [stdout] defaults to [format=`Text] *)
-  val stdout        : ?format:Format.t -> unit -> t
+  val stdout : ?format:Format.t -> unit -> t
 
   (** [stderr] defaults to [format=`Text] *)
-  val stderr        : ?format:Format.t -> unit -> t
+  val stderr : ?format:Format.t -> unit -> t
 
-  val writer        : Format.t -> Writer.t -> t
-  val file          : Format.t -> filename:string -> t
+  val writer : Format.t -> Writer.t -> t
+  val file : Format.t -> filename:string -> t
   val rotating_file : Format.t -> basename:string -> Rotation.t -> t
 
   (** Returns a tail of the filenames. When [rotate] is called, the previous filename is
@@ -240,55 +248,55 @@ module Blocking : sig
   (** Printf-like logging for raw (no level) messages.  Raw messages are still
       output with a timestamp. *)
   val raw
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   (** Printf-like logging at the [`Info] log level *)
   val info
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   (** Printf-like logging at the [`Error] log level *)
   val error
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   (** Printf-like logging at the [`Debug] log level *)
   val debug
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   (** Logging of sexps. *)
   val sexp
-    :  ?level : Level.t
-    -> ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> Sexp.t
     -> unit
 
   (** [surround_s] logs before and after.  See more detailed comment for async
       surround. *)
   val surround_s
-    :  ?level : Level.t
-    -> ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> Sexp.t
     -> (unit -> 'a)
     -> 'a
 
   (** [surroundf] logs before and after.  See more detailed comment for async surround. *)
   val surroundf
-    :  ?level : Level.t
-    -> ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b) -> 'b) format4
     -> 'a
 end
@@ -298,51 +306,48 @@ type t [@@deriving sexp_of]
 (** An interface for singleton logs. *)
 module type Global_intf = sig
   val log : t Lazy.t
-
-  val level        : unit -> Level.t
-  val set_level    : Level.t -> unit
-  val set_output   : Output.t list -> unit
-  val get_output   : unit -> Output.t list
-  val set_on_error : [ `Raise | `Call of (Error.t -> unit) ] -> unit
-  val would_log    : Level.t option -> bool
-
+  val level : unit -> Level.t
+  val set_level : Level.t -> unit
+  val set_output : Output.t list -> unit
+  val get_output : unit -> Output.t list
+  val set_on_error : [`Raise | `Call of Error.t -> unit] -> unit
+  val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
   (** Functions that operate on a given log.  In this case they operate on a single log
       global to the module. *)
 
   val raw
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   val info
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   val error
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   val debug
-    :  ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
   val flushed : unit -> unit Deferred.t
-
   val rotate : unit -> unit Deferred.t
 
   val printf
-    :  ?level : Level.t
-    -> ?time  : Time.t
-    -> ?tags  : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
@@ -354,26 +359,26 @@ module type Global_intf = sig
     -> unit
 
   val string
-    :  ?level : Level.t
-    -> ?time  : Time.t
-    -> ?tags  : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> string
     -> unit
 
   val message : Message.t -> unit
 
   val surround_s
-    :  ?level : Level.t
-    -> ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> Sexp.t
     -> (unit -> 'a Deferred.t)
     -> 'a Deferred.t
 
   val surroundf
-    :  ?level : Level.t
-    -> ?time : Time.t
-    -> ?tags : (string * string) list
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
     -> 'a
 end
@@ -406,7 +411,7 @@ val get_output : t -> Output.t list
 (** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
     by providing [`Call f]. *)
-val set_on_error : t -> [ `Raise | `Call of (Error.t -> unit) ] -> unit
+val set_on_error : t -> [`Raise | `Call of Error.t -> unit] -> unit
 
 (** Any call that writes to a log after [close] is called will raise. *)
 val close : t -> unit Deferred.t
@@ -426,46 +431,47 @@ val rotate : t -> unit Deferred.t
 val create
   :  level:Level.t
   -> output:Output.t list
-  -> on_error:[ `Raise | `Call of (Error.t -> unit) ]
+  -> on_error:[`Raise | `Call of Error.t -> unit]
   -> t
 
 (** Printf-like logging for raw (no level) messages.  Raw messages are still output with a
     timestamp. *)
 val raw
-  :  ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> ('a, unit, string, unit) format4
   -> 'a
 
 (** Printf-like logging at the [`Debug] log level. *)
 val debug
-  :  ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
-  -> ('a, unit, string, unit) format4 -> 'a
+  -> ('a, unit, string, unit) format4
+  -> 'a
 
 (** Printf-like logging at the [`Info] log level. *)
 val info
-  :  ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> ('a, unit, string, unit) format4
   -> 'a
 
 (** Printf-like logging at the [`Error] log level. *)
 val error
-  :  ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> ('a, unit, string, unit) format4
   -> 'a
 
 (** Generalized printf-style logging. *)
 val printf
-  :  ?level : Level.t
-  -> ?time  : Time.t
-  -> ?tags  : (string * string) list
+  :  ?level:Level.t
+  -> ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> ('a, unit, string, unit) format4
   -> 'a
@@ -481,9 +487,9 @@ val sexp
 
 (** Logging of string values. *)
 val string
-  :  ?level : Level.t
-  -> ?time  : Time.t
-  -> ?tags  : (string * string) list
+  :  ?level:Level.t
+  -> ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> string
   -> unit
@@ -496,18 +502,18 @@ val message : t -> Message.t -> unit
     exception, and [surround] itself will re-raise the exception tagged with [message]. As
     usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
 val surround_s
-  :  ?level : Level.t
-  -> ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?level:Level.t
+  -> ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> Sexp.t
   -> (unit -> 'a Deferred.t)
   -> 'a Deferred.t
 
 val surroundf
-  :  ?level : Level.t
-  -> ?time : Time.t
-  -> ?tags : (string * string) list
+  :  ?level:Level.t
+  -> ?time:Time.t
+  -> ?tags:(string * string) list
   -> t
   -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
   -> 'a
@@ -520,13 +526,10 @@ module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors
       encountered when opening or reading the file will be thrown as exceptions into the
       monitor current at the time [pipe] is called. *)
-  val pipe
-    :  [< Output.Format.machine_readable ]
-    -> string
-    -> Message.t Pipe.Reader.t
+  val pipe : [< Output.Format.machine_readable] -> string -> Message.t Pipe.Reader.t
 
   val pipe_of_reader
-    :  [< Output.Format.machine_readable ]
+    :  [< Output.Format.machine_readable]
     -> Reader.t
     -> Message.t Pipe.Reader.t
 
@@ -534,7 +537,7 @@ module Reader : sig
     (** [read_one format reader] reads a single log message from the reader, advancing the
         position of the reader to the next log entry. *)
     val read_one
-      :  [< Output.Format.machine_readable ]
+      :  [< Output.Format.machine_readable]
       -> Reader.t
       -> Message.t Reader.Read_result.t Deferred.t
   end
@@ -554,10 +557,7 @@ module For_testing : sig
 
   (** [create_log ~map_output level] creates a [Log.t] with its level set to [level] using
       the output returned by [create_output], and an [on_error] value of `Raise. *)
-  val create
-    :  map_output:(string -> string)
-    -> Level.t
-    -> t
+  val create : map_output:(string -> string) -> Level.t -> t
 end
 
 (**/**)
@@ -574,9 +574,11 @@ module Private : sig
       module Version : sig
         type t [@@deriving of_sexp]
       end
+
       module V0 : sig
         type t = Message.t [@@deriving sexp_of]
       end
+
       module V2 : sig
         type t = Message.t [@@deriving sexp_of]
       end

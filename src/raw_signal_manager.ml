@@ -1,41 +1,36 @@
 open Core
-
 module Signal = Core.Signal
 
 module Handlers = struct
-  type t =
-    { bag : (Signal.t -> unit) sexp_opaque Bag.t }
-  [@@deriving sexp_of]
+  type t = { bag : (Signal.t -> unit) sexp_opaque Bag.t } [@@deriving sexp_of]
 
   let create () = { bag = Bag.create () }
-
   let add t handler = Bag.add t.bag handler
-
   let remove t handler_elt = Bag.remove t.bag handler_elt
 
   let deliver t signal =
     Bag.iter t.bag ~f:(fun handler ->
-      try
-        handler signal
-      with exn ->
-        raise_s [%message "signal handler unexpectedly raised" (exn : exn)])
+      try handler signal with
+      | exn -> raise_s [%message "signal handler unexpectedly raised" (exn : exn)])
   ;;
 end
 
 type delivered = (Signal.t * Handlers.t) Thread_safe_queue.t
 
 type t =
-  { handlers_by_signal                  : Handlers.t Signal.Table.t
-  ; delivered                           : delivered sexp_opaque
-  ; thread_safe_notify_signal_delivered : unit -> unit }
+  { handlers_by_signal : Handlers.t Signal.Table.t
+  ; delivered : delivered sexp_opaque
+  ; thread_safe_notify_signal_delivered : unit -> unit
+  }
 [@@deriving sexp_of]
 
 let invariant _ = ()
 
 let create ~thread_safe_notify_signal_delivered =
-  { handlers_by_signal                  = Signal.Table.create ()
-  ; delivered                           = Thread_safe_queue.create ()
-  ; thread_safe_notify_signal_delivered }
+  { handlers_by_signal = Signal.Table.create ()
+  ; delivered = Thread_safe_queue.create ()
+  ; thread_safe_notify_signal_delivered
+  }
 ;;
 
 let is_managing t signal = Hashtbl.mem t.handlers_by_signal signal
@@ -63,7 +58,7 @@ let install_handler t signals handler =
   Handler.T
     (List.map signals ~f:(fun signal ->
        let handlers = get_handlers t signal in
-       (handlers, Handlers.add handlers handler)))
+       handlers, Handlers.add handlers handler))
 ;;
 
 let remove_handler _t (Handler.T handler) =
@@ -74,6 +69,6 @@ let remove_handler _t (Handler.T handler) =
 let handle_delivered t =
   while Thread_safe_queue.length t.delivered > 0 do
     let signal, handlers = Thread_safe_queue.dequeue_exn t.delivered in
-    Handlers.deliver handlers signal;
-  done;
+    Handlers.deliver handlers signal
+  done
 ;;

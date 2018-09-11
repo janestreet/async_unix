@@ -8,8 +8,9 @@ open! Import
 type t [@@deriving sexp_of]
 
 (** accessors *)
-val pid    : t -> Pid.t
-val stdin  : t -> Writer.t
+val pid : t -> Pid.t
+
+val stdin : t -> Writer.t
 val stdout : t -> Reader.t
 val stderr : t -> Reader.t
 
@@ -40,27 +41,29 @@ type env = Unix.env [@@deriving sexp]
     in any number of situations (unable to fork, unable to create the pipes, unable to cd
     to [working_dir], etc.).  [create] does not return [error] if [exec] fails; instead,
     it returns [OK t], where [wait t] returns an [Error]. *)
-type 'a create
-  =  ?argv0       : string
-  -> ?buf_len     : int
-  -> ?env         : env  (** default is [`Extend []] *)
-  -> ?stdin       : string
-  -> ?working_dir : string
-  -> prog         : string
-  -> args         : string list
+type 'a create =
+  ?argv0:string
+  -> ?buf_len:int
+  -> ?env:env (** default is [`Extend []] *)
+  -> ?stdin:string
+  -> ?working_dir:string
+  -> prog:string
+  -> args:string list
   -> unit
   -> 'a Deferred.t
-val create     : t Or_error.t create
-val create_exn : t            create
+
+val create : t Or_error.t create
+val create_exn : t create
 
 (** [wait t = Unix.waitpid (pid t)] *)
 val wait : t -> Unix.Exit_or_signal.t Deferred.t
 
 module Output : sig
   type t =
-    { stdout      : string
-    ; stderr      : string
-    ; exit_status : Unix.Exit_or_signal.t }
+    { stdout : string
+    ; stderr : string
+    ; exit_status : Unix.Exit_or_signal.t
+    }
   [@@deriving compare, sexp_of]
 
   module Stable : sig
@@ -97,29 +100,29 @@ val collect_output_and_wait : t -> Output.t Deferred.t
 
     [run_expect_no_output] is like [run] but expects the command to produce no output, and
     returns an error if the command does produce output. *)
-type 'a run
-  =  ?accept_nonzero_exit : int list  (** default is [] *)
-  -> ?env                 : env       (** default is [`Extend []] *)
-  -> ?stdin               : string
-  -> ?working_dir         : string
-  -> prog                 : string
-  -> args                 : string list
+type 'a run =
+  ?accept_nonzero_exit:int list (** default is [] *)
+  -> ?env:env (** default is [`Extend []] *)
+  -> ?stdin:string
+  -> ?working_dir:string
+  -> prog:string
+  -> args:string list
   -> unit
   -> 'a Deferred.t
-val run                      : string Or_error.t      run
-val run_exn                  : string                 run
-val run_lines                : string list Or_error.t run
-val run_lines_exn            : string list            run
-val run_expect_no_output     : unit Or_error.t        run
-val run_expect_no_output_exn : unit                   run
+
+val run : string Or_error.t run
+val run_exn : string run
+val run_lines : string list Or_error.t run
+val run_lines_exn : string list run
+val run_expect_no_output : unit Or_error.t run
+val run_expect_no_output_exn : unit run
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
     [run_lines] but work from an existing process instead of creating a new one. *)
-type 'a collect
-  =  ?accept_nonzero_exit : int list  (** default is [] *)
-  -> t
-  -> 'a Deferred.t
-val collect_stdout_and_wait           : string Or_error.t      collect
-val collect_stdout_and_wait_exn       : string                 collect
-val collect_stdout_lines_and_wait     : string list Or_error.t collect
-val collect_stdout_lines_and_wait_exn : string list            collect
+type 'a collect =
+  ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
+
+val collect_stdout_and_wait : string Or_error.t collect
+val collect_stdout_and_wait_exn : string collect
+val collect_stdout_lines_and_wait : string list Or_error.t collect
+val collect_stdout_lines_and_wait_exn : string list collect

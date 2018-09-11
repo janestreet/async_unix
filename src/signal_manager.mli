@@ -29,6 +29,7 @@ val is_managing : t -> Signal.t -> bool
     registers [f] to run on every signal in [signals] that is delivered.   It is an
     error if [f] ever raises when it is called. *)
 type handler
+
 val install_handler : t -> Signal.t list -> (Signal.t -> unit) -> handler
 
 (** [remove_handler handler] causes the particular [handler] to no longer handle the

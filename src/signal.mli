@@ -4,14 +4,16 @@ open! Import
 
 (** To discourage use of the [Signal.Expert] module, we hide it here.  People can use
     [Core.Signal.Expert] if they need. *)
-include module type of Core.Signal
+include
+module type of Core.Signal
   with type t = Core.Signal.t
   with module Expert := Core.Signal.Expert
 
 (** We override values from [Core.Signal] that we don't want people to use with
     Async. *)
-val handle_default : [ `Do_not_use_with_async ] -> _
-val ignore         : [ `Do_not_use_with_async ] -> _
+val handle_default : [`Do_not_use_with_async] -> _
+
+val ignore : [`Do_not_use_with_async] -> _
 
 (** [handle ?stop signals ~f] arranges so that whenever a signal in [signals] is
     delivered, [f] is called on that signal.  If [f] raises, then an exception will be

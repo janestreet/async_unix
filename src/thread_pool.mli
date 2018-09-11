@@ -43,9 +43,7 @@
 
 open! Core
 open! Import
-
 module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
-
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
 type t [@@deriving sexp_of]
@@ -61,7 +59,7 @@ include Invariant.S with type t := t
     If [cpuset] is not specified, then every thread will inherit the
     affinitization of the thread (typically the main thread) that created it. *)
 val create
-  :  ?cpu_affinity:Cpu_affinity.t  (** default is [Inherit] *)
+  :  ?cpu_affinity:Cpu_affinity.t (** default is [Inherit] *)
   -> max_num_threads:int
   -> unit
   -> t Or_error.t
@@ -105,8 +103,8 @@ val default_priority : t -> Priority.t
 
     It is an error to call [add_work t] after [finished_with t]. *)
 val add_work
-  :  ?priority : Priority.t  (** default is [default_priority t] *)
-  -> ?name     : string      (** default is ["thread-pool thread"] *)
+  :  ?priority:Priority.t (** default is [default_priority t] *)
+  -> ?name:string (** default is ["thread-pool thread"] *)
   -> t
   -> (unit -> unit)
   -> unit Or_error.t
@@ -140,8 +138,8 @@ end
     The thread remains a helper thread until [finished_with_helper_thread] is called, if
     ever. *)
 val create_helper_thread
-  :  ?priority : Priority.t  (** default is [default_priority t] *)
-  -> ?name     : string      (** default is ["helper thread"] *)
+  :  ?priority:Priority.t (** default is [default_priority t] *)
+  -> ?name:string (** default is ["helper thread"] *)
   -> t
   -> Helper_thread.t Or_error.t
 
@@ -152,8 +150,8 @@ val create_helper_thread
     Other than that, [become_helper_thread] is like [create_helper_thread], except it
     cannot fail because no threads are available. *)
 val become_helper_thread
-  :  ?priority : Priority.t  (** default is [default_priority t] *)
-  -> ?name     : string      (** default is ["helper thread"] *)
+  :  ?priority:Priority.t (** default is [default_priority t] *)
+  -> ?name:string (** default is ["helper thread"] *)
   -> t
   -> Helper_thread.t Or_error.t
 
@@ -168,8 +166,8 @@ val become_helper_thread
     When the helper thread runs [f], it will be at the helper thread's name and priority,
     unless overriden by [name] or [priority]. *)
 val add_work_for_helper_thread
-  :  ?priority : Priority.t  (** default is [Helper_thread.default_priority helper_thread] *)
-  -> ?name     : string      (** default is [Helper_thread.name helper_thread] *)
+  :  ?priority:Priority.t (** default is [Helper_thread.default_priority helper_thread] *)
+  -> ?name:string (** default is [Helper_thread.name helper_thread] *)
   -> t
   -> Helper_thread.t
   -> (unit -> unit)
@@ -190,7 +188,6 @@ module Private : sig
   val default_thread_name : string
   val is_finished : t -> bool
   val is_in_use : t -> bool
-
   val set_last_thread_creation_failure : t -> Time.t -> unit
   val set_thread_creation_failure_lockout : t -> Time.Span.t -> unit
 end

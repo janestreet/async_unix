@@ -24,7 +24,9 @@ val create : unit -> 'a Pipe.Reader.t * 'a t
 val pushback : _ t -> unit
 
 module Written_or_closed : sig
-  type t = Written | Closed
+  type t =
+    | Written
+    | Closed
 end
 
 (** Functions that write elements to the pipe take an [If_closed.t] argument to specify
@@ -50,31 +52,31 @@ end
     incorrect (due to races) to check [is_closed] prior to the lock acquisition. *)
 module If_closed : sig
   type 'a t =
-    | Raise  : unit t
+    | Raise : unit t
     | Return : Written_or_closed.t t
 end
 
 (** [transfer_in_without_pushback'] and [write_without_pushback] transfer the element(s)
     into the pipe and return immediately. *)
 val transfer_in_without_pushback
-  :  ?wakeup_scheduler : bool  (** default is [true] *)
+  :  ?wakeup_scheduler:bool (** default is [true] *)
   -> 'a t
-  -> from              : 'a Queue.t
-  -> if_closed         : 'b If_closed.t
+  -> from:'a Queue.t
+  -> if_closed:'b If_closed.t
   -> 'b
 
 val write_without_pushback
-  :  ?wakeup_scheduler : bool  (** default is [true] *)
+  :  ?wakeup_scheduler:bool (** default is [true] *)
   -> 'a t
   -> 'a
-  -> if_closed         : 'b If_closed.t
+  -> if_closed:'b If_closed.t
   -> 'b
 
 (** [transfer_in] and [write] transfer the element(s) into the pipe and block the current
     thread until the pipe is empty or closed (like {!pushback}). *)
 val transfer_in : 'a t -> from:'a Queue.t -> if_closed:'b If_closed.t -> 'b
-val write       : 'a t -> 'a              -> if_closed:'b If_closed.t -> 'b
 
+val write : 'a t -> 'a -> if_closed:'b If_closed.t -> 'b
 val close : _ t -> unit
 val is_closed : _ t -> bool
 

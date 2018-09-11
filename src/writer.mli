@@ -25,11 +25,13 @@
 
 open! Core
 open! Import
-
 module Id : Unique_id
 
 module Line_ending : sig
-  type t = Dos | Unix [@@deriving sexp_of]
+  type t =
+    | Dos
+    | Unix
+  [@@deriving sexp_of]
 end
 
 type t [@@deriving sexp_of]
@@ -59,10 +61,13 @@ val io_stats : Io_stats.t
     threads simultaneously writing to the same file, which could easily cause data
     loss. *)
 val stdout : t Lazy.t
+
 val stderr : t Lazy.t
 
-type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin_io, sexp]
-
+type buffer_age_limit =
+  [ `At_most of Time.Span.t
+  | `Unlimited ]
+[@@deriving bin_io, sexp]
 
 (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
     descriptor [fd] should not be in use for writing by anything else.
@@ -92,11 +97,11 @@ type buffer_age_limit = [ `At_most of Time.Span.t | `Unlimited ] [@@deriving bin
     in text mode because any "\n" characters being printed by other means (e.g., [write
     "\n"]) are still written verbatim (in Unix style). *)
 val create
-  :  ?buf_len                    : int
-  -> ?syscall                    : [ `Per_cycle | `Periodic of Time.Span.t ]
-  -> ?buffer_age_limit           : buffer_age_limit
-  -> ?raise_when_consumer_leaves : bool  (** default is [true] *)
-  -> ?line_ending                : Line_ending.t  (** default is [Unix] *)
+  :  ?buf_len:int
+  -> ?syscall:[`Per_cycle | `Periodic of Time.Span.t]
+  -> ?buffer_age_limit:buffer_age_limit
+  -> ?raise_when_consumer_leaves:bool (** default is [true] *)
+  -> ?line_ending:Line_ending.t (** default is [Unix] *)
   -> Fd.t
   -> t
 
@@ -121,11 +126,11 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file. *)
 val open_file
-  :  ?append      : bool  (** default is [false], meaning truncate instead *)
-  -> ?buf_len     : int
-  -> ?syscall     : [ `Per_cycle | `Periodic of Time.Span.t ]
-  -> ?perm        : int   (** default is [0o666] *)
-  -> ?line_ending : Line_ending.t  (** default is [Unix] *)
+  :  ?append:bool (** default is [false], meaning truncate instead *)
+  -> ?buf_len:int
+  -> ?syscall:[`Per_cycle | `Periodic of Time.Span.t]
+  -> ?perm:int (** default is [0o666] *)
+  -> ?line_ending:Line_ending.t (** default is [Unix] *)
   -> string
   -> t Deferred.t
 
@@ -137,12 +142,12 @@ val open_file
     writer to be flushed before closing it.  [Writer.close] will already wait for the
     flush. *)
 val with_file
-  :  ?perm        : int   (** default is [0o666] *)
-  -> ?append      : bool  (** default is [false], meaning truncate instead *)
-  -> ?exclusive   : bool  (** default is [false] *)
-  -> ?line_ending : Line_ending.t  (** default is [Unix] *)
+  :  ?perm:int (** default is [0o666] *)
+  -> ?append:bool (** default is [false], meaning truncate instead *)
+  -> ?exclusive:bool (** default is [false] *)
+  -> ?line_ending:Line_ending.t (** default is [Unix] *)
   -> string
-  -> f          : (t -> 'a Deferred.t)
+  -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [id] returns an id for this writer that is unique among all other writers. *)
@@ -208,18 +213,19 @@ val set_fd : t -> Fd.t -> unit Deferred.t
     buffer.  You should not capture it; doing so might lead to errors of the segfault
     kind. *)
 val write_gen
-  :  ?pos              : int
-  -> ?len              : int
+  :  ?pos:int
+  -> ?len:int
   -> t
   -> 'a
-  -> blit_to_bigstring : ('a, Bigstring.t) Blit.blit
-  -> length            : ('a -> int)
+  -> blit_to_bigstring:('a, Bigstring.t) Blit.blit
+  -> length:('a -> int)
   -> unit
+
 val write_gen_whole
   :  t
   -> 'a
-  -> blit_to_bigstring : ('a -> Bigstring.t -> pos:int -> unit)
-  -> length            : ('a -> int)
+  -> blit_to_bigstring:('a -> Bigstring.t -> pos:int -> unit)
+  -> length:('a -> int)
   -> unit
 
 (** [write_direct t ~f] gives [t]'s internal buffer to [f].  [pos] and [len] define the
@@ -230,22 +236,18 @@ val write_gen_whole
     writer's internal buffer never grows.  Look at the [write_direct] expect tests for an
     example of how this can be used to construct a [write_string] like function that never
     grows the internal buffer. *)
-val write_direct
-  :  t
-  -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int)
-  -> 'a option
+val write_direct : t -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int) -> 'a option
 
 (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes.  The
     contents of the string are copied to an internal buffer before [write] returns, so
     clients can do whatever they want with [s] after that. *)
-val write_bytes     : ?pos:int -> ?len:int -> t -> Bytes.t                -> unit
-val write           : ?pos:int -> ?len:int -> t -> string                 -> unit
-val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t            -> unit
-val write_iobuf     : ?pos:int -> ?len:int -> t -> ([> read ], _) Iobuf.t -> unit
+val write_bytes : ?pos:int -> ?len:int -> t -> Bytes.t -> unit
 
-val write_substring    : t -> Substring   .t -> unit
+val write : ?pos:int -> ?len:int -> t -> string -> unit
+val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
+val write_iobuf : ?pos:int -> ?len:int -> t -> ([> read], _) Iobuf.t -> unit
+val write_substring : t -> Substring.t -> unit
 val write_bigsubstring : t -> Bigsubstring.t -> unit
-
 val writef : t -> ('a, unit, string, unit) format4 -> 'a
 
 (** [to_formatter] returns an OCaml-formatter that one can print to using
@@ -261,18 +263,17 @@ val write_char : t -> char -> unit
 val newline : ?line_ending:Line_ending.t -> t -> unit
 
 (** [write_line t s ?line_ending] is [write t s; newline t ?line_ending]. *)
-val write_line
-  :  ?line_ending : Line_ending.t
-  -> t
-  -> string
-  -> unit
+val write_line : ?line_ending:Line_ending.t -> t -> string -> unit
 
 (** [write_byte t i] writes one 8-bit integer (as the single character with that code).
     The given integer is taken modulo 256. *)
 val write_byte : t -> int -> unit
 
 module Terminate_with : sig
-  type t = Newline | Space_if_needed [@@deriving sexp_of]
+  type t =
+    | Newline
+    | Space_if_needed
+  [@@deriving sexp_of]
 end
 
 (** [write_sexp t sexp] writes to [t] the string representation of [sexp], possibly
@@ -283,8 +284,8 @@ end
     a space; otherwise, no terminating character is added.  A terminating space is needed
     if the string representation doesn't end in [')'] or ['"']. *)
 val write_sexp
-  :  ?hum            : bool             (** default is [false] *)
-  -> ?terminate_with : Terminate_with.t (** default is [Space_if_needed] *)
+  :  ?hum:bool (** default is [false] *)
+  -> ?terminate_with:Terminate_with.t (** default is [Space_if_needed] *)
   -> t
   -> Sexp.t
   -> unit
@@ -300,7 +301,7 @@ val write_bin_prot : t -> 'a Bin_prot.Type_class.writer -> 'a -> unit
     bytes. *)
 val write_bin_prot_no_size_header
   :  t
-  -> size : int
+  -> size:int
   -> 'a Bin_prot.Write.writer
   -> 'a
   -> unit
@@ -318,8 +319,9 @@ val write_bin_prot_no_size_header
 (** [schedule_bigstring t bstr] schedules a write of bigstring [bstr].  It is not safe to
     change the bigstring until the writer has been successfully flushed or closed after
     this operation. *)
-val schedule_bigstring    : t -> ?pos:int -> ?len:int -> Bigstring.t    -> unit
-val schedule_bigsubstring : t                         -> Bigsubstring.t -> unit
+val schedule_bigstring : t -> ?pos:int -> ?len:int -> Bigstring.t -> unit
+
+val schedule_bigsubstring : t -> Bigsubstring.t -> unit
 
 (** [schedule_iobuf_peek] is like [schedule_bigstring], but for an iobuf.  It is not safe
     to change the iobuf until the writer has been successfully flushed or closed after
@@ -336,14 +338,17 @@ val schedule_iobuf_consume
   -> unit Deferred.t
 
 module Destroy_or_keep : sig
-  type t = Destroy | Keep [@@deriving sexp_of]
+  type t =
+    | Destroy
+    | Keep
+  [@@deriving sexp_of]
 end
 
 (** [schedule_iovec t iovec] schedules a write of I/O-vector [iovec].  It is not safe to
     change the bigstrings underlying the I/O-vector until the writer has been successfully
     flushed or closed after this operation. *)
 val schedule_iovec
-  :  ?destroy_or_keep : Destroy_or_keep.t  (** default is [Keep] *)
+  :  ?destroy_or_keep:Destroy_or_keep.t (** default is [Keep] *)
   -> t
   -> Bigstring.t Unix.IOVec.t
   -> unit
@@ -360,10 +365,10 @@ val schedule_iovecs : t -> Bigstring.t Unix.IOVec.t Queue.t -> unit
     deferred will never become determined.
 
     It is OK to call [flushed t] after [t] has been closed. *)
-val flushed         : t ->      unit Deferred.t
-val flushed_time    : t ->    Time.t Deferred.t
-val flushed_time_ns : t -> Time_ns.t Deferred.t
+val flushed : t -> unit Deferred.t
 
+val flushed_time : t -> Time.t Deferred.t
+val flushed_time_ns : t -> Time_ns.t Deferred.t
 val fsync : t -> unit Deferred.t
 val fdatasync : t -> unit Deferred.t
 
@@ -408,10 +413,11 @@ val monitor : t -> Monitor.t
 
     [with_close t ~f] runs [f ()], and closes [t] after [f] finishes or raises. *)
 val close : ?force_close:unit Deferred.t -> t -> unit Deferred.t
-val close_started  : t -> unit Deferred.t
+
+val close_started : t -> unit Deferred.t
 val close_finished : t -> unit Deferred.t
 val is_closed : t -> bool
-val is_open   : t -> bool
+val is_open : t -> bool
 val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
 
 (** [can_write t] returns [true] if calls to [write*] functions on [t] are allowed.  If
@@ -424,7 +430,8 @@ val can_write : t -> bool
     stopped. [stopped_permanently] becomes determined when the background job has
     stopped. *)
 val is_stopped_permanently : t -> bool
-val stopped_permanently    : t -> unit Deferred.t
+
+val stopped_permanently : t -> unit Deferred.t
 
 (** In addition to flushing its internal buffer prior to closing, a writer keeps track of
     producers that are feeding it data, so that when [Writer.close] is called, it does the
@@ -438,8 +445,8 @@ val stopped_permanently    : t -> unit Deferred.t
     producers that should be flushed-at-close, for the duration of [f]. *)
 val with_flushed_at_close
   :  t
-  -> flushed : (unit -> unit Deferred.t)
-  -> f       : (unit -> 'a Deferred.t)
+  -> flushed:(unit -> unit Deferred.t)
+  -> f:(unit -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [bytes_to_write t] returns how many bytes have been requested to write but have not
@@ -478,27 +485,27 @@ val bytes_received : t -> Int63.t
     given sexp to the specified file. *)
 
 val with_file_atomic
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
   -> string
-  -> f          : (t -> 'a Deferred.t)
+  -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 val save
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
   -> string
-  -> contents   : string
+  -> contents:string
   -> unit Deferred.t
 
 (** [save_lines file lines] writes all lines in [lines] to [file], with each line followed
     by a newline. *)
 val save_lines
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
   -> string
   -> string list
   -> unit Deferred.t
@@ -508,10 +515,10 @@ val save_lines
     with the additional whitespace and works nicely with converting the sexp to a
     value. *)
 val save_sexp
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
-  -> ?hum       : bool  (** default is [true] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
+  -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t
   -> unit Deferred.t
@@ -520,10 +527,10 @@ val save_sexp
     separated by newlines.  There is a corresponding [Reader.load_sexps] for reading back
     in. *)
 val save_sexps
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
-  -> ?hum       : bool  (** default is [true] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
+  -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t list
   -> unit Deferred.t
@@ -532,9 +539,9 @@ val save_sexps
     size-prefixed format, like [write_bin_prot].  To read a file produced using
     [save_bin_prot], one would typically use [Reader.load_bin_prot]. *)
 val save_bin_prot
-  :  ?temp_file : string
-  -> ?perm      : Unix.file_perm
-  -> ?fsync     : bool  (** default is [false] *)
+  :  ?temp_file:string
+  -> ?perm:Unix.file_perm
+  -> ?fsync:bool (** default is [false] *)
   -> string
   -> 'a Bin_prot.Type_class.writer
   -> 'a
@@ -560,15 +567,16 @@ val save_bin_prot
     {[
       transfer' t pipe_r (fun q -> Queue.iter q ~f; return ()) ]} *)
 val transfer'
-  :  ?stop                    : unit Deferred.t
-  -> ?max_num_values_per_read : int
+  :  ?stop:unit Deferred.t
+  -> ?max_num_values_per_read:int
   -> t
   -> 'a Pipe.Reader.t
   -> ('a Queue.t -> unit Deferred.t)
   -> unit Deferred.t
+
 val transfer
-  :  ?stop                    : unit Deferred.t
-  -> ?max_num_values_per_read : int
+  :  ?stop:unit Deferred.t
+  -> ?max_num_values_per_read:int
   -> t
   -> 'a Pipe.Reader.t
   -> ('a -> unit)
@@ -586,14 +594,14 @@ val pipe : t -> string Pipe.Writer.t
 val of_pipe
   :  Info.t
   -> string Pipe.Writer.t
-  -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t
+  -> (t * [`Closed_and_flushed_downstream of unit Deferred.t]) Deferred.t
 
 (** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit with
     status 0 if any of the consumers of [writers] go away.  It also sets the buffer age to
     unlimited, in case there is a human (e.g., using [less]) on the other side of the
     pipeline. *)
 val behave_nicely_in_pipeline
-  :  ?writers : t list  (** defaults to [stdout; stderr] *)
+  :  ?writers:t list (** defaults to [stdout; stderr] *)
   -> unit
   -> unit
 
@@ -609,7 +617,7 @@ val set_synchronous_out_channel : t -> Out_channel.t -> unit Deferred.t
 (** [clear_synchronous_out_channel t] restores [t] to its normal state, with the
     background writer asynchronously feeding data to the OS.
     [clear_synchronous_out_channel] is idempotent. *)
-val clear_synchronous_out_channel :  t -> unit
+val clear_synchronous_out_channel : t -> unit
 
 val with_synchronous_out_channel
   :  t
@@ -643,13 +651,13 @@ module Backing_out_channel : sig
   type t [@@deriving sexp_of]
 
   val create
-    :  output_char  : (char      -> unit)
-    -> output_chars : (bigstring -> len:int -> unit)
-    -> flush        : (unit      -> unit)
-    -> sexp         : (unit      -> Sexp.t)
+    :  output_char:(char -> unit)
+    -> output_chars:(bigstring -> len:int -> unit)
+    -> flush:(unit -> unit)
+    -> sexp:(unit -> Sexp.t)
     -> t
 
-  val of_out_channel : Out_channel.t  -> t
+  val of_out_channel : Out_channel.t -> t
   val of_output_char : (char -> unit) -> t
 end
 
@@ -658,15 +666,16 @@ val set_synchronous_backing_out_channel : t -> Backing_out_channel.t -> unit Def
 val with_synchronous_backing_out_channel
   :  t
   -> Backing_out_channel.t
-  -> f : (unit -> 'a Deferred.t)
+  -> f:(unit -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (**/**)
 
 module Private : sig
   val set_bytes_received : t -> Int63.t -> unit
-  val set_bytes_written  : t -> Int63.t -> unit
+  val set_bytes_written : t -> Int63.t -> unit
+
   module Check_buffer_age : sig
-    val internal_check_now_for_unit_test : now : Time_ns.t -> unit
+    val internal_check_now_for_unit_test : now:Time_ns.t -> unit
   end
 end

@@ -30,8 +30,8 @@ val deferred : unit -> 'a Deferred.t * ('a -> unit)
     holding the lock.  Depending on the result of [f], it may also run a cycle.
 *)
 val run_in_async_with_optional_cycle
-  :  ?wakeup_scheduler : bool  (** default is [true] *)
-  -> (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
+  :  ?wakeup_scheduler:bool (** default is [true] *)
+  -> (unit -> [`Run_a_cycle | `Do_not_run_a_cycle] * 'a)
   -> ('a, exn) Result.t
 
 (** [run_in_async f] acquires the Async lock and runs [f ()] while holding the lock. It
@@ -44,13 +44,14 @@ val run_in_async_with_optional_cycle
     call [Scheduler.go] elsewhere in your program.
 *)
 val run_in_async
-  :  ?wakeup_scheduler : bool  (** default is [true] *)
+  :  ?wakeup_scheduler:bool (** default is [true] *)
   -> (unit -> 'a)
   -> ('a, exn) Result.t
+
 val run_in_async_exn
-  :  ?wakeup_scheduler : bool  (** default is [true] *)
+  :  ?wakeup_scheduler:bool (** default is [true] *)
   -> (unit -> 'a)
-  ->  'a
+  -> 'a
 
 (** [block_on_async f] runs [f ()] in the Async world and blocks until the result becomes
     determined.  This function can be called from the main thread (before Async is
@@ -62,15 +63,17 @@ val run_in_async_exn
     [block_on_async] will automatically start the scheduler if it isn't already
     running.
 *)
-val block_on_async     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
+val block_on_async : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
+
 val block_on_async_exn : (unit -> 'a Deferred.t) -> 'a
 
 (** [run_in_async_wait f] is like [block_on_async f], except that it must be called from a
     thread outside Async.  Upon returning from [run_in_async_wait], it is guaranteed that
     the caller does not have the Async lock.
 *)
-val run_in_async_wait     : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
-val run_in_async_wait_exn : (unit -> 'a Deferred.t) ->  'a
+val run_in_async_wait : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
+
+val run_in_async_wait_exn : (unit -> 'a Deferred.t) -> 'a
 
 (** [reset_scheduler] stops the scheduler thread and any associated threads, and resets
     Async's global state to its initial state.  This is useful if you need to first use

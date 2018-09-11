@@ -42,10 +42,11 @@ module Kind : sig
     | Char  (** a terminal *)
     | Fifo  (** a pipe *)
     | File  (** a regular file *)
-    | Socket of [ `Unconnected  (** the result of [socket()] *)
-                | `Bound        (** the result of [bind()] *)
-                | `Passive      (** the result of [listen()] *)
-                | `Active       (** the result of [connect()] or [accept()] *) ]
+    | Socket of
+        [ `Unconnected  (** the result of [socket()] *)
+        | `Bound  (** the result of [bind()] *)
+        | `Passive  (** the result of [listen()] *)
+        | `Active  (** the result of [connect()] or [accept()] *) ]
 
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
@@ -69,7 +70,7 @@ val to_string : t -> string
     If [avoid_nonblock_if_possible], then Async will treat the file descriptor as blocking
     if it can (more precisely, if it's not a bound socket). *)
 val create
-  :  ?avoid_nonblock_if_possible : bool  (** default is [false] *)
+  :  ?avoid_nonblock_if_possible:bool (** default is [false] *)
   -> Kind.t
   -> Unix.File_descr.t
   -> Info.t
@@ -127,7 +128,7 @@ end
 include module type of Close
 
 (** [close_started t] becomes determined when [close t] is called. *)
-val close_started  : t -> unit Deferred.t
+val close_started : t -> unit Deferred.t
 
 (** [close_finished] returns the same result as [close], but differs in that it does not
     have the side effect of initiating a close. *)
@@ -144,7 +145,8 @@ val is_open : t -> bool
 
 (** [stdin], [stdout], and [stderr] are wrappers around the standard Unix file
     descriptors. *)
-val stdin  : unit -> t
+val stdin : unit -> t
+
 val stdout : unit -> t
 val stderr : unit -> t
 
@@ -152,17 +154,15 @@ val stderr : unit -> t
     and returns [`Ok] or [`Error] according to [f].  If [is_closed t], then it does not
     call [f] and returns [`Already_closed]. *)
 val with_file_descr
-  :  ?nonblocking : bool  (** default is [false] *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
-  -> [ `Ok of 'a
-     | `Already_closed
-     | `Error of exn ]
+  -> [`Ok of 'a | `Already_closed | `Error of exn]
 
 (** [with_file_descr_exn] is like [with_file_descr] except that it raises rather than
     return [`Already_closed] or [`Error]. *)
 val with_file_descr_exn
-  :  ?nonblocking : bool  (** default is [false] *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -175,9 +175,7 @@ val with_file_descr_exn
 val with_file_descr_deferred
   :  t
   -> (Unix.File_descr.t -> 'a Deferred.t)
-  -> [ `Ok of 'a
-     | `Already_closed
-     | `Error of exn ] Deferred.t
+  -> [`Ok of 'a | `Already_closed | `Error of exn] Deferred.t
 
 (** [with_file_descr_deferred_exn] is like [with_file_descr_deferred], except that it
     raises rather than return [`Already_closed] or [`Error]. *)
@@ -191,67 +189,51 @@ val with_file_descr_deferred_exn
     without blocking, or when [interrupt] becomes determined. *)
 val interruptible_ready_to
   :  t
-  -> [ `Read | `Write ]
-  -> interrupt : unit Deferred.t
-  -> [ `Bad_fd
-     | `Closed
-     | `Interrupted
-     | `Ready
-     ] Deferred.t
+  -> [`Read | `Write]
+  -> interrupt:unit Deferred.t
+  -> [`Bad_fd | `Closed | `Interrupted | `Ready] Deferred.t
 
 (** [ready_to t read_write] is like [interruptible_ready_to], but without the possibility
     of interruption. *)
-val ready_to
-  :  t
-  -> [ `Read | `Write ]
-  -> [ `Bad_fd
-     | `Closed
-     | `Ready
-     ] Deferred.t
+val ready_to : t -> [`Read | `Write] -> [`Bad_fd | `Closed | `Ready] Deferred.t
 
-(** [interruptible_every_ready_to t read_write ~interrupt f a] enqueues a job to run [f a]
-    every time the file descriptor underlying [t] can be read from or written to without
-    blocking and returns a deferred that will become determined when [interrupt] becomes
-    determined or the file descriptor is closed. *)
+(** [interruptible_every_ready_to t read_write ~interrupt f a] checks every Async cycle
+    whether the file descriptor underlying [t] can be read from or written to without
+    blocking, and if so, enqueues a job to run [f a].  [interruptible_every_ready_to] is
+    level triggered -- it will enqueue a job every cycle if I/O is available, even if the
+    prior job hasn't run yet, or the job ran but did not consume the available data.
+    [interruptible_every_ready_to] returns a deferred that will become determined when
+    [interrupt] becomes determined or the file descriptor is closed. *)
 val interruptible_every_ready_to
   :  t
-  -> [ `Read | `Write ]
-  -> interrupt : unit Deferred.t
+  -> [`Read | `Write]
+  -> interrupt:unit Deferred.t
   -> ('a -> unit)
   -> 'a
-  -> [ `Bad_fd
-     | `Closed
-     | `Unsupported
-     | `Interrupted
-     ] Deferred.t
+  -> [`Bad_fd | `Closed | `Unsupported | `Interrupted] Deferred.t
 
 (** [every_ready_to t read_write f x] is like [interruptible_every_ready_to], but without
     the possibility of interruption. *)
 val every_ready_to
   :  t
-  -> [ `Read | `Write ]
+  -> [`Read | `Write]
   -> ('a -> unit)
   -> 'a
-  -> [ `Bad_fd
-     | `Closed
-     | `Unsupported
-     ] Deferred.t
+  -> [`Bad_fd | `Closed | `Unsupported] Deferred.t
 
 (** [syscall t f] runs [Async_unix.syscall] with [f] on the file descriptor underlying
     [t], if [is_open t], and returns [`Ok] or [`Error] according to [f].  If
     [is_closed t], it does not call [f] and returns [`Already_closed]. *)
 val syscall
-  :  ?nonblocking : bool  (** default is [false] *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
-  -> [ `Already_closed
-     | `Ok of 'a
-     | `Error of exn ]
+  -> [`Already_closed | `Ok of 'a | `Error of exn]
 
 (** [syscall_exn t f] is like [syscall], except it raises rather than return
     [`Already_closed] or [`Error]. *)
 val syscall_exn
-  :  ?nonblocking : bool  (** default is [false] *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> (Unix.File_descr.t -> 'a)
   -> 'a
@@ -260,7 +242,7 @@ val syscall_exn
     in exceptional cases.  [a] is passed unchanged to [f], and should be used to eliminate
     allocations due to closure capture. *)
 val syscall_result_exn
-  :  ?nonblocking : bool  (** default is [false] *)
+  :  ?nonblocking:bool (** default is [false] *)
   -> t
   -> 'a
   -> (Unix.File_descr.t -> 'a -> 'b Unix.Syscall_result.t)
@@ -272,24 +254,22 @@ val syscall_result_exn
     [f] and returns [`Already_closed]. *)
 val syscall_in_thread
   :  t
-  -> name : string
+  -> name:string
   -> (Unix.File_descr.t -> 'a)
-  -> [ `Already_closed
-     | `Ok of 'a
-     | `Error of exn
-     ] Deferred.t
+  -> [`Already_closed | `Ok of 'a | `Error of exn] Deferred.t
 
 (** [syscall_in_thread_exn] is like [syscall_in_thread], except it raises rather than
     return [`Already_closed] or [`Error]. *)
 val syscall_in_thread_exn
   :  t
-  -> name : string
+  -> name:string
   -> (Unix.File_descr.t -> 'a)
   -> 'a Deferred.t
 
 (** [of_in_channel] and [of_out_channel] create an fd from their underlying file
     descriptor. *)
-val of_in_channel  : In_channel.t  -> Kind.t -> t
+val of_in_channel : In_channel.t -> Kind.t -> t
+
 val of_out_channel : Out_channel.t -> Kind.t -> t
 
 (** [of_in_channel_auto ic] is just like [of_in_channel], but uses [fstat] to determine

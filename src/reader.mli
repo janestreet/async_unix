@@ -23,7 +23,10 @@ open! Core
 open! Import
 
 module Read_result : sig
-  type 'a t = [ `Ok of 'a | `Eof ] [@@deriving bin_io, sexp]
+  type 'a t =
+    [ `Ok of 'a
+    | `Eof ]
+  [@@deriving bin_io, sexp]
 
   include Monad.S with type 'a t := 'a t
 end
@@ -48,10 +51,7 @@ val stdin : t Lazy.t
 
     This may raise an exception for the typical reasons that an [open(2)] system call may
     fail.  If it does raise, it's guaranteed to be a [Unix_error] variant. *)
-val open_file
-  :  ?buf_len       : int
-  -> string
-  -> t Deferred.t
+val open_file : ?buf_len:int -> string -> t Deferred.t
 
 (** [transfer t pipe_w] transfers data from [t] into [pipe_w] one chunk at a time
     (whatever is read from the underlying file descriptor without post-processing).  The
@@ -93,10 +93,10 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
     you return a deferred that becomes determined when the EOF is reached on the pipe,
     not when you get the pipe (because you get it straight away). *)
 val with_file
-  :  ?buf_len   : int
-  -> ?exclusive : bool  (** default is [false] *)
+  :  ?buf_len:int
+  -> ?exclusive:bool (** default is [false] *)
   -> string
-  -> f          : (t -> 'a Deferred.t)
+  -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 (** [close t] prevents further use of [t] and closes [t]'s underlying file descriptor.
@@ -112,10 +112,11 @@ val with_file
     [is_closed t] returns [true] iff [close t] has been called.
 
     [with_close t ~f] runs [f ()], and closes [t] after [f] finishes or raises. *)
-val close          : t -> unit Deferred.t
+val close : t -> unit Deferred.t
+
 val close_finished : t -> unit Deferred.t
-val is_closed      : t -> bool
-val with_close     : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
+val is_closed : t -> bool
+val with_close : t -> f:(unit -> 'a Deferred.t) -> 'a Deferred.t
 
 (** [id] returns a name for this reader that is unique across all instances of the reader
     module. *)
@@ -153,14 +154,13 @@ type 'a handle_chunk_result =
   | `Stop_consumed of 'a * int
   (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
       [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
-  | `Continue
-  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
-  | `Consumed of int * [ `Need of int
-                       | `Need_unknown ]
+  | `Continue  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
+  | `Consumed of int * [`Need of int | `Need_unknown]
     (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
         bytes are needed (including the data remaining in the buffer after the [c] were
         already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
-        error if [n < 0 || c + n <= len]. *) ]
+        error if [n < 0 || c + n <= len]. *)
+  ]
 [@@deriving sexp_of]
 
 (** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer, and
@@ -175,10 +175,7 @@ type 'a handle_chunk_result =
     may read from [t] after [read_one_chunk_at_a_time] returns. *)
 val read_one_chunk_at_a_time
   :  t
-  -> handle_chunk : (Bigstring.t
-                     -> pos : int
-                     -> len : int
-                     -> 'a handle_chunk_result Deferred.t)
+  -> handle_chunk:(Bigstring.t -> pos:int -> len:int -> 'a handle_chunk_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [`Stop a] or [`Continue] respects the usual [Iobuf] semantics where data up to the
@@ -195,44 +192,32 @@ type 'a handle_iobuf_result =
     [read_one_chunk_at_a_time]. *)
 val read_one_iobuf_at_a_time
   :  t
-  -> handle_chunk : ((read_write, Iobuf.seek) Iobuf.t
-                     -> 'a handle_iobuf_result Deferred.t)
+  -> handle_chunk:((read_write, Iobuf.seek) Iobuf.t -> 'a handle_iobuf_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss], blocking
     until some data is available or EOF is reached.  The resulting [i] satisfies [0 < i <=
     Substring.length ss]. *)
-val read_substring    : t -> Substring.t    -> int Read_result.t Deferred.t
-val read_bigsubstring : t -> Bigsubstring.t -> int Read_result.t Deferred.t
+val read_substring : t -> Substring.t -> int Read_result.t Deferred.t
 
+val read_bigsubstring : t -> Bigsubstring.t -> int Read_result.t Deferred.t
 val read_char : t -> char Read_result.t Deferred.t
 
 (** [really_read t buf ?pos ?len] reads until it fills [len] bytes of [buf] starting at
     [pos], or runs out of input.  In the former case it returns [`Ok].  In the latter, it
     returns [`Eof n] where [n] is the number of bytes that were read before end of input,
     and [0 <= n < String.length ss]. *)
-val really_read
-  :  t
-  -> ?pos : int
-  -> ?len : int
-  -> Bytes.t
-  -> [ `Ok
-     | `Eof of int
-     ] Deferred.t
+val really_read : t -> ?pos:int -> ?len:int -> Bytes.t -> [`Ok | `Eof of int] Deferred.t
 
 val really_read_substring
   :  t
   -> Substring.t
-  -> [ `Ok
-     | `Eof of int (** [0 <= i < Substring.length ss] *)
-     ] Deferred.t
+  -> [`Ok | `Eof of int  (** [0 <= i < Substring.length ss] *)] Deferred.t
 
 val really_read_bigsubstring
   :  t
   -> Bigsubstring.t
-  -> [ `Ok
-     | `Eof of int (** [0 <= i < Substring.length ss] *)
-     ] Deferred.t
+  -> [`Ok | `Eof of int  (** [0 <= i < Substring.length ss] *)] Deferred.t
 
 (** [read_until t pred ~keep_delim] reads until it hits a delimiter [c] such that:
 
@@ -247,25 +232,19 @@ val really_read_bigsubstring
     and optionally including the delimiter as per [keep_delim]. *)
 val read_until
   :  t
-  -> [`Pred of (char -> bool) | `Char of char]
-  -> keep_delim : bool
-  ->  [ `Ok of string
-      | `Eof_without_delim of string
-      | `Eof
-      ] Deferred.t
+  -> [`Pred of char -> bool | `Char of char]
+  -> keep_delim:bool
+  -> [`Ok of string | `Eof_without_delim of string | `Eof] Deferred.t
 
 (** [read_until_max] is just like [read_until], except you have the option of specifying
     a maximum number of chars to read. *)
 val read_until_max
   :  t
-  -> [`Pred of (char -> bool) | `Char of char]
-  -> keep_delim : bool
-  -> max        : int
-  -> [ `Ok of string
-     | `Eof_without_delim of string
-     | `Eof
-     | `Max_exceeded of string
-     ] Deferred.t
+  -> [`Pred of char -> bool | `Char of char]
+  -> keep_delim:bool
+  -> max:int
+  -> [`Ok of string | `Eof_without_delim of string | `Eof | `Max_exceeded of string]
+       Deferred.t
 
 (** [read_line t] reads up to and including the next newline ([\n]) character (or [\r\n])
     and returns a freshly-allocated string containing everything up to but not including
@@ -297,14 +276,14 @@ val read_sexps : (t -> Sexp.t Pipe.Reader.t) read
 
     For higher performance, consider [Unpack_sequence.unpack_bin_prot_from_reader]. *)
 val read_bin_prot
-  :  ?max_len : int
+  :  ?max_len:int
   -> t
   -> 'a Bin_prot.Type_class.reader
   -> 'a Read_result.t Deferred.t
 
 (** Similar to [read_bin_prot], but doesn't consume any bytes from [t]. *)
 val peek_bin_prot
-  :  ?max_len : int
+  :  ?max_len:int
   -> t
   -> 'a Bin_prot.Type_class.reader
   -> 'a Read_result.t Deferred.t
@@ -332,7 +311,7 @@ val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
     descriptor.  The [`Cur] mode is not exposed because seeking relative to the current
     position of the file descriptor is not the same as seeking relative to the current
     position of the reader. *)
-val lseek : t -> int64 -> mode:[< `Set | `End ] -> int64 Deferred.t
+val lseek : t -> int64 -> mode:[< `Set | `End] -> int64 Deferred.t
 
 (** [ltell t] returns the file position of [t] from the perspective of a consumer of [t].
     It uses [Unix.lseek] to find the file position of [t]'s underlying file descriptor,
@@ -366,31 +345,35 @@ val file_lines : string -> string list Deferred.t
     Using [~expand_macros:true] expands macros as defined in {!Sexplib.Macro}. If
     [~expand_macros:true] then the [exclusive] flag is ignored.  Also, [load_annotated*]
     don't support [~expand_macros:true], and will raise. *)
-type ('sexp, 'a, 'b) load
-  =  ?exclusive     : bool  (** default is [false] *)
-  -> ?expand_macros : bool  (** default is [false] *)
+type ('sexp, 'a, 'b) load =
+  ?exclusive:bool (** default is [false] *)
+  -> ?expand_macros:bool (** default is [false] *)
   -> string
   -> ('sexp -> 'a)
   -> 'b Deferred.t
-val load_sexp                : (Sexp.t          , 'a, 'a      Or_error.t) load
-val load_sexp_exn            : (Sexp.t          , 'a, 'a                ) load
-val load_sexps               : (Sexp.t          , 'a, 'a list Or_error.t) load
-val load_sexps_exn           : (Sexp.t          , 'a, 'a list           ) load
-val load_annotated_sexp      : (Sexp.Annotated.t, 'a, 'a      Or_error.t) load
-val load_annotated_sexp_exn  : (Sexp.Annotated.t, 'a, 'a                ) load
-val load_annotated_sexps     : (Sexp.Annotated.t, 'a, 'a list Or_error.t) load
-val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list           ) load
 
-type ('a, 'b) load_bin_prot
-  =  ?exclusive : bool  (** default is [false] *)
-  -> ?max_len   : int
+val load_sexp : (Sexp.t, 'a, 'a Or_error.t) load
+val load_sexp_exn : (Sexp.t, 'a, 'a) load
+val load_sexps : (Sexp.t, 'a, 'a list Or_error.t) load
+val load_sexps_exn : (Sexp.t, 'a, 'a list) load
+val load_annotated_sexp : (Sexp.Annotated.t, 'a, 'a Or_error.t) load
+val load_annotated_sexp_exn : (Sexp.Annotated.t, 'a, 'a) load
+val load_annotated_sexps : (Sexp.Annotated.t, 'a, 'a list Or_error.t) load
+val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list) load
+
+type ('a, 'b) load_bin_prot =
+  ?exclusive:bool (** default is [false] *)
+  -> ?max_len:int
   -> string
   -> 'a Bin_prot.Type_class.reader
   -> 'b Deferred.t
-val load_bin_prot      : ('a, 'a Or_error.t) load_bin_prot
-val load_bin_prot_exn  : ('a, 'a           ) load_bin_prot
+
+val load_bin_prot : ('a, 'a Or_error.t) load_bin_prot
+val load_bin_prot_exn : ('a, 'a) load_bin_prot
 
 module Macro_loader : sig
   val load_sexps_conv
-    : string -> (Sexp.t -> 'a) -> 'a Sexplib.Macro.annot_conv list Deferred.t
+    :  string
+    -> (Sexp.t -> 'a)
+    -> 'a Sexplib.Macro.annot_conv list Deferred.t
 end

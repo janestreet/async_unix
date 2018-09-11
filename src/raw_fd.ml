@@ -10,7 +10,7 @@ module Kind = struct
     | Char
     | Fifo
     | File
-    | Socket of [ `Unconnected | `Bound | `Passive | `Active ]
+    | Socket of [`Unconnected | `Bound | `Passive | `Active]
   [@@deriving sexp_of]
 end
 
@@ -36,9 +36,8 @@ module State = struct
 
   let transition_is_allowed t t' =
     match t, t' with
-    | Open _           , Close_requested _
-    | Close_requested _, Closed
-      -> true
+    | Open _, Close_requested _
+    | Close_requested _, Closed -> true
     | _ -> false
   ;;
 
@@ -48,10 +47,14 @@ module State = struct
   ;;
 end
 
-type ready_to_result = [ `Ready | `Bad_fd | `Closed | `Interrupted ] [@@deriving sexp_of]
+type ready_to_result =
+  [ `Ready
+  | `Bad_fd
+  | `Closed
+  | `Interrupted ]
+[@@deriving sexp_of]
 
 module Watching = struct
-
   (* Every fd can be monitored by a file_descr_watcher for read, for write, for both, or
      for neither.  Each fd also has its own notion, independent of the file_descr_watcher,
      of a [Watching.t], for both read and write that indicates the desired state of the
@@ -71,7 +74,7 @@ module Watching = struct
   type t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
-    | Watch_repeatedly of Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
+    | Watch_repeatedly of Job.t * [`Bad_fd | `Closed | `Interrupted] Ivar.t
     | Stop_requested
   [@@deriving sexp_of]
 
@@ -79,36 +82,41 @@ module Watching = struct
     try
       match t with
       | Not_watching | Stop_requested -> ()
-      | Watch_once ivar            -> assert (Ivar.is_empty ivar)
+      | Watch_once ivar -> assert (Ivar.is_empty ivar)
       | Watch_repeatedly (_, ivar) -> assert (Ivar.is_empty ivar)
-    with exn ->
-      raise_s [%message "Watching.invariant failed" (exn : exn) ~watching:(t : t)]
+    with
+    | exn -> raise_s [%message "Watching.invariant failed" (exn : exn) ~watching:(t : t)]
   ;;
-
 end
 
 module T = struct
   type t =
-    { file_descr                   : File_descr.t
+    { file_descr :
+        File_descr.t
     (* [info] is for debugging info. It is mutable because it changes after [bind],
        [listen], or[connect]. *)
-    ; mutable info                 : Info.t
+    ; mutable info :
+        Info.t
     (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
-    ; mutable kind                 : Kind.t
+    ; mutable kind :
+        Kind.t
     (* [supports_nonblock] reflects whether the file_descr supports nonblocking
        system calls (read, write, etc.).  It is mutable because we allow users to
        change from [supports_nonblock = true] to [supports_nonblock = false]. *)
-    ; mutable supports_nonblock    : bool
+    ; mutable supports_nonblock :
+        bool
     (* [have_set_nonblock] is true if we have called [Unix.set_nonblock file_descr],
        which we must do before making any system calls that we expect to not block. *)
-    ; mutable have_set_nonblock    : bool
-    ; mutable state                : State.t
-    ; watching                     : Watching.t Read_write.Mutable.t
+    ; mutable have_set_nonblock : bool
+    ; mutable state : State.t
+    ; watching :
+        Watching.t Read_write.Mutable.t
     (* [watching_has_changed] is true if [watching] has changed since the last time
        [watching] was synchronized with the file_descr_watcher.  In this case, the
        fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
        it can be synchronized later. *)
-    ; mutable watching_has_changed : bool
+    ; mutable watching_has_changed :
+        bool
     (* [num_active_syscalls] is used to ensure that we don't call [close] on a file
        descriptor until there are no active system calls involving that file descriptor.
        This prevents races in which the OS assigns that file descriptor to a new
@@ -120,10 +128,12 @@ module T = struct
        [num_active_syscalls] is abused slightly to include the syscall to the
        file_descr_watcher to check for ready I/O.  Watching for read and for write
        each potentially count for one active syscall. *)
-    ; mutable num_active_syscalls  : int
+    ; mutable num_active_syscalls :
+        int
     (* [close_finished] becomes determined after the file descriptor has been closed
        and the underlying close() system call has finished. *)
-    ; close_finished               : unit Ivar.t }
+    ; close_finished : unit Ivar.t
+    }
   [@@deriving fields, sexp_of]
 end
 
@@ -139,32 +149,34 @@ let invariant t : unit =
       ~file_descr:ignore
       ~kind:ignore
       ~supports_nonblock:ignore
-      ~have_set_nonblock:(check (fun have_set_nonblock ->
-        if not t.supports_nonblock then (assert (not have_set_nonblock))))
+      ~have_set_nonblock:
+        (check (fun have_set_nonblock ->
+           if not t.supports_nonblock then assert (not have_set_nonblock)))
       ~state:ignore
-      ~watching:(check (fun watching ->
-        Read_write.iter watching ~f:Watching.invariant))
+      ~watching:(check (fun watching -> Read_write.iter watching ~f:Watching.invariant))
       ~watching_has_changed:ignore
-      ~num_active_syscalls:(check (fun num_active_syscalls ->
-        assert (t.num_active_syscalls >= 0);
-        let watching read_or_write =
-          match Read_write.get t.watching read_or_write with
-          | Not_watching -> 0
-          | Stop_requested | Watch_once _ | Watch_repeatedly _ -> 1
-        in
-        assert (t.num_active_syscalls >= watching `Read + watching `Write);
-        match t.state with
-        | Closed -> assert (num_active_syscalls = 0);
-        | Close_requested _ | Open _ -> ()))
-      ~close_finished:(check (fun close_finished ->
-        match t.state with
-        | Closed -> ()
-        | Close_requested _ -> assert (Ivar.is_empty close_finished)
-        | Open close_started ->
-          assert (Ivar.is_empty close_finished);
-          assert (Ivar.is_empty close_started)))
-  with exn ->
-    raise_s [%message "Fd.invariant failed" (exn : exn) ~fd:(t : t)]
+      ~num_active_syscalls:
+        (check (fun num_active_syscalls ->
+           assert (t.num_active_syscalls >= 0);
+           let watching read_or_write =
+             match Read_write.get t.watching read_or_write with
+             | Not_watching -> 0
+             | Stop_requested | Watch_once _ | Watch_repeatedly _ -> 1
+           in
+           assert (t.num_active_syscalls >= watching `Read + watching `Write);
+           match t.state with
+           | Closed -> assert (num_active_syscalls = 0)
+           | Close_requested _ | Open _ -> ()))
+      ~close_finished:
+        (check (fun close_finished ->
+           match t.state with
+           | Closed -> ()
+           | Close_requested _ -> assert (Ivar.is_empty close_finished)
+           | Open close_started ->
+             assert (Ivar.is_empty close_finished);
+             assert (Ivar.is_empty close_started)))
+  with
+  | exn -> raise_s [%message "Fd.invariant failed" (exn : exn) ~fd:(t : t)]
 ;;
 
 let to_int t = File_descr.to_int t.file_descr
@@ -203,57 +215,62 @@ let create ?(avoid_nonblock_if_possible = false) (kind : Kind.t) file_descr info
     ; file_descr
     ; kind
     ; supports_nonblock
-    ; have_set_nonblock    = false
-    ; state                = State.Open (Ivar.create ())
-    ; watching             = Read_write.create_both Watching.Not_watching
+    ; have_set_nonblock = false
+    ; state = State.Open (Ivar.create ())
+    ; watching = Read_write.create_both Watching.Not_watching
     ; watching_has_changed = false
-    ; num_active_syscalls  = 0
-    ; close_finished       = Ivar.create () }
+    ; num_active_syscalls = 0
+    ; close_finished = Ivar.create ()
+    }
   in
-  if debug then (Debug.log "Fd.create" t [%sexp_of: t]);
+  if debug then Debug.log "Fd.create" t [%sexp_of: t];
   t
 ;;
 
 let inc_num_active_syscalls t =
   match t.state with
   | Close_requested _ | Closed -> `Already_closed
-  | Open _ -> t.num_active_syscalls <- t.num_active_syscalls + 1; `Ok
+  | Open _ ->
+    t.num_active_syscalls <- t.num_active_syscalls + 1;
+    `Ok
 ;;
 
 let set_state t new_state =
-  if debug then (Debug.log "Fd.set_state" (new_state, t) [%sexp_of: State.t * t]);
+  if debug then Debug.log "Fd.set_state" (new_state, t) [%sexp_of: State.t * t];
   if State.transition_is_allowed t.state new_state
-  then (t.state <- new_state)
-  else (
-    raise_s [%message
-      "Fd.set_state attempted disallowed state transition"
-        ~fd:(t : t) (new_state : State.t)]);
+  then t.state <- new_state
+  else
+    raise_s
+      [%message
+        "Fd.set_state attempted disallowed state transition"
+          ~fd:(t : t)
+          (new_state : State.t)]
 ;;
 
 let is_open t = State.is_open t.state
-
 let is_closed t = not (is_open t)
 
 let set_nonblock_if_necessary ?(nonblocking = false) t =
   if nonblocking
   then (
     if not t.supports_nonblock
-    then (
-      raise_s [%message
-        "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
-          ~fd:(t : t)]);
+    then
+      raise_s
+        [%message
+          "Fd.set_nonblock_if_necessary called on fd that does not support nonblock"
+            ~fd:(t : t)];
     if not t.have_set_nonblock
     then (
       Unix.set_nonblock t.file_descr;
-      t.have_set_nonblock <- true));
+      t.have_set_nonblock <- true))
 ;;
 
 let with_file_descr_exn ?nonblocking t f =
   if is_closed t
-  then (raise_s [%message "Fd.with_file_descr_exn got closed fd" ~_:(t : t)])
+  then raise_s [%message "Fd.with_file_descr_exn got closed fd" ~_:(t : t)]
   else (
     set_nonblock_if_necessary t ?nonblocking;
-    f t.file_descr);
+    f t.file_descr)
 ;;
 
 let with_file_descr ?nonblocking t f =
@@ -263,8 +280,8 @@ let with_file_descr ?nonblocking t f =
     try
       set_nonblock_if_necessary t ?nonblocking;
       `Ok (f t.file_descr)
-    with exn ->
-      `Error exn)
+    with
+    | exn -> `Error exn)
 ;;
 
 let syscall ?nonblocking t f =
@@ -281,7 +298,7 @@ let syscall_exn ?nonblocking t f =
 
 let syscall_result_exn ?nonblocking t a f =
   if is_closed t
-  then (raise_s [%message "Fd.syscall_result_exn got closed fd" ~_:(t : t)])
+  then raise_s [%message "Fd.syscall_result_exn got closed fd" ~_:(t : t)]
   else (
     set_nonblock_if_necessary t ?nonblocking;
     Syscall.syscall_result2 t.file_descr a f)

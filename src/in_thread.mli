@@ -6,7 +6,6 @@
 
 open! Core
 open Async_kernel
-
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
 module Helper_thread : sig
@@ -27,7 +26,8 @@ module Helper_thread : sig
       [create] returns a deferred that becomes determined when a helper thread is
       available.  On the other hand, [create_now] checks if a helper thread is available
       now, and if so returns it, or else returns [Error]. *)
-  val create     : ?priority:Priority.t -> ?name:string -> unit -> t Deferred.t
+  val create : ?priority:Priority.t -> ?name:string -> unit -> t Deferred.t
+
   val create_now : ?priority:Priority.t -> ?name:string -> unit -> t Or_error.t
 end
 
@@ -82,10 +82,10 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
       The default is [`Best], and one shouldn't need to change it -- it is useful only
       for unit testing. *)
 val run
-  :  ?priority      : Priority.t
-  -> ?thread        : Helper_thread.t
-  -> ?when_finished : [ `Take_the_async_lock | `Notify_the_scheduler | `Best ]
-  -> ?name          : string
+  :  ?priority:Priority.t
+  -> ?thread:Helper_thread.t
+  -> ?when_finished:[`Take_the_async_lock | `Notify_the_scheduler | `Best]
+  -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t
 
@@ -93,5 +93,6 @@ val run
     handling the restarting of interrupted system calls.  To avoid race conditions, the
     [f] supplied to [syscall] should just make a system call.  That way, everything else
     is done holding the Async lock. *)
-val syscall     : name:string -> (unit -> 'a) -> ('a, exn) Result.t Deferred.t
-val syscall_exn : name:string -> (unit -> 'a) ->  'a                Deferred.t
+val syscall : name:string -> (unit -> 'a) -> ('a, exn) Result.t Deferred.t
+
+val syscall_exn : name:string -> (unit -> 'a) -> 'a Deferred.t

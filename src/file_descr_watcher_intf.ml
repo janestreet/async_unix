@@ -15,22 +15,23 @@ open! Core
 open Import
 
 module Timeout = struct
-  type 'a t =                     (*_ performance hack: avoid allocation *)
-    | Never       : unit           t
-    | Immediately : unit           t
-    | After       : Time_ns.Span.t t
+  type 'a t =
+    (*_ performance hack: avoid allocation *)
+    | Never : unit t
+    | Immediately : unit t
+    | After : Time_ns.Span.t t
 
-  let variant_of
-    : type a . a t -> a -> [ `Never | `Immediately | `After of Time_ns.Span.t ]
-    = fun t span_or_unit ->
+  let variant_of : type a. a t -> a -> [`Never | `Immediately | `After of Time_ns.Span.t]
+    =
+    fun t span_or_unit ->
       match t with
-      | Never       -> `Never
+      | Never -> `Never
       | Immediately -> `Immediately
-      | After       -> `After (span_or_unit : Time_ns.Span.t)
+      | After -> `After (span_or_unit : Time_ns.Span.t)
+  ;;
 end
 
 module type S = sig
-
   (** A file-descr-watcher is essentially a map from [File_descr.t] to [bool
       Read_write.t], which defines the set of file descriptors being watched, and for each
       file descriptor, whether it is being watched for read, write, or both.  If a file
@@ -45,11 +46,12 @@ module type S = sig
 
   (** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
       file descriptors in {[ [0, num_file_descrs) ]}. *)
-  val create
-    : (num_file_descrs          : int
-       -> handle_fd_read_ready  : (File_descr.t -> unit)
-       -> handle_fd_write_ready : (File_descr.t -> unit)
-       -> t) additional_create_args
+  val create :
+    (num_file_descrs:int
+     -> handle_fd_read_ready:(File_descr.t -> unit)
+     -> handle_fd_write_ready:(File_descr.t -> unit)
+     -> t)
+      additional_create_args
 
   val backend : Config.File_descr_watcher.t
 
@@ -65,20 +67,21 @@ module type S = sig
   (** [pre_check t] does whatever non-thread-safe work is necessary to prepare for the
       system call that checks file descriptors being ready for read or write.  [pre_check]
       does not side effect [t]. *)
-  module Pre : sig type t [@@deriving sexp_of] end
+  module Pre : sig
+    type t [@@deriving sexp_of]
+  end
+
   val pre_check : t -> Pre.t
 
   (** [thread_safe_check t pre timeout span_or_unit] checks the file descriptors for their
       status and returns when at least one is available, or the [timeout, span_or_unit]
       passes.  [thread_safe_check] does not side effect [t].  Unlike the rest of the
       functions in this module, [thread_safe_check] is thread safe. *)
-  module Check_result : sig type t [@@deriving sexp_of] end
-  val thread_safe_check
-    :  t
-    -> Pre.t
-    -> 'a Timeout.t
-    -> 'a
-    -> Check_result.t
+  module Check_result : sig
+    type t [@@deriving sexp_of]
+  end
+
+  val thread_safe_check : t -> Pre.t -> 'a Timeout.t -> 'a -> Check_result.t
 
   (** [post_check t check_result] calls the [handle_fd*] functions supplied to [create]:
 

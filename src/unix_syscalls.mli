@@ -8,18 +8,15 @@
 
 open! Core
 open! Import
-
 module Syscall_result = Unix.Syscall_result
-
-module Exit                   = Unix.Exit
-module Exit_or_signal         = Unix.Exit_or_signal
+module Exit = Unix.Exit
+module Exit_or_signal = Unix.Exit_or_signal
 module Exit_or_signal_or_stop = Unix.Exit_or_signal_or_stop
 
-val system     : string -> Exit_or_signal.t Deferred.t
-val system_exn : string -> unit             Deferred.t
-
-val getpid      : unit -> Pid.t
-val getppid     : unit -> Pid.t option
+val system : string -> Exit_or_signal.t Deferred.t
+val system_exn : string -> unit Deferred.t
+val getpid : unit -> Pid.t
+val getppid : unit -> Pid.t option
 val getppid_exn : unit -> Pid.t
 
 (** [this_process_became_child_of_init] returns a deferred that becomes determined when
@@ -30,7 +27,10 @@ val getppid_exn : unit -> Pid.t
     information about parent death.
 
     [?poll_delay] controls how often to check. *)
-val this_process_became_child_of_init : ?poll_delay:Time.Span.t -> unit -> unit Deferred.t
+val this_process_became_child_of_init
+  :  ?poll_delay:Time.Span.t
+  -> unit
+  -> unit Deferred.t
 
 val nice : int -> int
 
@@ -53,22 +53,18 @@ type open_flag =
 
 type file_perm = int
 
-val openfile
-  :  ?perm          : file_perm
-  -> string
-  -> mode           : open_flag list
-  -> Fd.t Deferred.t
+val openfile : ?perm:file_perm -> string -> mode:open_flag list -> Fd.t Deferred.t
 
 (** [with_file file ~mode ~perm ~f ?exclusive] opens [file], and applies [f] to the
     resulting file descriptor.  When the result of [f] becomes determined, it closes the
     descriptor and returns the result of [f].  If [exclusive] is supplied, then the file
     descriptor is locked before calling [f] and unlocked after calling [f]. *)
 val with_file
-  :  ?exclusive : [`Read | `Write]
-  -> ?perm      : file_perm
+  :  ?exclusive:[`Read | `Write]
+  -> ?perm:file_perm
   -> string
-  -> mode       : open_flag list
-  -> f          : (Fd.t -> 'a Deferred.t)
+  -> mode:open_flag list
+  -> f:(Fd.t -> 'a Deferred.t)
   -> 'a Deferred.t
 
 module Open_flags = Unix.Open_flags
@@ -76,20 +72,16 @@ module Open_flags = Unix.Open_flags
 (** [fcntl_getfl] and [fcntl_setf] are deferred wrappers around the corresponding
     functions in [Core.Unix] for accessing the open-file-descriptor table. *)
 val fcntl_getfl : Fd.t -> Open_flags.t Deferred.t
+
 val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
 
 include module type of Fd.Close
 
-val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End ] -> int64 Deferred.t
-
+val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End] -> int64 Deferred.t
 val truncate : string -> len:int64 -> unit Deferred.t
-
 val ftruncate : Fd.t -> len:int64 -> unit Deferred.t
-
 val fsync : Fd.t -> unit Deferred.t
-
 val fdatasync : Fd.t -> unit Deferred.t
-
 val sync : unit -> unit Deferred.t
 
 (** [lockf fd read_or_write ?len] exclusively locks for reading/writing the section of the
@@ -114,7 +106,14 @@ val test_lockf : ?len:Int64.t -> Fd.t -> bool
 val unlockf : ?len:Int64.t -> Fd.t -> unit
 
 module File_kind : sig
-  type t = [ `File | `Directory | `Char | `Block | `Link | `Fifo | `Socket ]
+  type t =
+    [ `File
+    | `Directory
+    | `Char
+    | `Block
+    | `Link
+    | `Fifo
+    | `Socket ]
   [@@deriving sexp]
 
   include Comparable.S with type t := t
@@ -124,18 +123,19 @@ end
 
 module Stats : sig
   type t =
-    { dev   : int
-    ; ino   : int
-    ; kind  : File_kind.t
-    ; perm  : file_perm
+    { dev : int
+    ; ino : int
+    ; kind : File_kind.t
+    ; perm : file_perm
     ; nlink : int
-    ; uid   : int
-    ; gid   : int
-    ; rdev  : int
-    ; size  : int64
+    ; uid : int
+    ; gid : int
+    ; rdev : int
+    ; size : int64
     ; atime : Time.t
     ; mtime : Time.t
-    ; ctime : Time.t }
+    ; ctime : Time.t
+    }
   [@@deriving fields, sexp, bin_io, compare]
 
   val of_unix : Core.Unix.stats -> t
@@ -144,16 +144,12 @@ end
 
 val fstat : Fd.t -> Stats.t Deferred.t
 
+
 val stat : string -> Stats.t Deferred.t
-
 val lstat : string -> Stats.t Deferred.t
-
 val isatty : Fd.t -> bool Deferred.t
-
 val unlink : string -> unit Deferred.t
-
 val remove : string -> unit Deferred.t
-
 val rename : src:string -> dst:string -> unit Deferred.t
 
 val link
@@ -164,35 +160,22 @@ val link
   -> unit Deferred.t
 
 val chmod : string -> perm:file_perm -> unit Deferred.t
-
 val fchmod : Fd.t -> perm:file_perm -> unit Deferred.t
-
 val chown : string -> uid:int -> gid:int -> unit Deferred.t
-
 val fchown : Fd.t -> uid:int -> gid:int -> unit Deferred.t
 
 val access
   :  string
-  -> [ `Read | `Write | `Exec | `Exists ] list
+  -> [`Read | `Write | `Exec | `Exists] list
   -> (unit, exn) Result.t Deferred.t
 
-val access_exn
-  :  string
-  -> [ `Read | `Write | `Exec | `Exists ] list
-  -> unit Deferred.t
-
+val access_exn : string -> [`Read | `Write | `Exec | `Exists] list -> unit Deferred.t
 val set_close_on_exec : Fd.t -> unit
-
 val clear_close_on_exec : Fd.t -> unit
-
 val mkdir : ?p:unit -> ?perm:file_perm -> string -> unit Deferred.t
-
 val rmdir : string -> unit Deferred.t
-
 val chdir : string -> unit Deferred.t
-
 val getcwd : unit -> string Deferred.t
-
 val chroot : string -> unit Deferred.t
 
 type dir_handle = Unix.dir_handle
@@ -207,7 +190,6 @@ val readdir : dir_handle -> string Deferred.t
 [@@deprecated "[since 2016-08] use readdir_opt instead"]
 
 val rewinddir : dir_handle -> unit Deferred.t
-
 val closedir : dir_handle -> unit Deferred.t
 
 (** The [info] supplied to pipe is debugging information that will be included in the
@@ -215,13 +197,9 @@ val closedir : dir_handle -> unit Deferred.t
 val pipe : Info.t -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
 
 (** Create a named pipe with the given permissions. *)
-val mkfifo
-  :  ?perm : file_perm  (** default is [0o666] *)
-  -> string
-  -> unit Deferred.t
+val mkfifo : ?perm:file_perm (** default is [0o666] *) -> string -> unit Deferred.t
 
 val symlink : target:string -> link_name:string -> unit Deferred.t
-
 val readlink : string -> string Deferred.t
 
 (** [mkstemp prefix] creates and opens a unique temporary file with [prefix],
@@ -232,29 +210,30 @@ val readlink : string -> string Deferred.t
 val mkstemp : string -> (string * Fd.t) Deferred.t
 
 val mkdtemp : string -> string Deferred.t
-
 val getgrouplist : string -> int -> int array Deferred.t
 
 (** Time functions. *)
-type process_times
-  = Unix.process_times
-  = { tms_utime  : float  (** User time for the process *)
-    ; tms_stime  : float  (** System time for the process *)
-    ; tms_cutime : float  (** User time for the children processes *)
-    ; tms_cstime : float  (** System time for the children processes *) }
+type process_times = Unix.process_times =
+  { tms_utime : float  (** User time for the process *)
+  ; tms_stime : float  (** System time for the process *)
+  ; tms_cutime : float  (** User time for the children processes *)
+  ; tms_cstime : float  (** System time for the children processes *)
+  }
 
 val times : unit -> process_times
 
 type tm = Unix.tm =
-  { tm_sec   : int   (** Seconds 0..59 *)
-  ; tm_min   : int   (** Minutes 0..59 *)
-  ; tm_hour  : int   (** Hours 0..23 *)
-  ; tm_mday  : int   (** Day of month 1..31 *)
-  ; tm_mon   : int   (** Month of year 0..11 *)
-  ; tm_year  : int   (** Year - 1900 *)
-  ; tm_wday  : int   (** Day of week (Sunday is 0) *)
-  ; tm_yday  : int   (** Day of year 0..365 *)
-  ; tm_isdst : bool  (** Daylight time savings in effect *) }
+  { tm_sec : int  (** Seconds 0..59 *)
+  ; tm_min : int  (** Minutes 0..59 *)
+  ; tm_hour : int  (** Hours 0..23 *)
+  ; tm_mday : int  (** Day of month 1..31 *)
+  ; tm_mon : int  (** Month of year 0..11 *)
+  ; tm_year : int  (** Year - 1900 *)
+  ; tm_wday : int  (** Day of week (Sunday is 0) *)
+  ; tm_yday : int  (** Day of year 0..365 *)
+  ; tm_isdst : bool  (** Daylight time savings in effect *)
+  }
+
 val time : unit -> float
 val gettimeofday : unit -> float
 val gmtime : float -> tm
@@ -281,10 +260,10 @@ val unsetenv : string -> unit
     In the case of [`Extend], bindings in [env] take precedence over the existing
     environment.  See {!Unix.exec}. *)
 val fork_exec
-  :  prog      : string
-  -> argv      : string list
-  -> ?use_path : bool  (** default is [true] *)
-  -> ?env      : [ env | `Replace_raw of string list ]
+  :  prog:string
+  -> argv:string list
+  -> ?use_path:bool (** default is [true] *)
+  -> ?env:[env | `Replace_raw of string list]
   -> unit
   -> Pid.t Deferred.t
 
@@ -295,20 +274,23 @@ type wait_on =
   | `Pid of Pid.t ]
 [@@deriving sexp]
 
-val wait                 : wait_on -> (Pid.t * Exit_or_signal.t        ) Deferred.t
-val wait_nohang          : wait_on -> (Pid.t * Exit_or_signal.t        ) option
-val wait_untraced        : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
+val wait : wait_on -> (Pid.t * Exit_or_signal.t) Deferred.t
+val wait_nohang : wait_on -> (Pid.t * Exit_or_signal.t) option
+val wait_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
 val wait_nohang_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) option
 
 (** [waitpid pid] returns a deferred that becomes determined with the child's exit
     status, when the child process with process id [pid] exits.  [waitpid_exn] is like
     [waitpid], except the result only becomes determined if the child exits with status
     zero; it raises if the child terminates in any other way. *)
-val waitpid     : Pid.t -> Exit_or_signal.t Deferred.t
-val waitpid_exn : Pid.t -> unit             Deferred.t
+val waitpid : Pid.t -> Exit_or_signal.t Deferred.t
+
+val waitpid_exn : Pid.t -> unit Deferred.t
 
 module Inet_addr : sig
-  include module type of struct include Unix.Inet_addr end
+  include module type of struct
+  include Unix.Inet_addr
+end
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
       resulting IP address. *)
@@ -326,16 +308,15 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
+      type t = [`Unix of string] [@@deriving bin_io, sexp, compare]
 
       val create : string -> t
       val to_string : t -> string
-
       val to_sockaddr : t -> Core.Unix.sockaddr
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
+      type t = [`Inet of Inet_addr.t * int] [@@deriving bin_io, compare, sexp_of]
 
       val t_of_sexp : Sexp.t -> t
       [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
@@ -353,21 +334,23 @@ module Socket : sig
           tests. *)
       module Show_port_in_test : sig
         type nonrec t = t [@@deriving sexp_of]
+
         val to_string : t -> string
       end
 
       val create : Inet_addr.t -> port:int -> t
       val create_bind_any : port:int -> t
-
       val addr : t -> Inet_addr.t
       val port : t -> int
       val to_string : t -> string
-
       val to_host_and_port : t -> Host_and_port.t
       val to_sockaddr : t -> Core.Unix.sockaddr
     end
 
-    type t = [ Inet.t | Unix.t ] [@@deriving bin_io, sexp_of]
+    type t =
+      [ Inet.t
+      | Unix.t ]
+    [@@deriving bin_io, sexp_of]
 
     val t_of_sexp : Sexp.t -> t
     [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
@@ -377,16 +360,15 @@ module Socket : sig
       type nonrec t = t [@@deriving bin_io, sexp]
     end
 
-    val to_string   : [< t ] -> string
-    val to_sockaddr : [< t ] -> Core.Unix.sockaddr
+    val to_string : [< t] -> string
+    val to_sockaddr : [< t] -> Core.Unix.sockaddr
   end
 
   module Family : sig
-    type 'a t constraint 'a = [< Address.t ]
+    type 'a t constraint 'a = [< Address.t]
 
     val unix : Address.Unix.t t
     val inet : Address.Inet.t t
-
     val to_string : 'a t -> string
   end
 
@@ -404,67 +386,64 @@ module Socket : sig
                      | ---connect--> Active
       v} *)
   type (+'a, 'b) t
-    constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
-    constraint 'b = [< Address.t ]
+    constraint
+      'a =
+      [< `Unconnected | `Bound | `Passive | `Active]
+    constraint
+      'b =
+      [< Address.t]
     [@@deriving sexp_of]
 
   module Type : sig
-    type 'a t constraint 'a = [< Address.t ] [@@deriving sexp_of]
+    type 'a t constraint 'a = [< Address.t] [@@deriving sexp_of]
 
-    val tcp        : Address.Inet.t t
-    val udp        : Address.Inet.t t
-    val unix       : Address.Unix.t t
+    val tcp : Address.Inet.t t
+    val udp : Address.Inet.t t
+    val unix : Address.Unix.t t
     val unix_dgram : Address.Unix.t t
   end
 
-  val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
+  val create : 'addr Type.t -> ([`Unconnected], 'addr) t
 
   val connect
-    :  ([< `Unconnected | `Bound ], 'addr) t
+    :  ([< `Unconnected | `Bound], 'addr) t
     -> 'addr
-    -> ([ `Active ], 'addr) t Deferred.t
+    -> ([`Active], 'addr) t Deferred.t
 
   val connect_interruptible
-    :  ([< `Unconnected | `Bound ], 'addr) t
+    :  ([< `Unconnected | `Bound], 'addr) t
     -> 'addr
-    -> interrupt : (unit Deferred.t)
-    -> [ `Ok of ([ `Active ], 'addr) t
-       | `Interrupted
-       ] Deferred.t
+    -> interrupt:unit Deferred.t
+    -> [`Ok of ([`Active], 'addr) t | `Interrupted] Deferred.t
 
   (** [bind socket addr] sets close_on_exec for the fd of [socket]. *)
   val bind
-    :  ?reuseaddr : bool  (** default is [true] *)
-    -> ([ `Unconnected ], 'addr) t
+    :  ?reuseaddr:bool (** default is [true] *)
+    -> ([`Unconnected], 'addr) t
     -> 'addr
-    -> ([ `Bound ], 'addr) t Deferred.t
+    -> ([`Bound], 'addr) t Deferred.t
 
   (** [bind_inet socket addr] is just like [bind] but is restricted to [Inet.t] addresses
       and is therefore guaranteed not to block. *)
   val bind_inet
-    :  ?reuseaddr : bool (** default is [true] *)
-    -> ([ `Unconnected ], Address.Inet.t) t
+    :  ?reuseaddr:bool (** default is [true] *)
+    -> ([`Unconnected], Address.Inet.t) t
     -> Address.Inet.t
-    -> ([ `Bound ], Address.Inet.t) t
+    -> ([`Bound], Address.Inet.t) t
 
   val listen
-    :  ?backlog : int  (** default is 64; see {!Unix.listen} *)
-    -> ([ `Bound ], 'addr) t
-    -> ([ `Passive ], 'addr) t
+    :  ?backlog:int (** default is 64; see {!Unix.listen} *)
+    -> ([`Bound], 'addr) t
+    -> ([`Passive], 'addr) t
 
   val accept
-    :  ([ `Passive ], 'addr) t
-    -> [ `Ok of (([ `Active ], 'addr) t * 'addr)
-       | `Socket_closed
-       ] Deferred.t
+    :  ([`Passive], 'addr) t
+    -> [`Ok of ([`Active], 'addr) t * 'addr | `Socket_closed] Deferred.t
 
   val accept_interruptible
-    :  ([ `Passive ], 'addr) t
-    -> interrupt : (unit Deferred.t)
-    -> [ `Ok of (([ `Active ], 'addr) t * 'addr)
-       | `Socket_closed
-       | `Interrupted
-       ] Deferred.t
+    :  ([`Passive], 'addr) t
+    -> interrupt:unit Deferred.t
+    -> [`Ok of ([`Active], 'addr) t * 'addr | `Socket_closed | `Interrupted] Deferred.t
 
   (** [accept_at_most] is like [accept], but will return up to [limit] connections before
       yielding, where [limit >= 1].  [accept_at_most] first waits for one connection and
@@ -484,69 +463,59 @@ module Socket : sig
          Brecht, Pariag, and Gammo.  USENIX ATEC '04
       v} *)
   val accept_at_most
-    :  ([ `Passive ], 'addr) t
-    -> limit : int
-    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list
-       | `Socket_closed
-       ] Deferred.t
+    :  ([`Passive], 'addr) t
+    -> limit:int
+    -> [`Ok of (([`Active], 'addr) t * 'addr) list | `Socket_closed] Deferred.t
 
   val accept_at_most_interruptible
-    :  ([ `Passive ], 'addr) t
-    -> limit : int
-    -> interrupt : (unit Deferred.t)
-    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list
-       | `Socket_closed
-       | `Interrupted
-       ] Deferred.t
+    :  ([`Passive], 'addr) t
+    -> limit:int
+    -> interrupt:unit Deferred.t
+    -> [`Ok of (([`Active], 'addr) t * 'addr) list | `Socket_closed | `Interrupted]
+         Deferred.t
 
-  val shutdown : ('a, 'addr) t -> [ `Receive | `Send | `Both ] -> unit
-
+  val shutdown : ('a, 'addr) t -> [`Receive | `Send | `Both] -> unit
   val fd : ('a, 'addr) t -> Fd.t
-
   val of_fd : Fd.t -> 'addr Type.t -> ('a, 'addr) t
-
   val getsockname : ('a, 'addr) t -> 'addr
-
   val getpeername : ('a, 'addr) t -> 'addr
 
   module Opt : sig
     type 'a t
 
-    val debug      : bool t
-    val broadcast  : bool t
-    val reuseaddr  : bool t
-    val keepalive  : bool t
-    val dontroute  : bool t
-    val oobinline  : bool t
+    val debug : bool t
+    val broadcast : bool t
+    val reuseaddr : bool t
+    val keepalive : bool t
+    val dontroute : bool t
+    val oobinline : bool t
     val acceptconn : bool t
-    val nodelay    : bool t
-
-    val sndbuf   : int t
-    val rcvbuf   : int t
-    val error    : int t
-    val typ      : int t
+    val nodelay : bool t
+    val sndbuf : int t
+    val rcvbuf : int t
+    val error : int t
+    val typ : int t
     val rcvlowat : int t
     val sndlowat : int t
-
     val linger : int option t
-
     val rcvtimeo : float t
     val sndtimeo : float t
-
     val mcast_loop : bool t
-    val mcast_ttl  : int t
-
+    val mcast_ttl : int t
     val to_string : 'a t -> string
   end
 
   val getopt : ('a, 'addr) t -> 'c Opt.t -> 'c
-
   val setopt : ('a, 'addr) t -> 'c Opt.t -> 'c -> unit
 
   val mcast_join
-    : ?ifname : string -> ?source : Inet_addr.t -> ('a, 'addr) t -> 'addr -> unit
-  val mcast_leave
-    : ?ifname : string ->                          ('a, 'addr) t -> 'addr -> unit
+    :  ?ifname:string
+    -> ?source:Inet_addr.t
+    -> ('a, 'addr) t
+    -> 'addr
+    -> unit
+
+  val mcast_leave : ?ifname:string -> ('a, 'addr) t -> 'addr -> unit
 
   (** [bind_to_interface_exn t (`Interface_name "eth0")] restricts messages from being
       received or sent on interfaces other than [eth0].  See
@@ -555,25 +524,25 @@ module Socket : sig
       Typically, one would use this function for very specific non-multicast requirements.
       For similar functionality when using multicast, see
       {!Core_unix.mcast_set_ifname}. *)
-  val bind_to_interface_exn
-    : (([ `Unconnected ], _) t -> [ `Any | `Interface_name of string ] -> unit) Or_error.t
+  val bind_to_interface_exn :
+    (([`Unconnected], _) t -> [`Any | `Interface_name of string] -> unit) Or_error.t
 end
 
-val bind_to_interface_exn
-  : (Fd.t -> [ `Any | `Interface_name of string ] -> unit) Or_error.t
+val bind_to_interface_exn :
+  (Fd.t -> [`Any | `Interface_name of string] -> unit) Or_error.t
 
 module Host : sig
   type t = Unix.Host.t =
-    { name      : string
-    ; aliases   : string array
-    ; family    : Protocol_family.t
-    ; addresses : Inet_addr.t array }
+    { name : string
+    ; aliases : string array
+    ; family : Protocol_family.t
+    ; addresses : Inet_addr.t array
+    }
 
-  val getbyname     : string      -> t option Deferred.t
-  val getbyname_exn : string      -> t        Deferred.t
-  val getbyaddr     : Inet_addr.t -> t option Deferred.t
-  val getbyaddr_exn : Inet_addr.t -> t        Deferred.t
-
+  val getbyname : string -> t option Deferred.t
+  val getbyname_exn : string -> t Deferred.t
+  val getbyaddr : Inet_addr.t -> t option Deferred.t
+  val getbyaddr_exn : Inet_addr.t -> t Deferred.t
   val have_address_in_common : t -> t -> bool
 end
 
@@ -604,11 +573,12 @@ type sockaddr_blocking_sexp = sockaddr [@@deriving bin_io, sexp]
 
 module Addr_info : sig
   type t = Unix.addr_info =
-    { ai_family    : socket_domain
-    ; ai_socktype  : socket_type
-    ; ai_protocol  : int
-    ; ai_addr      : sockaddr
-    ; ai_canonname : string }
+    { ai_family : socket_domain
+    ; ai_socktype : socket_type
+    ; ai_protocol : int
+    ; ai_addr : sockaddr
+    ; ai_canonname : string
+    }
   [@@deriving bin_io, sexp_of]
 
   val t_of_sexp : Sexp.t -> t
@@ -628,13 +598,18 @@ module Addr_info : sig
     | AI_PASSIVE
   [@@deriving bin_io, sexp]
 
-  val get : ?service:string -> host:string -> getaddrinfo_option list -> t list Deferred.t
+  val get
+    :  ?service:string
+    -> host:string
+    -> getaddrinfo_option list
+    -> t list Deferred.t
 end
 
 module Name_info : sig
   type t = Unix.name_info =
     { ni_hostname : string
-    ; ni_service  : string }
+    ; ni_service : string
+    }
   [@@deriving bin_io, sexp]
 
   type getnameinfo_option = Unix.getnameinfo_option =
@@ -649,31 +624,84 @@ module Name_info : sig
 end
 
 val gethostname : unit -> string
-
 val getuid : unit -> int
-
 val geteuid : unit -> int
-
 val getgid : unit -> int
-
 val getegid : unit -> int
-
 val setuid : int -> unit
 
 module Error = Unix.Error
 
 type error = Unix.Error.t =
-  | E2BIG | EACCES | EAGAIN | EBADF | EBUSY | ECHILD | EDEADLK | EDOM | EEXIST
-  | EFAULT | EFBIG | EINTR | EINVAL | EIO | EISDIR | EMFILE | EMLINK
-  | ENAMETOOLONG | ENFILE | ENODEV | ENOENT | ENOEXEC | ENOLCK | ENOMEM | ENOSPC
-  | ENOSYS | ENOTDIR | ENOTEMPTY | ENOTTY | ENXIO | EPERM | EPIPE | ERANGE
-  | EROFS | ESPIPE | ESRCH | EXDEV | EWOULDBLOCK | EINPROGRESS | EALREADY
-  | ENOTSOCK | EDESTADDRREQ | EMSGSIZE | EPROTOTYPE | ENOPROTOOPT
-  | EPROTONOSUPPORT | ESOCKTNOSUPPORT | EOPNOTSUPP | EPFNOSUPPORT | EAFNOSUPPORT
-  | EADDRINUSE | EADDRNOTAVAIL | ENETDOWN | ENETUNREACH | ENETRESET
-  | ECONNABORTED | ECONNRESET | ENOBUFS | EISCONN | ENOTCONN | ESHUTDOWN
-  | ETOOMANYREFS | ETIMEDOUT | ECONNREFUSED | EHOSTDOWN | EHOSTUNREACH | ELOOP
-  | EOVERFLOW | EUNKNOWNERR of int
+  | E2BIG
+  | EACCES
+  | EAGAIN
+  | EBADF
+  | EBUSY
+  | ECHILD
+  | EDEADLK
+  | EDOM
+  | EEXIST
+  | EFAULT
+  | EFBIG
+  | EINTR
+  | EINVAL
+  | EIO
+  | EISDIR
+  | EMFILE
+  | EMLINK
+  | ENAMETOOLONG
+  | ENFILE
+  | ENODEV
+  | ENOENT
+  | ENOEXEC
+  | ENOLCK
+  | ENOMEM
+  | ENOSPC
+  | ENOSYS
+  | ENOTDIR
+  | ENOTEMPTY
+  | ENOTTY
+  | ENXIO
+  | EPERM
+  | EPIPE
+  | ERANGE
+  | EROFS
+  | ESPIPE
+  | ESRCH
+  | EXDEV
+  | EWOULDBLOCK
+  | EINPROGRESS
+  | EALREADY
+  | ENOTSOCK
+  | EDESTADDRREQ
+  | EMSGSIZE
+  | EPROTOTYPE
+  | ENOPROTOOPT
+  | EPROTONOSUPPORT
+  | ESOCKTNOSUPPORT
+  | EOPNOTSUPP
+  | EPFNOSUPPORT
+  | EAFNOSUPPORT
+  | EADDRINUSE
+  | EADDRNOTAVAIL
+  | ENETDOWN
+  | ENETUNREACH
+  | ENETRESET
+  | ECONNABORTED
+  | ECONNRESET
+  | ENOBUFS
+  | EISCONN
+  | ENOTCONN
+  | ESHUTDOWN
+  | ETOOMANYREFS
+  | ETIMEDOUT
+  | ECONNREFUSED
+  | EHOSTDOWN
+  | EHOSTUNREACH
+  | ELOOP
+  | EOVERFLOW
+  | EUNKNOWNERR of int
 [@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
 
 val sexp_of_error : Error.t -> Sexp.t
@@ -686,53 +714,54 @@ exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
   type t = Caml.Unix.terminal_io =
-    { (*_ Input modes: *)
-      mutable c_ignbrk : bool  (** Ignore the break condition. *)
+    { mutable c_ignbrk : bool  (** Ignore the break condition. *)
     ; mutable c_brkint : bool  (** Signal interrupt on break condition. *)
     ; mutable c_ignpar : bool  (** Ignore characters with parity errors. *)
     ; mutable c_parmrk : bool  (** Mark parity errors. *)
-    ; mutable c_inpck  : bool  (** Enable parity check on input. *)
+    ; mutable c_inpck : bool  (** Enable parity check on input. *)
     ; mutable c_istrip : bool  (** Strip 8th bit on input characters. *)
-    ; mutable c_inlcr  : bool  (** Map NL to CR on input. *)
-    ; mutable c_igncr  : bool  (** Ignore CR on input. *)
-    ; mutable c_icrnl  : bool  (** Map CR to NL on input. *)
-    ; mutable c_ixon   : bool  (** Recognize XON/XOFF characters on input. *)
-    ; mutable c_ixoff  : bool  (** Emit XON/XOFF chars to control input flow. *)
-    (*_ Output modes: *)
-    ; mutable c_opost  : bool  (** Enable output processing. *)
-    (*_ Control modes: *)
-    ; mutable c_obaud  : int   (** Output baud rate (0 means close connection).*)
-    ; mutable c_ibaud  : int   (** Input baud rate. *)
-    ; mutable c_csize  : int   (** Number of bits per character (5-8). *)
-    ; mutable c_cstopb : int   (** Number of stop bits (1-2). *)
-    ; mutable c_cread  : bool  (** Reception is enabled. *)
+    ; mutable c_inlcr : bool  (** Map NL to CR on input. *)
+    ; mutable c_igncr : bool  (** Ignore CR on input. *)
+    ; mutable c_icrnl : bool  (** Map CR to NL on input. *)
+    ; mutable c_ixon : bool  (** Recognize XON/XOFF characters on input. *)
+    ; mutable c_ixoff : bool  (** Emit XON/XOFF chars to control input flow. *)
+    ; mutable c_opost : bool  (** Enable output processing. *)
+    ; mutable c_obaud : int  (** Output baud rate (0 means close connection).*)
+    ; mutable c_ibaud : int  (** Input baud rate. *)
+    ; mutable c_csize : int  (** Number of bits per character (5-8). *)
+    ; mutable c_cstopb : int  (** Number of stop bits (1-2). *)
+    ; mutable c_cread : bool  (** Reception is enabled. *)
     ; mutable c_parenb : bool  (** Enable parity generation and detection. *)
     ; mutable c_parodd : bool  (** Specify odd parity instead of even. *)
-    ; mutable c_hupcl  : bool  (** Hang up on last close. *)
+    ; mutable c_hupcl : bool  (** Hang up on last close. *)
     ; mutable c_clocal : bool  (** Ignore modem status lines. *)
-    (*_ Local modes: *)
-    ; mutable c_isig   : bool  (** Generate signal on INTR, QUIT, SUSP. *)
-    ; mutable c_icanon : bool  (** Enable canonical processing
-                                   (line buffering and editing) *)
+    ; mutable c_isig : bool  (** Generate signal on INTR, QUIT, SUSP. *)
+    ; mutable c_icanon : bool
+    (** Enable canonical processing
+        (line buffering and editing) *)
     ; mutable c_noflsh : bool  (** Disable flush after INTR, QUIT, SUSP. *)
-    ; mutable c_echo   : bool  (** Echo input characters. *)
-    ; mutable c_echoe  : bool  (** Echo ERASE (to erase previous character). *)
-    ; mutable c_echok  : bool  (** Echo KILL (to erase the current line). *)
+    ; mutable c_echo : bool  (** Echo input characters. *)
+    ; mutable c_echoe : bool  (** Echo ERASE (to erase previous character). *)
+    ; mutable c_echok : bool  (** Echo KILL (to erase the current line). *)
     ; mutable c_echonl : bool  (** Echo NL even if c_echo is not set. *)
-    (*_ Control characters: *)
-    ; mutable c_vintr  : char  (** Interrupt character (usually ctrl-C). *)
-    ; mutable c_vquit  : char  (** Quit character (usually ctrl-\ ). *)
+    ; mutable c_vintr : char  (** Interrupt character (usually ctrl-C). *)
+    ; mutable c_vquit : char  (** Quit character (usually ctrl-\ ). *)
     ; mutable c_verase : char  (** Erase character (usually DEL or ctrl-H). *)
-    ; mutable c_vkill  : char  (** Kill line character (usually ctrl-U). *)
-    ; mutable c_veof   : char  (** End-of-file character (usually ctrl-D). *)
-    ; mutable c_veol   : char  (** Alternate end-of-line char. (usually none). *)
-    ; mutable c_vmin   : int   (** Minimum number of characters to read
-                                   before the read request is satisfied. *)
-    ; mutable c_vtime  : int   (** Maximum read wait (in 0.1s units). *)
+    ; mutable c_vkill : char  (** Kill line character (usually ctrl-U). *)
+    ; mutable c_veof : char  (** End-of-file character (usually ctrl-D). *)
+    ; mutable c_veol : char  (** Alternate end-of-line char. (usually none). *)
+    ; mutable c_vmin : int
+    (** Minimum number of characters to read
+        before the read request is satisfied. *)
+    ; mutable c_vtime : int  (** Maximum read wait (in 0.1s units). *)
     ; mutable c_vstart : char  (** Start character (usually ctrl-Q). *)
-    ; mutable c_vstop  : char  (** Stop character (usually ctrl-S). *) }
+    ; mutable c_vstop : char  (** Stop character (usually ctrl-S). *)
+    }
 
-  type setattr_when = Caml.Unix.setattr_when = TCSANOW | TCSADRAIN | TCSAFLUSH
+  type setattr_when = Caml.Unix.setattr_when =
+    | TCSANOW
+    | TCSADRAIN
+    | TCSAFLUSH
 
   val tcgetattr : Fd.t -> t Deferred.t
   val tcsetattr : t -> Fd.t -> mode:setattr_when -> unit Deferred.t
@@ -741,36 +770,36 @@ end
 (** Structure of entries in the [passwd] database. *)
 module Passwd : sig
   type t = Core.Unix.Passwd.t =
-    { name   : string
+    { name : string
     ; passwd : string
-    ; uid    : int
-    ; gid    : int
-    ; gecos  : string
-    ; dir    : string
-    ; shell  : string }
+    ; uid : int
+    ; gid : int
+    ; gecos : string
+    ; dir : string
+    ; shell : string
+    }
   [@@deriving fields, sexp]
 
-  val getbyname     : string -> t option Deferred.t
-  val getbyname_exn : string -> t        Deferred.t
-
-  val getbyuid     : int -> t option Deferred.t
-  val getbyuid_exn : int -> t        Deferred.t
+  val getbyname : string -> t option Deferred.t
+  val getbyname_exn : string -> t Deferred.t
+  val getbyuid : int -> t option Deferred.t
+  val getbyuid_exn : int -> t Deferred.t
 end
 
 (** Structure of entries in the [groups] database. *)
 module Group : sig
   type t = Core.Unix.Group.t =
-    { name   : string
+    { name : string
     ; passwd : string
-    ; gid    : int
-    ; mem    : string array }
+    ; gid : int
+    ; mem : string array
+    }
   [@@deriving fields, sexp]
 
-  val getbyname     : string -> t option Deferred.t
-  val getbyname_exn : string -> t        Deferred.t
-
-  val getbygid     : int -> t option Deferred.t
-  val getbygid_exn : int -> t        Deferred.t
+  val getbyname : string -> t option Deferred.t
+  val getbyname_exn : string -> t Deferred.t
+  val getbygid : int -> t option Deferred.t
+  val getbygid_exn : int -> t Deferred.t
 end
 
 module Ifaddr = Core.Unix.Ifaddr
@@ -785,7 +814,6 @@ val getifaddrs : unit -> Ifaddr.t list Deferred.t
     essentially a database elsewhere on the network (winbound user, or NIS). *)
 val getlogin : unit -> string Deferred.t
 
-val wordexp
-  : (?flags : [ `No_cmd | `Show_err | `Undef ] list
-     -> string
-     -> string array Deferred.t ) Or_error.t
+val wordexp :
+  (?flags:[`No_cmd | `Show_err | `Undef] list -> string -> string array Deferred.t)
+    Or_error.t

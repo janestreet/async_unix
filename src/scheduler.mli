@@ -19,7 +19,7 @@ val t : unit -> t
 (** Accessors *)
 
 val max_num_open_file_descrs : unit -> int
-val max_num_threads          : unit -> int
+val max_num_threads : unit -> int
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts
     running handlers, one by one without interruption, until there are no more handlers to
@@ -33,28 +33,22 @@ val max_num_threads          : unit -> int
     Async execution ceases.  Then, by default, Async pretty prints the exception, and
     exits with status 1.  If you don't want this, pass [~raise_unhandled_exn:true], which
     will cause the unhandled exception to be raised to the caller of [go ()]. *)
-val go
-  : ?raise_unhandled_exn : bool  (** default is [false] *)
-  -> unit
-  -> never_returns
+val go : ?raise_unhandled_exn:bool (** default is [false] *) -> unit -> never_returns
 
 (** [go_main] is like [go], except that you supply a [main] function that will be run to
     initialize the Async computation, and that [go_main] will fail if any Async has been
     used prior to [go_main] being called.  Moreover it allows you to configure more static
     options of the scheduler. *)
 val go_main
-  :  ?raise_unhandled_exn      : bool                         (** default is [false] *)
-  -> ?file_descr_watcher       : Config.File_descr_watcher.t  (** default is [Config] *)
-  -> ?max_num_open_file_descrs : int                          (** default is [Config] *)
-  -> ?max_num_threads          : int                          (** default is [Config] *)
-  -> main                      : (unit -> unit)
+  :  ?raise_unhandled_exn:bool (** default is [false] *)
+  -> ?file_descr_watcher:Config.File_descr_watcher.t (** default is [Config] *)
+  -> ?max_num_open_file_descrs:int (** default is [Config] *)
+  -> ?max_num_threads:int (** default is [Config] *)
+  -> main:(unit -> unit)
   -> unit
   -> never_returns
 
-type 'a with_options
-  =  ?monitor  : Monitor.t
-  -> ?priority : Priority.t
-  -> 'a
+type 'a with_options = ?monitor:Monitor.t -> ?priority:Priority.t -> 'a
 
 val current_execution_context : unit -> Execution_context.t
 
@@ -96,24 +90,27 @@ val schedule : ((unit -> unit) -> unit) with_options
 (** [preserve_execution_context t f] saves the current execution context and returns a
     function [g] such that [g a] runs [f a] in the saved execution context.  [g a] becomes
     determined when [f a] becomes determined. *)
-val preserve_execution_context  : ('a -> unit)          -> ('a -> unit)          Staged.t
+val preserve_execution_context : ('a -> unit) -> ('a -> unit) Staged.t
+
 val preserve_execution_context' : ('a -> 'b Deferred.t) -> ('a -> 'b Deferred.t) Staged.t
 
 (** [cycle_start ()] returns the result of [Time.now ()] called at the beginning of
     cycle. *)
-val cycle_start    : unit -> Time.t
+val cycle_start : unit -> Time.t
+
 val cycle_start_ns : unit -> Time_ns.t
 
 (** [cycle_times ()] returns a stream that is extended with an element at the start of
     each Async cycle, with the amount of time that the previous cycle took, as determined
     by calls to [Time.now] at the beginning and end of the cycle. *)
-val cycle_times    : unit -> Time.Span.t    Stream.t
+val cycle_times : unit -> Time.Span.t Stream.t
+
 val cycle_times_ns : unit -> Time_ns.Span.t Stream.t
 
 (** [long_cycles ~at_least] returns a stream of cycles whose duration is at least
     [at_least].  [long_cycles] is more efficient than [cycle_times] because it only
     allocates a stream entry when there is a long cycle, rather than on every cycle. *)
-val long_cycles : at_least : Time_ns.Span.t -> Time_ns.Span.t Stream.t
+val long_cycles : at_least:Time_ns.Span.t -> Time_ns.Span.t Stream.t
 
 (** [report_long_cycle_times ?cutoff ()] sets up something that will print a warning to
     stderr whenever there is an Async cycle that is too long, as specified by [cutoff],
@@ -124,7 +121,8 @@ val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 val cycle_count : unit -> int
 
 (** The [alarm_precision] of the timing-wheel used to implement Async's [Clock]. *)
-val event_precision    : unit -> Time.Span.t
+val event_precision : unit -> Time.Span.t
+
 val event_precision_ns : unit -> Time_ns.Span.t
 
 (** [force_current_cycle_to_end ()] causes no more normal priority jobs to run in the
@@ -139,7 +137,8 @@ val is_running : unit -> bool
     will be done at each priority within each Async cycle. The default is [500].
     [max_num_jobs_per_priority_per_cycle] retrieves the current value.  *)
 val set_max_num_jobs_per_priority_per_cycle : int -> unit
-val max_num_jobs_per_priority_per_cycle     : unit -> int
+
+val max_num_jobs_per_priority_per_cycle : unit -> int
 
 (** [set_max_inter_cycle_timeout span] sets the maximum amount of time the scheduler will
     remain blocked (on epoll or select) between cycles. *)
@@ -206,7 +205,7 @@ val make_async_unusable : unit -> unit
     raised by [poll] will be sent asynchronously to that monitor.  If [poll] raises, it
     will still be run on subsequent iterations of the busy loop. *)
 val add_busy_poller
-  :  (unit -> [ `Continue_polling | `Stop_polling of 'a ])
+  :  (unit -> [`Continue_polling | `Stop_polling of 'a])
   -> 'a Deferred.t
 
 (** [handle_thread_pool_stuck f] causes [f] to run whenever Async detects its thread pool
@@ -217,8 +216,9 @@ val add_busy_poller
     handler for the main monitor.
 
     Calling [handle_thread_pool_stuck] replaces whatever behavior was previously there. *)
-val handle_thread_pool_stuck         : (stuck_for:Time_ns.Span.t -> unit) -> unit
-val default_handle_thread_pool_stuck :  stuck_for:Time_ns.Span.t -> unit
+val handle_thread_pool_stuck : (stuck_for:Time_ns.Span.t -> unit) -> unit
+
+val default_handle_thread_pool_stuck : stuck_for:Time_ns.Span.t -> unit
 
 (** [yield ()] returns a deferred that becomes determined after the current cycle
     completes.  This can be useful to improve fairness by [yield]ing within a computation
@@ -260,5 +260,5 @@ val num_pending_jobs : unit -> int
 
 module Expert : sig
   val set_on_start_of_cycle : (unit -> unit) -> unit
-  val set_on_end_of_cycle   : (unit -> unit) -> unit
+  val set_on_end_of_cycle : (unit -> unit) -> unit
 end
