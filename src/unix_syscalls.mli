@@ -817,3 +817,21 @@ val getlogin : unit -> string Deferred.t
 val wordexp :
   (?flags:[`No_cmd | `Show_err | `Undef] list -> string -> string array Deferred.t)
     Or_error.t
+
+module Private : sig
+  (** [Wait] exposes some internals of the implementation of [wait] and [wait_untraced].
+      Those functions return a deferred that becomes determined when a particular child
+      process exits.  The implementation, by default, installs a signal handler for
+      SIGCHLD that calls [check_all], which considers all undetermined wait results, calls
+      [wait_nohang], and fills them in if appropriate.  If OCaml is being used as a plugin
+      in some other process that is already managing signals, e.g. in Ecaml, then we can't
+      install a signal handler.  So, we expose [do_not_handle_sigchld], which the plugin
+      should call before any call to [wait], and will prevent the SIGCHLD handler from
+      being installed.  It is then the responsibility of the plugin to call [check_all]
+      regularly, so that child processes created by Async are reaped and the corresponding
+      deferreds become determined. *)
+  module Wait : sig
+    val check_all : unit -> unit
+    val do_not_handle_sigchld : unit -> unit
+  end
+end

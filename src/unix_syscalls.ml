@@ -521,23 +521,71 @@ let fork_exec ~prog ~argv ?use_path ?env () =
 
 type wait_on = Unix.wait_on [@@deriving sexp_poly]
 
-let make_wait wait_nohang =
-  let waits = ref [] in
+let wait_nohang = Unix.wait_nohang
+let wait_nohang_untraced = Unix.wait_nohang_untraced
+
+module Wait : sig
+  val check_all : unit -> unit
+  val do_not_handle_sigchld : unit -> unit
+  val wait : wait_on -> (Pid.t * Exit_or_signal.t) Deferred.t
+  val wait_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
+end = struct
+  module Kind = struct
+    type _ t =
+      | Normal : Exit_or_signal.t t
+      | Untraced : Exit_or_signal_or_stop.t t
+    [@@deriving sexp_of]
+
+    let wait_nohang : type a. a t -> wait_on -> (Pid.t * a) option =
+      fun t wait_on ->
+        match t with
+        | Normal -> wait_nohang wait_on
+        | Untraced -> wait_nohang_untraced wait_on
+    ;;
+  end
+
+  module Wait = struct
+    type t =
+      | T :
+          { kind : 'a Kind.t
+          ; result : (Pid.t * 'a, exn) Result.t Ivar.t
+          ; wait_on : wait_on
+          }
+        -> t
+    [@@deriving sexp_of]
+
+    let check (T t) =
+      match Kind.wait_nohang t.kind t.wait_on with
+      | None -> false
+      | Some x ->
+        Ivar.fill t.result (Ok x);
+        true
+      | exception exn ->
+        Ivar.fill t.result (Error exn);
+        true
+    ;;
+  end
+
+  let waits : Wait.t list ref = ref []
+  let add ~kind ~result ~wait_on = waits := T { kind; result; wait_on } :: !waits
+  let check_all () = waits := List.filter !waits ~f:(Fn.non Wait.check)
+  let should_handle_sigchld = ref true
+  let am_handling_sigchld = ref false
+
+  let do_not_handle_sigchld () =
+    if !am_handling_sigchld then raise_s [%message "already handling SIGCHLD" [%here]];
+    should_handle_sigchld := false
+  ;;
+
   let install_sigchld_handler_the_first_time =
     lazy
-      (Async_signal.handle [ Signal.chld ] ~f:(fun _s ->
-         waits :=
-           List.fold !waits ~init:[] ~f:(fun ac ((wait_on, result) as wait) ->
-             match Result.try_with (fun () -> wait_nohang wait_on) with
-             | Ok None -> wait :: ac
-             | Ok (Some x) ->
-               Ivar.fill result (Ok x);
-               ac
-             | Error exn ->
-               Ivar.fill result (Error exn);
-               ac)))
-  in
-  fun wait_on ->
+      (if !should_handle_sigchld
+       then (
+         am_handling_sigchld := true;
+         Async_signal.handle [ Signal.chld ] ~f:(fun _ -> check_all ())))
+  ;;
+
+  let deferred_wait (type k) wait_on ~(kind : k Kind.t) =
     (* We are going to install a handler for SIGCHLD that will call [wait_nohang wait_on]
        in the future.  However, we must also call [wait_nohang wait_on] right now, in case
        the child already exited, and will thus never cause a SIGCHLD in the future.  We
@@ -545,17 +593,18 @@ let make_wait wait_nohang =
        [wait_nohang] first, we could miss a SIGCHLD that was delivered after calling
        [wait_nohang] and before installing the handler. *)
     Lazy.force install_sigchld_handler_the_first_time;
-    match wait_nohang wait_on with
+    match Kind.wait_nohang kind wait_on with
     | Some result -> return result
     | None ->
-      Deferred.create (fun result -> waits := (wait_on, result) :: !waits)
-      >>| Result.ok_exn
-;;
+      Deferred.create (fun result -> add ~kind ~result ~wait_on) >>| Result.ok_exn
+  ;;
 
-let wait_nohang = Unix.wait_nohang
-let wait_nohang_untraced = Unix.wait_nohang_untraced
-let wait = make_wait wait_nohang
-let wait_untraced = make_wait wait_nohang_untraced
+  let wait wait_on = deferred_wait wait_on ~kind:Normal
+  let wait_untraced wait_on = deferred_wait wait_on ~kind:Untraced
+end
+
+let wait = Wait.wait
+let wait_untraced = Wait.wait_untraced
 
 let waitpid pid =
   let%map pid', exit_or_signal = wait (`Pid pid) in
@@ -1237,3 +1286,7 @@ let wordexp =
   Or_error.map Unix.wordexp ~f:(fun wordexp ?flags glob ->
     In_thread.syscall_exn ~name:"wordexp" (fun () -> wordexp ?flags glob))
 ;;
+
+module Private = struct
+  module Wait = Wait
+end
