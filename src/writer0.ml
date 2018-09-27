@@ -1102,7 +1102,7 @@ let write_direct t ~f =
 
 let write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length =
   let src_pos, src_len =
-    Ordered_collection_common.get_pos_len_exn ?pos ?len ~length:(length src)
+    Ordered_collection_common.get_pos_len_exn () ?pos ?len ~total_length:(length src)
   in
   write_gen_internal t src ~src_pos ~src_len ~allow_partial_write:true ~blit_to_bigstring
 ;;
@@ -1482,20 +1482,22 @@ let stdout_and_stderr =
            let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
            stats.st_dev, stats.st_ino
          in
-         if Ppx_inline_test_lib.Runtime.testing
-         then (
+         match Ppx_inline_test_lib.Runtime.testing with
+         | `Testing `Am_test_runner ->
            (* In tests, we use synchronous output to improve determinism, especially
               when mixing libraries that use Core and Async printing. *)
            set_backing_out_channel
              t
              (Backing_out_channel.of_out_channel Out_channel.stdout);
-           t, t)
-         else if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-         then
-           (* If stdout and stderr point to the same file, we must share a single writer
-              between them.  See the comment in writer.mli for details. *)
            t, t
-         else t, create stderr)
+         | `Testing `Am_child_of_test_runner
+         | `Not_testing ->
+           if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+           then
+             (* If stdout and stderr point to the same file, we must share a single writer
+                between them.  See the comment in writer.mli for details. *)
+             t, t
+           else t, create stderr)
      with
      | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
      | Some v -> v)

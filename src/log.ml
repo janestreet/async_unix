@@ -1193,9 +1193,10 @@ let printf ?level ?time ?tags t fmt =
 
 let add_uuid_to_tags tags =
   let uuid =
-    if Ppx_inline_test_lib.Runtime.testing
-    then Uuid.Stable.V1.for_testing
-    else Uuid.create ()
+    match Ppx_inline_test_lib.Runtime.testing with
+    | `Testing `Am_test_runner -> Uuid.Stable.V1.for_testing
+    | `Testing `Am_child_of_test_runner
+    | `Not_testing -> Uuid.create ()
   in
   ("Log.surround_id", Uuid.to_string uuid) :: tags
 ;;
