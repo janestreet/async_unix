@@ -269,6 +269,8 @@ val read_sexp : (t -> Sexp.t Read_result.t Deferred.t) read
     reader close is finished, closes the pipe. *)
 val read_sexps : (t -> Sexp.t Pipe.Reader.t) read
 
+val read_annotated_sexps : (t -> Sexp.Annotated.t Pipe.Reader.t) read
+
 (** [read_bin_prot ?max_len t bp_reader] reads the next binary protocol message using
     binary protocol reader [bp_reader].  The format is the "size-prefixed binary
     protocol", in which the length of the data is prefixed as a 64-bit integer to the
@@ -340,17 +342,10 @@ val file_lines : string -> string list Deferred.t
     [conv]. This function provides an accurate error location if [convert] raises
     [Of_sexp_error].
 
-    [load_sexps] is similar, but converts a sequence of sexps.
+    [load_sexps] is similar, but converts a sequence of sexps. *)
 
-    Using [~expand_macros:true] expands macros as defined in {!Sexplib.Macro}. If
-    [~expand_macros:true] then the [exclusive] flag is ignored.  Also, [load_annotated*]
-    don't support [~expand_macros:true], and will raise. *)
 type ('sexp, 'a, 'b) load =
-  ?exclusive:bool (** default is [false] *)
-  -> ?expand_macros:bool (** default is [false] *)
-  -> string
-  -> ('sexp -> 'a)
-  -> 'b Deferred.t
+  ?exclusive:bool (** default is [false] *) -> string -> ('sexp -> 'a) -> 'b Deferred.t
 
 val load_sexp : (Sexp.t, 'a, 'a Or_error.t) load
 val load_sexp_exn : (Sexp.t, 'a, 'a) load
@@ -370,10 +365,3 @@ type ('a, 'b) load_bin_prot =
 
 val load_bin_prot : ('a, 'a Or_error.t) load_bin_prot
 val load_bin_prot_exn : ('a, 'a) load_bin_prot
-
-module Macro_loader : sig
-  val load_sexps_conv
-    :  string
-    -> (Sexp.t -> 'a)
-    -> 'a Sexplib.Macro.annot_conv list Deferred.t
-end

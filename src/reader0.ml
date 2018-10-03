@@ -1268,41 +1268,7 @@ let gen_load_exn
   | exn -> raise_s [%message "Reader.load_sexp(s) error" (file : string) (exn : exn)]
 ;;
 
-type ('sexp, 'a, 'b) load =
-  ?exclusive:bool -> ?expand_macros:bool -> string -> ('sexp -> 'a) -> 'b Deferred.t
-
-module Macro_loader = Sexplib.Macro.Loader (struct
-    module Monad = struct
-      type 'a t = 'a Deferred.t
-
-      let return = return
-
-      module Monad_infix = Deferred.Monad_infix
-
-      module List = struct
-        let iter xs ~f = Deferred.List.iter xs ~f
-        let map xs ~f = Deferred.List.map xs ~f
-      end
-    end
-
-    let load_sexps file =
-      match%map
-        Monitor.try_with ~extract_exn:true (fun () ->
-          with_file file ~f:(fun t -> Pipe.to_list (read_sexps t)))
-      with
-      | Ok sexps -> sexps
-      | Error e -> raise (Sexplib.Macro.add_error_location file e)
-    ;;
-
-    let load_annotated_sexps file =
-      match%map
-        Monitor.try_with ~extract_exn:true (fun () ->
-          with_file file ~f:(fun t -> Pipe.to_list (read_annotated_sexps t)))
-      with
-      | Ok sexps -> sexps
-      | Error e -> raise (Sexplib.Macro.add_error_location file e)
-    ;;
-  end)
+type ('sexp, 'a, 'b) load = ?exclusive:bool -> string -> ('sexp -> 'a) -> 'b Deferred.t
 
 let get_load_result_exn = function
   | `Result x -> x
@@ -1312,115 +1278,97 @@ let get_load_result_exn = function
 let gen_load_sexp_exn
       (type a sexp)
       ?exclusive
-      ?(expand_macros = false)
       ~(sexp_kind : sexp sexp_kind)
       ~file
       ~(a_of_sexp : sexp -> a)
   =
-  if expand_macros
-  then (
-    match sexp_kind with
-    | Plain -> Macro_loader.load_sexp_conv file a_of_sexp >>| get_load_result_exn
-    | Annotated ->
-      raise_s [%message "Reader.load_annotated_sexp doesn't support ~expand_macros:true"])
-  else (
-    let multiple sexps =
-      Error.create
-        "Reader.load_sexp requires one sexp but got"
-        (List.length sexps, file)
-        [%sexp_of: int * string]
-    in
-    gen_load_exn
-      ?exclusive
-      ~file
-      ~sexp_kind
-      (fun sexps ->
-         match sexps with
-         | [ sexp ] -> a_of_sexp sexp
-         | _ -> Error.raise (multiple sexps))
-      (fun annot_sexps ->
-         match annot_sexps with
-         | [ annot_sexp ] ->
-           (match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
-            | Error e -> e
-            | Ok () ->
-              Error.create
-                "conversion of annotated sexp unexpectedly succeeded"
-                (Sexp.Annotated.get_sexp annot_sexp)
-                [%sexp_of: Sexp.t])
-         | _ -> multiple annot_sexps))
+  let multiple sexps =
+    Error.create
+      "Reader.load_sexp requires one sexp but got"
+      (List.length sexps, file)
+      [%sexp_of: int * string]
+  in
+  gen_load_exn
+    ?exclusive
+    ~file
+    ~sexp_kind
+    (fun sexps ->
+       match sexps with
+       | [ sexp ] -> a_of_sexp sexp
+       | _ -> Error.raise (multiple sexps))
+    (fun annot_sexps ->
+       match annot_sexps with
+       | [ annot_sexp ] ->
+         (match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
+          | Error e -> e
+          | Ok () ->
+            Error.create
+              "conversion of annotated sexp unexpectedly succeeded"
+              (Sexp.Annotated.get_sexp annot_sexp)
+              [%sexp_of: Sexp.t])
+       | _ -> multiple annot_sexps)
 ;;
 
-let load_sexp_exn ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexp_exn ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+let load_sexp_exn ?exclusive file a_of_sexp =
+  gen_load_sexp_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
 ;;
 
-let load_annotated_sexp_exn ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexp_exn ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+let load_annotated_sexp_exn ?exclusive file a_of_sexp =
+  gen_load_sexp_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
 ;;
 
-let gen_load_sexp ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp =
+let gen_load_sexp ?exclusive ~sexp_kind ~file ~a_of_sexp =
   Deferred.Or_error.try_with ~extract_exn:true (fun () ->
-    gen_load_sexp_exn ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp)
+    gen_load_sexp_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
-let load_sexp ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexp ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+let load_sexp ?exclusive file a_of_sexp =
+  gen_load_sexp ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
 ;;
 
-let load_annotated_sexp ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexp ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+let load_annotated_sexp ?exclusive file a_of_sexp =
+  gen_load_sexp ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
 ;;
 
 let gen_load_sexps_exn
       (type a sexp)
       ?exclusive
-      ?(expand_macros = false)
       ~(sexp_kind : sexp sexp_kind)
       ~file
       ~(a_of_sexp : sexp -> a)
   =
-  if expand_macros
-  then (
-    match sexp_kind with
-    | Plain ->
-      Macro_loader.load_sexps_conv file a_of_sexp >>| List.map ~f:get_load_result_exn
-    | Annotated ->
-      raise_s
-        [%message "Reader.load_annotated_sexps doesn't support ~expand_macros:true"])
-  else
-    gen_load_exn
-      ?exclusive
-      ~file
-      ~sexp_kind
-      (fun sexps -> List.map sexps ~f:a_of_sexp)
-      (fun annot_sexps ->
-         Error.of_list
-           (List.filter_map annot_sexps ~f:(fun annot_sexp ->
-              match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
-              | Ok _ -> None
-              | Error error -> Some error)))
+  gen_load_exn
+    ?exclusive
+    ~file
+    ~sexp_kind
+    (fun sexps -> List.map sexps ~f:a_of_sexp)
+    (fun annot_sexps ->
+       Error.of_list
+         (List.filter_map annot_sexps ~f:(fun annot_sexp ->
+            match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
+            | Ok _ -> None
+            | Error error -> Some error)))
 ;;
 
-let load_sexps_exn ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+let load_sexps_exn ?exclusive file a_of_sexp =
+  gen_load_sexps_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
 ;;
 
-let load_annotated_sexps_exn ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+let load_annotated_sexps_exn ?exclusive file a_of_sexp =
+  gen_load_sexps_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
 ;;
 
-let gen_load_sexps ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp =
+let gen_load_sexps ?exclusive ~sexp_kind ~file ~a_of_sexp =
   Deferred.Or_error.try_with ~extract_exn:true (fun () ->
-    gen_load_sexps_exn ?exclusive ?expand_macros ~sexp_kind ~file ~a_of_sexp)
+    gen_load_sexps_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
-let load_sexps ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexps ?exclusive ?expand_macros ~sexp_kind:Plain ~file ~a_of_sexp
+let load_sexps ?exclusive file a_of_sexp =
+  gen_load_sexps ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
 ;;
 
-let load_annotated_sexps ?exclusive ?expand_macros file a_of_sexp =
-  gen_load_sexps ?exclusive ?expand_macros ~sexp_kind:Annotated ~file ~a_of_sexp
+let load_annotated_sexps ?exclusive file a_of_sexp =
+  gen_load_sexps ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
 ;;
 
 let pipe t =
