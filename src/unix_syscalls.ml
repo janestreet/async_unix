@@ -1233,21 +1233,15 @@ module Passwd = struct
     }
   [@@deriving fields, sexp]
 
-  let getbyname n =
-    In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Passwd.getbyname n)
-  ;;
-
-  let getbyname_exn n =
-    In_thread.syscall_exn ~name:"getbyname" (fun () -> Unix.Passwd.getbyname_exn n)
-  ;;
-
-  let getbyuid uid =
-    In_thread.syscall_exn ~name:"getbyuid" (fun () -> Unix.Passwd.getbyuid uid)
-  ;;
-
-  let getbyuid_exn uid =
-    In_thread.syscall_exn ~name:"getbyuid" (fun () -> Unix.Passwd.getbyuid_exn uid)
-  ;;
+  (* As of OCaml 4.07 and before, the C code implementing the [Unix.Passwd]
+     functions doesn't release the OCaml lock, so we call them without using
+     [In_thread.run].  If the [Unix.Passwd] functions change to release the
+     lock and use the re-entrant [getpw*_r] C calls, we can switch here to use
+     [In_thread.run]. *)
+  let getbyname n = return (Unix.Passwd.getbyname n)
+  let getbyname_exn n = return (Unix.Passwd.getbyname_exn n)
+  let getbyuid uid = return (Unix.Passwd.getbyuid uid)
+  let getbyuid_exn uid = return (Unix.Passwd.getbyuid_exn uid)
 end
 
 module Group = struct
