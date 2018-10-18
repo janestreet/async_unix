@@ -143,8 +143,10 @@ let collect_output_and_wait t =
 
 module Failure = struct
   let should_drop_env = function
-    | `Extend [] -> true
+    | `Extend []
+    | `Override [] -> true
     | `Extend (_ :: _)
+    | `Override (_ :: _)
     | `Replace _ | `Replace_raw _ -> false
   ;;
 
