@@ -120,6 +120,10 @@ val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 (** [cycle_count ()] returns the total number of Async cycles that have happened. *)
 val cycle_count : unit -> int
 
+(** [total_cycle_time ()] returns the total (wall) time spent executing jobs in Async
+    cycles. *)
+val total_cycle_time : unit -> Time_ns.Span.t
+
 (** The [alarm_precision] of the timing-wheel used to implement Async's [Clock]. *)
 val event_precision : unit -> Time.Span.t
 

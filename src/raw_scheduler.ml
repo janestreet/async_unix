@@ -51,6 +51,7 @@ let cycle_start_ns () = Kernel_scheduler.(cycle_start (t ()))
 let cycle_start () = Time_ns.to_time (cycle_start_ns ())
 let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
 let cycle_times () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span
+let total_cycle_time () = Kernel_scheduler.(total_cycle_time (t ()))
 let long_cycles ~at_least = Kernel_scheduler.(long_cycles (t ())) ~at_least
 let event_precision_ns () = Kernel_scheduler.(event_precision (t ()))
 let event_precision () = Time_ns.Span.to_span (event_precision_ns ())
