@@ -566,13 +566,13 @@ module Internal = struct
       let len = Int.min t.available (S.length s) in
       S.blit_from_bigstring s ~src:t.buf ~src_pos:t.pos ~len;
       consume t len;
-      `Ok len
+      len
     ;;
 
     let read t s =
       if S.length s = 0 then invalid_argf "Reader.read_%s with empty string" Name.name ();
       with_nonempty_buffer t (function
-        | `Ok -> read_available t s
+        | `Ok -> `Ok (read_available t s)
         | `Eof -> `Eof)
     ;;
 
@@ -598,6 +598,7 @@ module Internal = struct
         let name = "substring"
       end)
 
+  let read_substring_available = Read_substring.read_available
   let read_substring = Read_substring.read
   let really_read_substring = Read_substring.really_read
 
@@ -615,6 +616,10 @@ module Internal = struct
     really_read_bigsubstring t (Bigsubstring.create bigstring)
   ;;
 
+  let peek_available t ~len =
+    Bigstring.to_string t.buf ~pos:t.pos ~len:(Int.min len t.available)
+  ;;
+
   let peek t ~len =
     match%map get_data_until t ~available_at_least:len with
     | `Eof (_ : int) ->
@@ -623,6 +628,10 @@ module Internal = struct
     | `Ok ->
       assert (t.available >= len);
       `Ok (Bigstring.to_string t.buf ~pos:t.pos ~len)
+  ;;
+
+  let read_available t ?pos ?len s =
+    read_substring_available t (Substring.create s ?pos ?len)
   ;;
 
   let read t ?pos ?len s = read_substring t (Substring.create s ?pos ?len)
@@ -1054,6 +1063,17 @@ let finished_read t =
   | `Not_in_use -> assert false (* we're using it *)
   | `In_use -> t.state <- `Not_in_use
 ;;
+
+let do_read_now t f =
+  use t;
+  let x = f () in
+  finished_read t;
+  x
+;;
+
+let bytes_available t = do_read_now t (fun () -> t.available)
+let peek_available t ~len = do_read_now t (fun () -> peek_available t ~len)
+let read_available t ?pos ?len s = do_read_now t (fun () -> read_available t ?pos ?len s)
 
 let do_read t f =
   use t;

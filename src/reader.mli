@@ -133,6 +133,16 @@ val read : t -> ?pos:int -> ?len:int -> Bytes.t -> int Read_result.t Deferred.t
     bytes are available or EOF is reached. *)
 val peek : t -> len:int -> string Read_result.t Deferred.t
 
+(** Reports how many bytes of data are currently in the reader's buffer. *)
+val bytes_available : t -> int
+
+(** Consumes data from the reader's buffer without performing any additional I/O. *)
+val read_available : t -> ?pos:int -> ?len:int -> Bytes.t -> int
+
+(** Reads up to [len] bytes from the reader's buffer without consuming it and without
+    performing any additional I/O. *)
+val peek_available : t -> len:int -> string
+
 (** [drain t] reads and ignores all data from [t] until it hits EOF, and then closes
     [t]. *)
 val drain : t -> unit Deferred.t
