@@ -211,6 +211,7 @@ val make_async_unusable : unit -> unit
 val add_busy_poller
   :  (unit -> [`Continue_polling | `Stop_polling of 'a])
   -> 'a Deferred.t
+[@@deprecated "[since 2018-11] use [set_on_start_of_cycle]"]
 
 (** [handle_thread_pool_stuck f] causes [f] to run whenever Async detects its thread pool
     is stuck (i.e., hasn't completed a job for over a second and has work waiting to
