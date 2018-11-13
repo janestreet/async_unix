@@ -525,11 +525,10 @@ module Socket : sig
       For similar functionality when using multicast, see
       {!Core_unix.mcast_set_ifname}. *)
   val bind_to_interface_exn :
-    (([`Unconnected], _) t -> [`Any | `Interface_name of string] -> unit) Or_error.t
+    (([`Unconnected], _) t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
 end
 
-val bind_to_interface_exn :
-  (Fd.t -> [`Any | `Interface_name of string] -> unit) Or_error.t
+val bind_to_interface_exn : (Fd.t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
 
 module Host : sig
   type t = Unix.Host.t =
