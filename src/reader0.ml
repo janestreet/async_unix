@@ -539,14 +539,9 @@ module Internal = struct
   [@@deriving sexp_of]
 
   let read_one_iobuf_at_a_time t ~handle_chunk =
-    let iobuf = ref (Iobuf.of_bigstring t.buf) in
+    let iobuf = Iobuf.of_bigstring t.buf in
     read_one_chunk_at_a_time t ~handle_chunk:(fun bstr ~pos ~len ->
-      if not (phys_equal bstr (Iobuf.Expert.buf !iobuf))
-      then iobuf := Iobuf.of_bigstring bstr;
-      let iobuf = !iobuf in
-      Iobuf.reset iobuf;
-      Iobuf.advance iobuf pos;
-      Iobuf.resize iobuf ~len;
+      Iobuf.Expert.reinitialize_of_bigstring iobuf bstr ~pos ~len;
       let%map handle_result = handle_chunk iobuf in
       if Iobuf.is_empty iobuf (* [is_empty] implies all data was consumed *)
       then (handle_result :> _ handle_chunk_result)
