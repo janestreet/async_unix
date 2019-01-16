@@ -126,3 +126,14 @@ val collect_stdout_and_wait : string Or_error.t collect
 val collect_stdout_and_wait_exn : string collect
 val collect_stdout_lines_and_wait : string list Or_error.t collect
 val collect_stdout_lines_and_wait_exn : string list collect
+
+(** [Lines_or_sexp] is useful for rendering a string nicely in a sexp, avoiding quoting if
+    the string is multi-line or was produced by converting a sexp to a string.
+    [Output.sexp_of_t] uses [Lines_or_sexp] to nicely render stdout and stderr of a child
+    process. *)
+module Lines_or_sexp : sig
+
+  type t [@@deriving sexp_of]
+
+  val create : string -> t
+end

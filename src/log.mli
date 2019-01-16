@@ -228,7 +228,10 @@ module Blocking : sig
       to capture command line options, do setup, read configs, etc.  This module provides
       limited global logging functions to be used during that period.  Calling these
       functions after the scheduler has started will raise an exception.  They otherwise
-      behave similarly to the logging functions in the Async world. *)
+      behave similarly to the logging functions in the Async world.
+
+      There are more detailed comments for the API below near the non-blocking signatures.
+  *)
 
   module Output : sig
     type t
@@ -245,36 +248,35 @@ module Blocking : sig
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
 
-  (** Printf-like logging for raw (no level) messages.  Raw messages are still
-      output with a timestamp. *)
   val raw
     :  ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** Printf-like logging at the [`Info] log level *)
   val info
     :  ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** Printf-like logging at the [`Error] log level *)
   val error
     :  ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** Printf-like logging at the [`Debug] log level *)
   val debug
     :  ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
 
-  (** Logging of sexps. *)
+  val raw_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val info_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val error_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val debug_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+
   val sexp
     :  ?level:Level.t
     -> ?time:Time.t
@@ -282,8 +284,6 @@ module Blocking : sig
     -> Sexp.t
     -> unit
 
-  (** [surround_s] logs before and after.  See more detailed comment for async
-      surround. *)
   val surround_s
     :  ?level:Level.t
     -> ?time:Time.t
@@ -292,7 +292,6 @@ module Blocking : sig
     -> (unit -> 'a)
     -> 'a
 
-  (** [surroundf] logs before and after.  See more detailed comment for async surround. *)
   val surroundf
     :  ?level:Level.t
     -> ?time:Time.t
@@ -350,6 +349,11 @@ module type Global_intf = sig
     -> ?tags:(string * string) list
     -> ('a, unit, string, unit) format4
     -> 'a
+
+  val raw_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val info_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val error_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
+  val debug_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
 
   val sexp
     :  ?level:Level.t
@@ -434,8 +438,9 @@ val create
   -> on_error:[`Raise | `Call of Error.t -> unit]
   -> t
 
-(** Printf-like logging for raw (no level) messages.  Raw messages are still output with a
-    timestamp. *)
+(** Printf-like logging for messages at each log level or raw (no level) messages. Raw
+    messages still include a timestamp. *)
+
 val raw
   :  ?time:Time.t
   -> ?tags:(string * string) list
@@ -443,7 +448,6 @@ val raw
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** Printf-like logging at the [`Debug] log level. *)
 val debug
   :  ?time:Time.t
   -> ?tags:(string * string) list
@@ -451,7 +455,6 @@ val debug
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** Printf-like logging at the [`Info] log level. *)
 val info
   :  ?time:Time.t
   -> ?tags:(string * string) list
@@ -459,7 +462,6 @@ val info
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** Printf-like logging at the [`Error] log level. *)
 val error
   :  ?time:Time.t
   -> ?tags:(string * string) list
@@ -476,7 +478,15 @@ val printf
   -> ('a, unit, string, unit) format4
   -> 'a
 
-(** Log sexps directly. *)
+(** Sexp logging for messages at each log level or raw (no level) messages. Raw messages
+    still include a timestamp *)
+
+val raw_s : ?time:Time.t -> ?tags:(string * string) list -> t -> Sexp.t -> unit
+val info_s : ?time:Time.t -> ?tags:(string * string) list -> t -> Sexp.t -> unit
+val error_s : ?time:Time.t -> ?tags:(string * string) list -> t -> Sexp.t -> unit
+val debug_s : ?time:Time.t -> ?tags:(string * string) list -> t -> Sexp.t -> unit
+
+(** Generalized sexp-style logging. *)
 val sexp
   :  ?level:Level.t
   -> ?time:Time.t
@@ -485,7 +495,7 @@ val sexp
   -> Sexp.t
   -> unit
 
-(** Logging of string values. *)
+(** Log a string directly. *)
 val string
   :  ?level:Level.t
   -> ?time:Time.t
@@ -494,7 +504,7 @@ val string
   -> string
   -> unit
 
-(** Log a preexisting message. *)
+(** Log a pre-created message. *)
 val message : t -> Message.t -> unit
 
 (** [surround t message f] logs [message] and a UUID once before calling [f] and again

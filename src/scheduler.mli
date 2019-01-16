@@ -241,7 +241,9 @@ val yield_until_no_jobs_remain : unit -> unit Deferred.t
     circumstances where you don't have good control of the batch size, but can insert a
     deferred into every iteration.
 
-    [yield_every] raises if [n <= 0]. *)
+    [yield_every] raises if [n <= 0].
+
+    *)
 val yield_every : n:int -> (unit -> unit Deferred.t) Staged.t
 
 (** [time_spent_waiting_for_io ()] returns the amount of time that the Async scheduler has

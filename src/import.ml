@@ -1,4 +1,5 @@
 open Core
+include Int.Replace_polymorphic_compare
 include Async_kernel
 module Thread_pool_cpuset = Config.Thread_pool_cpu_affinity
 module Epoll_max_ready_events = Config.Epoll_max_ready_events
@@ -12,5 +13,3 @@ module Kernel_scheduler = Async_kernel_scheduler
 module File_descr = Unix.File_descr
 
 let print_s sexp = Core.printf "%s\n%!" (sexp |> Sexp.to_string_hum)
-
-include Int.Replace_polymorphic_compare

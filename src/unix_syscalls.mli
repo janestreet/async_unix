@@ -622,6 +622,9 @@ module Name_info : sig
   val get : sockaddr -> getnameinfo_option list -> t Deferred.t
 end
 
+(** The following functions correspond to the system calls of the same names.
+    They can't block so they don't need to return a deferred. *)
+
 val gethostname : unit -> string
 val getuid : unit -> int
 val geteuid : unit -> int

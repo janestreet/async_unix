@@ -28,8 +28,7 @@ let ignore_exn f =
 let exit_reliably status =
   match (exit status : Nothing.t) with
   | exception exn ->
-    ignore_exn (fun () ->
-      Core.Debug.eprints "Pervasives.exit raised" exn [%sexp_of: Exn.t]);
+    ignore_exn (fun () -> Core.Debug.eprints "Caml.exit raised" exn [%sexp_of: Exn.t]);
     Core.Unix.exit_immediately (if status = 0 then 1 else status)
   | _ -> .
 ;;

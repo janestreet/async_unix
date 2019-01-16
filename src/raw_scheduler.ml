@@ -912,7 +912,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
        that it helps curses applications bring the terminal in a good state, otherwise
        the error message might get corrupted.  Also, the OCaml top-level uncaught
        exception handler does the same. *)
-    (try Pervasives.do_at_exit () with
+    (try Caml.do_at_exit () with
      | _ -> ());
     Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
     if should_dump_core
