@@ -39,8 +39,9 @@ type env = Unix.env [@@deriving sexp]
 
     [create] returns [Error] if it is unable to create the child process.  This can happen
     in any number of situations (unable to fork, unable to create the pipes, unable to cd
-    to [working_dir], etc.).  [create] does not return [error] if [exec] fails; instead,
-    it returns [OK t], where [wait t] returns an [Error]. *)
+    to [working_dir], unable to [exec] etc.).  [create] does not return [Error] if the
+    binary exits with non-zero exit code; instead, it returns [OK t], where [wait t]
+    returns an [Error]. *)
 type 'a create =
   ?argv0:string
   -> ?buf_len:int
