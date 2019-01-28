@@ -21,6 +21,7 @@ type 'a create =
   ?argv0:string
   -> ?buf_len:int
   -> ?env:env
+  -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
   -> prog:string
@@ -32,6 +33,7 @@ let create
       ?argv0
       ?buf_len
       ?(env = `Extend [])
+      ?prog_search_path
       ?stdin:write_to_stdin
       ?working_dir
       ~prog
@@ -40,7 +42,14 @@ let create
   =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
-      Core.Unix.create_process_env ~prog ~args ~env ?working_dir ?argv0 ())
+      Core.Unix.create_process_env
+        ~prog
+        ~args
+        ~env
+        ?working_dir
+        ?prog_search_path
+        ?argv0
+        ())
   with
   | Error exn -> Or_error.of_exn exn
   | Ok { pid; stdin; stdout; stderr } ->
@@ -84,8 +93,9 @@ let create
     Ok t
 ;;
 
-let create_exn ?argv0 ?buf_len ?env ?stdin ?working_dir ~prog ~args () =
-  create ?argv0 ?buf_len ?env ?stdin ?working_dir ~prog ~args () >>| ok_exn
+let create_exn ?argv0 ?buf_len ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () =
+  create ?argv0 ?buf_len ?env ?prog_search_path ?stdin ?working_dir ~prog ~args ()
+  >>| ok_exn
 ;;
 
 module Lines_or_sexp = struct

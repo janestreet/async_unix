@@ -117,7 +117,7 @@ type t =
       Thread_pool.t
   (* [handle_thread_pool_stuck] is called once per second if the thread pool is"stuck",
      i.e has not completed a job for one second and has no available threads. *)
-  ; mutable handle_thread_pool_stuck : stuck_for:Time_ns.Span.t -> unit
+  ; mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
   ; busy_pollers : Busy_pollers.t
   ; mutable busy_poll_thread_is_running : bool
   ; mutable next_tsc_calibration : Time_stamp_counter.t
@@ -346,28 +346,37 @@ let try_create_timerfd () =
        Some timerfd)
 ;;
 
-let default_handle_thread_pool_stuck ~stuck_for =
+let default_handle_thread_pool_stuck thread_pool ~stuck_for =
   if Time_ns.Span.( >= ) stuck_for Config.report_thread_pool_stuck_for
   then (
-    let now = Time_ns.now () in
-    let message =
-      sprintf
-        {|%s: All %d threads in Async's thread pool have been blocked for at least %s.
-  Please check code in your program that uses threads, e.g. [In_thread.run].|}
-        (Time.format (Time_ns.to_time now) "%F %T %Z" ~zone:(force Time.Zone.local))
-        (Validated.raw Config.max_num_threads)
-        (Time_ns.Span.to_short_string stuck_for)
+    let should_abort =
+      Time_ns.Span.( >= ) stuck_for Config.abort_after_thread_pool_stuck_for
     in
-    if Time_ns.Span.( >= ) stuck_for Config.abort_after_thread_pool_stuck_for
-    then Monitor.send_exn Monitor.main (Failure message)
-    else
-      Core.eprintf
-        {|%s
-  This is only a warning.  It will raise an exception in %s.
-%!|}
-        message
-        (Time_ns.Span.to_short_string
-           (Time_ns.Span.( - ) Config.abort_after_thread_pool_stuck_for stuck_for)))
+    let text = "Async's thread pool is stuck" in
+    let text =
+      if should_abort
+      then text
+      else
+        sprintf
+          "%s, and will raise an exception in %s"
+          text
+          (Time_ns.Span.to_short_string
+             (Time_ns.Span.( - ) Config.abort_after_thread_pool_stuck_for stuck_for))
+    in
+    let message =
+      [%message
+        ""
+          ~_:(if am_running_test then Time_ns.epoch else Time_ns.now () : Time_ns.t)
+          text
+          ~stuck_for:(Time_ns.Span.to_short_string stuck_for : string)
+          ~num_threads_created:(Thread_pool.num_threads thread_pool : int)
+          ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
+          ~last_thread_creation_failure:
+            (Thread_pool.last_thread_creation_failure thread_pool : Sexp.t sexp_option)]
+    in
+    if should_abort
+    then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
+    else Core.Debug.eprint_s message)
 ;;
 
 let detect_stuck_thread_pool t =
@@ -381,7 +390,10 @@ let detect_stuck_thread_pool t =
       let now = Time_ns.now () in
       let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
       if !is_stuck && num_work_completed = !stuck_num_work_completed
-      then t.handle_thread_pool_stuck ~stuck_for:(Time_ns.diff now !became_stuck_at)
+      then
+        t.handle_thread_pool_stuck
+          t.thread_pool
+          ~stuck_for:(Time_ns.diff now !became_stuck_at)
       else (
         is_stuck := true;
         became_stuck_at := now;
@@ -939,10 +951,21 @@ let set_task_id () =
       [%sexp_of: [`pid of Pid.t] * [`thread_id of int]] (`pid pid, `thread_id thread_id)
 ;;
 
+let ensure_can_create_a_thread t =
+  ok_exn (Thread_pool.add_work t.thread_pool Fn.ignore);
+  if Thread_pool.num_threads t.thread_pool = 0
+  then
+    raise_s
+      [%message
+        "Async's thread pool was unable to create a single thread"
+          ~_:(Thread_pool.last_thread_creation_failure t.thread_pool : Sexp.t sexp_option)]
+;;
+
 let go ?raise_unhandled_exn () =
   if debug then Debug.log_string "Scheduler.go";
   set_task_id ();
   let t = the_one_and_only ~should_lock:false in
+  ensure_can_create_a_thread t;
   (* [go] is called from the main thread and so must acquire the lock if the thread has
      not already done so implicitly via use of an async operation that uses
      [the_one_and_only]. *)
@@ -1093,7 +1116,7 @@ let handle_thread_pool_stuck f =
   let kernel_scheduler = t.kernel_scheduler in
   let execution_context = Kernel_scheduler.current_execution_context kernel_scheduler in
   t.handle_thread_pool_stuck
-  <- (fun ~stuck_for ->
+  <- (fun _ ~stuck_for ->
     Kernel_scheduler.enqueue
       kernel_scheduler
       execution_context

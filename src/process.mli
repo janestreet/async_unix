@@ -16,9 +16,9 @@ val stderr : t -> Reader.t
 
 type env = Unix.env [@@deriving sexp]
 
-(** [create ~prog ~args ()] uses [fork] and [exec] to create a child process that runs the
-    executable [prog] with [args] as arguments.  It creates pipes to communicate with the
-    child process's [stdin], [stdout], and [stderr].
+(** [create ~prog ~args ()] uses [Core.Unix.create_process_env] to create a child process
+    that runs the executable [prog] with [args] as arguments.  It creates pipes to
+    communicate with the child process's [stdin], [stdout], and [stderr].
 
     Unlike [exec], [args] should not include [prog] as the first argument.
 
@@ -41,11 +41,14 @@ type env = Unix.env [@@deriving sexp]
     in any number of situations (unable to fork, unable to create the pipes, unable to cd
     to [working_dir], unable to [exec] etc.).  [create] does not return [Error] if the
     binary exits with non-zero exit code; instead, it returns [OK t], where [wait t]
-    returns an [Error]. *)
+    returns an [Error].
+
+    See [Core.Unix.create_process_env] for more details. *)
 type 'a create =
   ?argv0:string
   -> ?buf_len:int
   -> ?env:env (** default is [`Extend []] *)
+  -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
   -> prog:string

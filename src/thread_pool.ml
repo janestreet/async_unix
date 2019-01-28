@@ -2,6 +2,12 @@ open Core
 open Import
 module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
 
+module Time = struct
+  include Time
+
+  let sexp_of_t t = [%sexp (if am_running_test then epoch else t : t)]
+end
+
 module Thread_id : sig
   type t [@@deriving sexp_of]
 
@@ -203,6 +209,14 @@ module Internal = struct
     ;;
   end
 
+  module Thread_creation_failure = struct
+    type t =
+      { at : Time.t
+      ; error : Error.t
+      }
+    [@@deriving fields, sexp_of]
+  end
+
   (* [Thread_pool.t] *)
   type t =
     { id : Pool_id.t
@@ -235,11 +249,10 @@ module Internal = struct
        a thread. *)
     ; mutable thread_creation_failure_lockout :
         Time.Span.t
-    (* [last_thread_creation_failure] holds the last time that[Core.Thread.create]
-       raised.  It is used to avoid calling [Thread.create] too frequently when it is
-       failing. *)
+    (* [last_thread_creation_failure] has information about the last time that
+       [Core.Thread.create] raised. *)
     ; mutable last_thread_creation_failure :
-        Time.t
+        Thread_creation_failure.t option
     (* [thread_by_id] holds all the threads that have been created by the pool. *)
     ; mutable thread_by_id :
         Thread.t Thread_id.Table.t
@@ -348,7 +361,7 @@ module Internal = struct
         ; num_threads = 0
         ; thread_by_id = Thread_id.Table.create ()
         ; thread_creation_failure_lockout = sec 1.
-        ; last_thread_creation_failure = Time.epoch
+        ; last_thread_creation_failure = None
         ; available_threads = []
         ; work_queue = Queue.create ()
         ; unfinished_work = 0
@@ -474,6 +487,13 @@ module Internal = struct
       thread)
   ;;
 
+  let last_thread_creation_failure_at t =
+    Option.value_map
+      t.last_thread_creation_failure
+      ~default:Time.epoch
+      ~f:Thread_creation_failure.at
+  ;;
+
   let get_available_thread t =
     if debug then Debug.log "get_available_thread" t [%sexp_of: t];
     match t.available_threads with
@@ -486,14 +506,14 @@ module Internal = struct
       else (
         let now = Time.now () in
         if Time.Span.( < )
-             (Time.diff now t.last_thread_creation_failure)
+             (Time.diff now (last_thread_creation_failure_at t))
              t.thread_creation_failure_lockout
         then `None_available
         else (
           match create_thread t with
           | Ok thread -> `Ok thread
-          | Error _ ->
-            t.last_thread_creation_failure <- now;
+          | Error error ->
+            t.last_thread_creation_failure <- Some { at = now; error };
             `None_available))
   ;;
 
@@ -632,6 +652,12 @@ open Internal
 
 type t = Internal.t [@@deriving sexp_of]
 
+let thread_creation_failure_lockout = Internal.thread_creation_failure_lockout
+
+let last_thread_creation_failure t =
+  Option.map t.last_thread_creation_failure ~f:Thread_creation_failure.sexp_of_t
+;;
+
 let critical_section t ~f =
   Mutex.critical_section t.mutex ~f:(fun () ->
     protect ~f ~finally:(fun () -> if !check_invariant then invariant t))
@@ -694,7 +720,10 @@ module Private = struct
   let default_thread_name = default_thread_name
   let is_finished = is_finished
   let is_in_use = is_in_use
-  let set_last_thread_creation_failure t time = t.last_thread_creation_failure <- time
+
+  let set_last_thread_creation_failure t at =
+    t.last_thread_creation_failure <- Some { at; error = Error.of_string "fake-error" }
+  ;;
 
   let set_thread_creation_failure_lockout t span =
     t.thread_creation_failure_lockout <- span

@@ -181,6 +181,9 @@ val add_work_for_helper_thread
     calls will have no effect. *)
 val finished_with_helper_thread : t -> Helper_thread.t -> unit
 
+val last_thread_creation_failure : t -> Sexp.t option
+val thread_creation_failure_lockout : t -> Time.Span.t
+
 (**/**)
 
 module Private : sig
