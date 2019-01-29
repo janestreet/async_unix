@@ -38,7 +38,16 @@ let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
         ()
   in
   (match thread with
-   | None -> ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority)
+   | None ->
+     ok_exn (Thread_pool.add_work t.thread_pool doit ?name ?priority);
+     if Thread_pool.num_threads t.thread_pool = 0
+     then
+       raise_s
+         [%message
+           "Async's thread pool was unable to create a single thread"
+             ~_:
+               ( Thread_pool.last_thread_creation_failure t.thread_pool
+                 : Sexp.t sexp_option )]
    | Some helper_thread ->
      ok_exn
        (Thread_pool.add_work_for_helper_thread

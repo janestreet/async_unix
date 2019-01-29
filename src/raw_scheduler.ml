@@ -951,21 +951,10 @@ let set_task_id () =
       [%sexp_of: [`pid of Pid.t] * [`thread_id of int]] (`pid pid, `thread_id thread_id)
 ;;
 
-let ensure_can_create_a_thread t =
-  ok_exn (Thread_pool.add_work t.thread_pool Fn.ignore);
-  if Thread_pool.num_threads t.thread_pool = 0
-  then
-    raise_s
-      [%message
-        "Async's thread pool was unable to create a single thread"
-          ~_:(Thread_pool.last_thread_creation_failure t.thread_pool : Sexp.t sexp_option)]
-;;
-
 let go ?raise_unhandled_exn () =
   if debug then Debug.log_string "Scheduler.go";
   set_task_id ();
   let t = the_one_and_only ~should_lock:false in
-  ensure_can_create_a_thread t;
   (* [go] is called from the main thread and so must acquire the lock if the thread has
      not already done so implicitly via use of an async operation that uses
      [the_one_and_only]. *)
