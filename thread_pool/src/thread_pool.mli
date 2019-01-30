@@ -182,7 +182,7 @@ val add_work_for_helper_thread
 val finished_with_helper_thread : t -> Helper_thread.t -> unit
 
 val last_thread_creation_failure : t -> Sexp.t option
-val thread_creation_failure_lockout : t -> Time.Span.t
+val thread_creation_failure_lockout : t -> Time_ns.Span.t
 
 (**/**)
 
@@ -191,6 +191,6 @@ module Private : sig
   val default_thread_name : string
   val is_finished : t -> bool
   val is_in_use : t -> bool
-  val set_last_thread_creation_failure : t -> Time.t -> unit
-  val set_thread_creation_failure_lockout : t -> Time.Span.t -> unit
+  val set_last_thread_creation_failure : t -> Time_ns.t -> unit
+  val set_thread_creation_failure_lockout : t -> Time_ns.Span.t -> unit
 end

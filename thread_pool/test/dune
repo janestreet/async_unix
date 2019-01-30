@@ -1,0 +1,3 @@
+(library (name thread_pool_test)
+ (libraries async_kernel expect_test_helpers thread_pool)
+ (preprocess (pps ppx_jane)))

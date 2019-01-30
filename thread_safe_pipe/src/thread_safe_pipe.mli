@@ -8,6 +8,7 @@
     For documentation of [wakeup_scheduler], see the {!Thread_safe} module. *)
 
 open! Core
+open! Async_kernel
 open! Import
 
 (** The writer end of the pipe. *)

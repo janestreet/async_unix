@@ -15,7 +15,6 @@ module Signal = Signal
 module Socket = Unix_syscalls.Socket
 module Sys = Async_sys
 module Thread_safe = Thread_safe
-module Thread_safe_pipe = Thread_safe_pipe
 module Writer = Writer
 
 module Unix = struct
@@ -175,8 +174,6 @@ module Async_unix_private = struct
   module Raw_fd = Raw_fd
   module Raw_scheduler = Raw_scheduler
   module Syscall = Syscall
-  module Thread_pool = Thread_pool
-  module Thread_safe_ivar = Thread_safe_ivar
 end
 
 (**/**)

@@ -2,8 +2,8 @@ open Core
 open Import
 module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
 
-module Time = struct
-  include Time
+module Time_ns = struct
+  include Time_ns
 
   let sexp_of_t t = [%sexp (if am_running_test then epoch else t : t)]
 end
@@ -211,7 +211,7 @@ module Internal = struct
 
   module Thread_creation_failure = struct
     type t =
-      { at : Time.t
+      { at : Time_ns.t
       ; error : Error.t
       }
     [@@deriving fields, sexp_of]
@@ -248,7 +248,7 @@ module Internal = struct
        thread-creation failure before the thread pool will make another attempt to create
        a thread. *)
     ; mutable thread_creation_failure_lockout :
-        Time.Span.t
+        Time_ns.Span.t
     (* [last_thread_creation_failure] has information about the last time that
        [Core.Thread.create] raised. *)
     ; mutable last_thread_creation_failure :
@@ -490,7 +490,7 @@ module Internal = struct
   let last_thread_creation_failure_at t =
     Option.value_map
       t.last_thread_creation_failure
-      ~default:Time.epoch
+      ~default:Time_ns.epoch
       ~f:Thread_creation_failure.at
   ;;
 
@@ -504,9 +504,9 @@ module Internal = struct
       if t.num_threads = t.max_num_threads
       then `None_available
       else (
-        let now = Time.now () in
-        if Time.Span.( < )
-             (Time.diff now (last_thread_creation_failure_at t))
+        let now = Time_ns.now () in
+        if Time_ns.Span.( < )
+             (Time_ns.diff now (last_thread_creation_failure_at t))
              t.thread_creation_failure_lockout
         then `None_available
         else (

@@ -1,7 +1,9 @@
 (* Unit tests are in ../../lib_test/thread_safe_test.ml. *)
 
 open! Core
-open Import
+open! Async_kernel
+open! Async_unix
+open! Import
 
 type 'a t = 'a Pipe.Writer.t [@@deriving sexp_of]
 

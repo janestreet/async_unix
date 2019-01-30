@@ -1,7 +1,5 @@
 open! Core
 open! Import
-module Condition = Core.Condition
-module Mutex = Core.Mutex
 
 type 'a t =
   { mutable value : 'a option
