@@ -701,19 +701,24 @@ let sync_changed_fds_to_file_descr_watcher t =
     let[@inline always] make_file_descr_watcher_agree_with (fd : Fd.t) =
       fd.watching_has_changed <- false;
       let desired =
-        Read_write.mapi fd.watching ~f:(fun read_or_write watching ->
+        Read_write.map fd.watching ~f:(fun watching ->
           match watching with
           | Watch_once _ | Watch_repeatedly _ -> true
-          | Not_watching -> false
-          | Stop_requested ->
-            Read_write.set fd.watching read_or_write Not_watching;
-            dec_num_active_syscalls_fd t fd;
-            false)
+          | Not_watching | Stop_requested -> false)
       in
       if Debug.file_descr_watcher
       then log_sync_changed_fds_to_file_descr_watcher t fd.file_descr desired;
-      try F.set F.watcher fd.file_descr desired with
-      | exn -> sync_changed_fd_failed t fd desired exn
+      (try F.set F.watcher fd.file_descr desired with
+       | exn -> sync_changed_fd_failed t fd desired exn);
+      (* We modify Async's data structures after calling [F.set], so that
+         the error message produced by [sync_changed_fd_failed] displays
+         them as they were before the call. *)
+      Read_write.iteri fd.watching ~f:(fun read_or_write watching ->
+        match watching with
+        | Watch_once _ | Watch_repeatedly _ | Not_watching -> ()
+        | Stop_requested ->
+          Read_write.set fd.watching read_or_write Not_watching;
+          dec_num_active_syscalls_fd t fd)
     in
     t.fds_whose_watching_has_changed <- [];
     List.iter changed ~f:make_file_descr_watcher_agree_with
@@ -786,12 +791,12 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   then Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t];
   let pre = F.pre_check F.watcher in
   unlock t;
-  (* We yield so that other OCaml threads (especially thread-pool threads) get a chance
-     to run.  This is a good point to yield, because we do not hold the Async lock,
-     which allows other threads to acquire it.  [Thread.yield] only yields if other
-     OCaml threads are waiting to acquire the OCaml lock, and is fast if not.  As of
-     OCaml 4.06, [Thread.yield] on Linux calls [nanosleep], which causes the Linux
-     scheduler to actually switch to other threads. *)
+  (* We yield so that other OCaml threads (especially thread-pool threads) get a chance to
+     run.  This is a good point to yield, because we do not hold the Async lock, which
+     allows other threads to acquire it.  [Thread.yield] only yields if other OCaml
+     threads are waiting to acquire the OCaml lock, and is fast if not.  As of OCaml 4.07,
+     [Thread.yield] on Linux calls [nanosleep], which causes the Linux scheduler to
+     actually switch to other threads. *)
   Thread.yield ();
   if Debug.file_descr_watcher
   then
