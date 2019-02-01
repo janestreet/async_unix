@@ -1,6 +1,12 @@
-open Core
-open Import
-module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
+open! Core
+open! Import
+module Cpu_affinity = Thread_pool_cpu_affinity
+
+let debug_log message a sexp_of_a =
+  eprintf
+    "%s\n%!"
+    (Sexp.to_string_hum [%sexp (Time_ns.now () : Time_ns.t), (message : string), (a : a)])
+;;
 
 module Time_ns = struct
   include Time_ns
@@ -44,6 +50,8 @@ let set_thread_name =
   | Error _ -> Fn.ignore
 ;;
 
+let debug = ref false
+
 (* We define everything in an [Internal] module, and then wrap in a
    [Mutex.critical_section] each thread-safe function exposed in the mli.
 
@@ -58,7 +66,6 @@ let set_thread_name =
 module Internal = struct
   module Mutex = Nano_mutex
 
-  let debug = Debug.thread_pool
   let check_invariant = ref false
   let error = Or_error.error
 
@@ -399,7 +406,7 @@ module Internal = struct
   ;;
 
   let finished_with t =
-    if debug then Debug.log "Thread_pool.finished_with" t [%sexp_of: t];
+    if !debug then debug_log "Thread_pool.finished_with" t [%sexp_of: t];
     match t.state with
     | `Finishing | `Finished -> ()
     | `In_use ->
@@ -413,7 +420,7 @@ module Internal = struct
   ;;
 
   let make_thread_available t thread =
-    if debug then Debug.log "make_thread_available" (thread, t) [%sexp_of: Thread.t * t];
+    if !debug then debug_log "make_thread_available" (thread, t) [%sexp_of: Thread.t * t];
     match Queue.dequeue t.work_queue with
     | Some work -> assign_work_to_thread thread work
     | None ->
@@ -434,7 +441,7 @@ module Internal = struct
   ;;
 
   let create_thread t =
-    if debug then Debug.log "create_thread" t [%sexp_of: t];
+    if !debug then debug_log "create_thread" t [%sexp_of: t];
     let thread = Thread.create t.default_priority in
     let ocaml_thread =
       Or_error.try_with (fun () ->
@@ -445,9 +452,9 @@ module Internal = struct
                match Squeue.pop thread.work_queue with
                | Stop -> ()
                | Work work ->
-                 if debug
+                 if !debug
                  then
-                   Debug.log
+                   debug_log
                      "thread got work"
                      (work, thread, t)
                      [%sexp_of: Work.t * Thread.t * t];
@@ -456,9 +463,9 @@ module Internal = struct
                  (try work.doit () (* the actual work *) with
                   | _ -> ());
                  t.num_work_completed <- t.num_work_completed + 1;
-                 if debug
+                 if !debug
                  then
-                   Debug.log
+                   debug_log
                      "thread finished with work"
                      (work, thread, t)
                      [%sexp_of: Work.t * Thread.t * t];
@@ -495,7 +502,7 @@ module Internal = struct
   ;;
 
   let get_available_thread t =
-    if debug then Debug.log "get_available_thread" t [%sexp_of: t];
+    if !debug then debug_log "get_available_thread" t [%sexp_of: t];
     match t.available_threads with
     | thread :: rest ->
       t.available_threads <- rest;
@@ -521,7 +528,7 @@ module Internal = struct
   let default_thread_name = "thread-pool thread"
 
   let add_work ?priority ?name t doit =
-    if debug then Debug.log "add_work" t [%sexp_of: t];
+    if !debug then debug_log "add_work" t [%sexp_of: t];
     if not (is_in_use t)
     then error "add_work called on finished thread pool" t [%sexp_of: t]
     else (
@@ -544,7 +551,7 @@ module Internal = struct
         t
         ~(get_thread : t -> Thread.t Or_error.t)
     =
-    if debug then Debug.log "become_helper_thread_internal" t [%sexp_of: t];
+    if !debug then debug_log "become_helper_thread_internal" t [%sexp_of: t];
     if not (is_in_use t)
     then
       error
@@ -585,9 +592,9 @@ module Internal = struct
   ;;
 
   let add_work_for_helper_thread ?priority ?name t helper_thread doit =
-    if debug
+    if !debug
     then
-      Debug.log
+      debug_log
         "add_work_for_helper_thread"
         (helper_thread, t)
         [%sexp_of: Thread.t Helper_thread.t * t];
@@ -624,9 +631,9 @@ module Internal = struct
   ;;
 
   let finished_with_helper_thread t helper_thread =
-    if debug
+    if !debug
     then
-      Debug.log
+      debug_log
         "finished_with_helper_thread"
         (helper_thread, t)
         [%sexp_of: Thread.t Helper_thread.t * t];

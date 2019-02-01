@@ -808,7 +808,7 @@ end = struct
         (if Rotation.should_rotate
               t.rotation
               ~last_messages:t.last_messages
-              ~last_size:(Byte_units.create `Bytes (Float.of_int t.last_size))
+              ~last_size:(Byte_units.of_bytes_int t.last_size)
               ~last_time:t.last_time
               ~current_time
          then rotate t

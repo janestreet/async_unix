@@ -458,7 +458,7 @@ end = struct
            { writer
            ; bytes_received_queue = Queue.create ()
            ; times_received_queue = Queue.create ()
-           ; maximum_age = Time_ns.Span.of_span maximum_age
+           ; maximum_age = Time_ns.Span.of_span_float_round_nearest maximum_age
            ; bytes_seen = Int63.zero
            ; bytes_received_at_now_minus_maximum_age = Int63.zero
            ; too_old = Ivar.create ()
@@ -486,7 +486,9 @@ let flushed_time_ns t =
   else Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received))
 ;;
 
-let flushed_time t = Deferred.map (flushed_time_ns t) ~f:Time_ns.to_time
+let flushed_time t =
+  Deferred.map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
+;;
 
 let flushed t =
   match t.backing_out_channel with

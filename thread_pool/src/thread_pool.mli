@@ -43,7 +43,7 @@
 
 open! Core
 open! Import
-module Cpu_affinity = Async_kernel_config.Thread_pool_cpu_affinity
+module Cpu_affinity = Thread_pool_cpu_affinity
 module Priority : module type of Linux_ext.Priority with type t = Linux_ext.Priority.t
 
 type t [@@deriving sexp_of]
@@ -183,6 +183,7 @@ val finished_with_helper_thread : t -> Helper_thread.t -> unit
 
 val last_thread_creation_failure : t -> Sexp.t option
 val thread_creation_failure_lockout : t -> Time_ns.Span.t
+val debug : bool ref
 
 (**/**)
 

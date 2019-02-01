@@ -48,13 +48,17 @@ end
 
 let cycle_count () = Kernel_scheduler.(cycle_count (t ()))
 let cycle_start_ns () = Kernel_scheduler.(cycle_start (t ()))
-let cycle_start () = Time_ns.to_time (cycle_start_ns ())
+let cycle_start () = Time_ns.to_time_float_round_nearest (cycle_start_ns ())
 let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
-let cycle_times () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span
+
+let cycle_times () =
+  Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span_float_round_nearest
+;;
+
 let total_cycle_time () = Kernel_scheduler.(total_cycle_time (t ()))
 let long_cycles ~at_least = Kernel_scheduler.(long_cycles (t ())) ~at_least
 let event_precision_ns () = Kernel_scheduler.(event_precision (t ()))
-let event_precision () = Time_ns.Span.to_span (event_precision_ns ())
+let event_precision () = Time_ns.Span.to_span_float_round_nearest (event_precision_ns ())
 
 let set_max_num_jobs_per_priority_per_cycle i =
   Kernel_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
@@ -81,7 +85,7 @@ type t =
       bool
   (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
      the last time their desired state was set in the [file_descr_watcher]. *)
-  ; mutable fds_whose_watching_has_changed : Fd.t list
+  ; fds_whose_watching_has_changed : Fd.t Stack.t
   ; file_descr_watcher : File_descr_watcher.t
   ; mutable time_spent_waiting_for_io :
       Tsc.Span.t
@@ -261,7 +265,7 @@ let invariant t : unit =
       ~have_called_go:ignore
       ~fds_whose_watching_has_changed:
         (check (fun fds_whose_watching_has_changed ->
-           List.iter fds_whose_watching_has_changed ~f:(fun (fd : Fd.t) ->
+           Stack.iter fds_whose_watching_has_changed ~f:(fun (fd : Fd.t) ->
              assert fd.watching_has_changed;
              match Fd_by_descr.find t.fd_by_descr fd.file_descr with
              | None -> assert false
@@ -287,7 +291,7 @@ let invariant t : unit =
              if fd.watching_has_changed
              then
                assert (
-                 List.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
+                 Stack.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
                    phys_equal fd fd')))))
       ~timerfd:ignore
       ~timerfd_set_at:ignore
@@ -408,7 +412,7 @@ let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
   if not fd.watching_has_changed
   then (
     fd.watching_has_changed <- true;
-    t.fds_whose_watching_has_changed <- fd :: t.fds_whose_watching_has_changed)
+    Stack.push t.fds_whose_watching_has_changed fd)
 ;;
 
 let request_start_watching t fd read_or_write watching =
@@ -583,7 +587,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     { mutex = Nano_mutex.create ()
     ; is_running = false
     ; have_called_go = false
-    ; fds_whose_watching_has_changed = []
+    ; fds_whose_watching_has_changed = Stack.create ()
     ; file_descr_watcher
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
@@ -694,11 +698,13 @@ let[@inline never] sync_changed_fd_failed t fd desired exn =
 ;;
 
 let sync_changed_fds_to_file_descr_watcher t =
-  match t.fds_whose_watching_has_changed with
-  | [] -> ()
-  | changed ->
+  (* We efficiently do nothing if nothing has changed, avoiding even the definition of
+     [module F], which can have some cost. *)
+  if not (Stack.is_empty t.fds_whose_watching_has_changed)
+  then
     let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-    let[@inline always] make_file_descr_watcher_agree_with (fd : Fd.t) =
+    while not (Stack.is_empty t.fds_whose_watching_has_changed) do
+      let fd = Stack.pop_exn t.fds_whose_watching_has_changed in
       fd.watching_has_changed <- false;
       let desired =
         Read_write.map fd.watching ~f:(fun watching ->
@@ -719,9 +725,7 @@ let sync_changed_fds_to_file_descr_watcher t =
         | Stop_requested ->
           Read_write.set fd.watching read_or_write Not_watching;
           dec_num_active_syscalls_fd t fd)
-    in
-    t.fds_whose_watching_has_changed <- [];
-    List.iter changed ~f:make_file_descr_watcher_agree_with
+    done
 ;;
 
 let maybe_calibrate_tsc t =
@@ -746,7 +750,7 @@ let dump_core_on_job_delay () =
   | Do_not_watch -> ()
   | Watch { dump_if_delayed_by; how_to_dump } ->
     Dump_core_on_job_delay.start_watching
-      ~dump_if_delayed_by:(Time_ns.Span.to_span dump_if_delayed_by)
+      ~dump_if_delayed_by:(Time_ns.Span.to_span_float_round_nearest dump_if_delayed_by)
       ~how_to_dump
 ;;
 
@@ -1008,7 +1012,7 @@ let is_running () =
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
   Stream.iter
-    (long_cycles ~at_least:(cutoff |> Time_ns.Span.of_span))
+    (long_cycles ~at_least:(cutoff |> Time_ns.Span.of_span_float_round_nearest))
     ~f:(fun span ->
       eprintf
         "%s\n%!"
@@ -1031,7 +1035,7 @@ end
 
 let set_max_inter_cycle_timeout span =
   (the_one_and_only ~should_lock:false).max_inter_cycle_timeout
-  <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span span)
+  <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span_float_round_nearest span)
 ;;
 
 let start_busy_poller_thread_if_not_running t =

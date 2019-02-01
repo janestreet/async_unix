@@ -1,7 +1,6 @@
 open Core
 include Int.Replace_polymorphic_compare
 include Async_kernel
-module Thread_pool_cpuset = Config.Thread_pool_cpu_affinity
 module Epoll_max_ready_events = Config.Epoll_max_ready_events
 module Max_inter_cycle_timeout = Config.Max_inter_cycle_timeout
 module Max_num_open_file_descrs = Config.Max_num_open_file_descrs
@@ -13,3 +12,8 @@ module Kernel_scheduler = Async_kernel_scheduler
 module File_descr = Unix.File_descr
 
 let print_s sexp = Core.printf "%s\n%!" (sexp |> Sexp.to_string_hum)
+
+let () =
+  if Async_kernel_config.Print_debug_messages_for.thread_pool
+  then Thread_pool.debug := true
+;;
