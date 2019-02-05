@@ -1233,22 +1233,12 @@ module Passwd = struct
     }
   [@@deriving fields, sexp]
 
-  (* As of OCaml 4.07 and before, the C code implementing the [Unix.Passwd]
-     functions doesn't release the OCaml lock, so we call them without using
-     [In_thread.run].  If the [Unix.Passwd] functions change to release the
-     lock and use the re-entrant [getpw*_r] C calls, we can switch here to use
-     [In_thread.run].
-
-     Additionally, there is a bug in stdlib that makes these calls not thread safe
-     (despite holding the OCaml lock).  So we want to hold the Async lock while calling
-     them, to prevent multiple Async thread-pool threads from simultaneously entering the
-     non-thread-safe code.
-
-     The same applies to [Group] module. *)
-  let getbyname n = return (Unix.Passwd.getbyname n)
-  let getbyname_exn n = return (Unix.Passwd.getbyname_exn n)
-  let getbyuid uid = return (Unix.Passwd.getbyuid uid)
-  let getbyuid_exn uid = return (Unix.Passwd.getbyuid_exn uid)
+  (* The four [Unix.Passwd] functions call C functions that release the OCaml lock and do
+     a reentrant system call. *)
+  let getbyname n = In_thread.run (fun () -> Unix.Passwd.getbyname n)
+  let getbyname_exn n = In_thread.run (fun () -> Unix.Passwd.getbyname_exn n)
+  let getbyuid uid = In_thread.run (fun () -> Unix.Passwd.getbyuid uid)
+  let getbyuid_exn uid = In_thread.run (fun () -> Unix.Passwd.getbyuid_exn uid)
 end
 
 module Group = struct
@@ -1260,12 +1250,12 @@ module Group = struct
     }
   [@@deriving fields, sexp]
 
-  (* These don't use [In_thread.run] even though they are blocking.  See the comment in
-     [Passwd] module. *)
-  let getbyname n = return (Unix.Group.getbyname n)
-  let getbyname_exn n = return (Unix.Group.getbyname_exn n)
-  let getbygid gid = return (Unix.Group.getbygid gid)
-  let getbygid_exn gid = return (Unix.Group.getbygid_exn gid)
+  (* The four [Unix.Group] functions call C functions that release the OCaml lock and do a
+     reentrant system call. *)
+  let getbyname n = In_thread.run (fun () -> Unix.Group.getbyname n)
+  let getbyname_exn n = In_thread.run (fun () -> Unix.Group.getbyname_exn n)
+  let getbygid gid = In_thread.run (fun () -> Unix.Group.getbygid gid)
+  let getbygid_exn gid = In_thread.run (fun () -> Unix.Group.getbygid_exn gid)
 end
 
 let getlogin () = In_thread.syscall_exn ~name:"getlogin" (fun () -> Unix.getlogin ())

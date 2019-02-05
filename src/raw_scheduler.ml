@@ -732,8 +732,10 @@ let maybe_calibrate_tsc t =
   let now = Tsc.now () in
   if Tsc.( >= ) now t.next_tsc_calibration
   then (
-    Tsc.Calibrator.calibrate ();
-    t.next_tsc_calibration <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000)))
+    let calibrator = force Time_stamp_counter.calibrator in
+    Tsc.Calibrator.calibrate calibrator;
+    t.next_tsc_calibration
+    <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000) ~calibrator))
 ;;
 
 let create_job ?execution_context t f x =

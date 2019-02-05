@@ -8,7 +8,9 @@ include Raw_scheduler
 
 let time_spent_waiting_for_io () =
   let t = t () in
-  t.time_spent_waiting_for_io |> Tsc.Span.to_ns |> Time_ns.Span.of_int63_ns
+  t.time_spent_waiting_for_io
+  |> Tsc.Span.to_ns ~calibrator:(force Time_stamp_counter.calibrator)
+  |> Time_ns.Span.of_int63_ns
 ;;
 
 let set_min_inter_cycle_timeout min_inter_cycle_timeout =
