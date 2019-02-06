@@ -124,7 +124,7 @@ type t =
   ; mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
   ; busy_pollers : Busy_pollers.t
   ; mutable busy_poll_thread_is_running : bool
-  ; mutable next_tsc_calibration : Time_stamp_counter.t
+  ; mutable next_tsc_calibration : Tsc.t
   ; kernel_scheduler :
       Kernel_scheduler.t
   (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
@@ -602,7 +602,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; handle_thread_pool_stuck = default_handle_thread_pool_stuck
     ; busy_pollers = Busy_pollers.create ()
     ; busy_poll_thread_is_running = false
-    ; next_tsc_calibration = Time_stamp_counter.now ()
+    ; next_tsc_calibration = Tsc.now ()
     ; kernel_scheduler
     ; have_lock_do_cycle = None
     ; max_inter_cycle_timeout = Config.max_inter_cycle_timeout
@@ -729,13 +729,15 @@ let sync_changed_fds_to_file_descr_watcher t =
 ;;
 
 let maybe_calibrate_tsc t =
-  let now = Tsc.now () in
-  if Tsc.( >= ) now t.next_tsc_calibration
+  if Lazy.is_val Tsc.calibrator
   then (
-    let calibrator = force Time_stamp_counter.calibrator in
-    Tsc.Calibrator.calibrate calibrator;
-    t.next_tsc_calibration
-    <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000) ~calibrator))
+    let now = Tsc.now () in
+    if Tsc.( >= ) now t.next_tsc_calibration
+    then (
+      let calibrator = force Tsc.calibrator in
+      Tsc.Calibrator.calibrate calibrator;
+      t.next_tsc_calibration
+      <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000) ~calibrator)))
 ;;
 
 let create_job ?execution_context t f x =
