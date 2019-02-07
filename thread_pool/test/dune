@@ -1,2 +1,4 @@
-(library (name thread_pool_test) (libraries expect_test_helpers thread_pool)
+(library (name thread_pool_test)
+ (libraries async_kernel expect_test_helpers_kernel thread_pool
+  thread_safe_ivar core.nano_mutex)
  (preprocess (pps ppx_jane)))

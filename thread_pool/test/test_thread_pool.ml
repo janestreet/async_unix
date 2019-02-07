@@ -1,5 +1,5 @@
 open! Core
-open! Expect_test_helpers
+open! Expect_test_helpers_kernel
 open! Thread_pool
 open! Thread_pool.Private
 module Debug = Async_kernel.Async_kernel_private.Debug
@@ -23,7 +23,7 @@ let%test_module _ =
     ;;
 
     (* [create] and [finished_with]. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       assert (max_num_threads t = 1);
       assert (num_threads t = 0);
@@ -32,20 +32,20 @@ let%test_module _ =
     ;;
 
     (* Error cases for [create]. *)
-    let%test _ =
-      List.for_all [ -1; 0 ] ~f:(fun max_num_threads ->
-        Result.is_error (create ~max_num_threads ()))
+    let%expect_test _ =
+      List.iter [ -1; 0 ] ~f:(fun max_num_threads ->
+        require [%here] (Result.is_error (create ~max_num_threads ())))
     ;;
 
     (* Error cases for [add_work]. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       finished_with t;
       assert (Result.is_error (add_work t ignore))
     ;;
 
     (* Work finishing after [finished_with] is called causes the thread pool to finish. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       let finish_work = Thread_safe_ivar.create () in
       ok_exn (add_work t (fun () -> Thread_safe_ivar.read finish_work));
@@ -56,7 +56,7 @@ let%test_module _ =
     ;;
 
     (* Check that the expected concurrency is used. *)
-    let%test_unit _ =
+    let%expect_test _ =
       List.iter [ 1; 2; 5; 10; 100; 1000 ] ~f:(fun num_jobs ->
         List.iter [ 1; 2; 5; 10; 100 ] ~f:(fun max_num_threads ->
           if debug
@@ -65,6 +65,7 @@ let%test_module _ =
               "num_jobs = %d  max_num_threads = %d\n%!"
               num_jobs
               max_num_threads;
+          let mutex = Nano_mutex.create () in
           let expected_max_concurrent_jobs = min num_jobs max_num_threads in
           let max_observed_concurrent_jobs = ref 0 in
           let num_concurrent_jobs = ref 0 in
@@ -102,15 +103,20 @@ let%test_module _ =
             let job =
               ok_exn
                 (add_work t (fun () ->
-                   job_starts := i :: !job_starts;
-                   if List.length !job_starts = expected_max_concurrent_jobs
-                   then Thread_safe_ivar.fill worker_threads_have_fully_started ();
-                   incr num_concurrent_jobs;
-                   max_observed_concurrent_jobs :=
-                     max !max_observed_concurrent_jobs !num_concurrent_jobs;
-                   assert (!num_concurrent_jobs <= max_num_threads);
+                   Nano_mutex.critical_section mutex
+                     ~f:(fun () ->
+                       job_starts := i :: !job_starts;
+                       if List.length !job_starts = expected_max_concurrent_jobs
+                       then Thread_safe_ivar.fill worker_threads_have_fully_started ();
+                       incr num_concurrent_jobs;
+                       max_observed_concurrent_jobs :=
+                         max !max_observed_concurrent_jobs !num_concurrent_jobs;
+                       assert (!num_concurrent_jobs <= max_num_threads);
+                     );
                    Thread_safe_ivar.read worker_threads_should_continue;
-                   decr num_concurrent_jobs))
+                   Nano_mutex.critical_section mutex
+                     ~f:(fun () ->
+                       decr num_concurrent_jobs)))
             in
             jobs := job :: !jobs
           done;
@@ -140,7 +146,7 @@ let%test_module _ =
 
     (* Helper threads. *)
 
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       let helper_thread = ok_exn (create_helper_thread t) in
       let helper_continue = Thread_safe_ivar.create () in
@@ -161,7 +167,7 @@ let%test_module _ =
 
     (* Calling [finished_with_helper_thread] while work remains is allowed, and causes
        the thread to be returned to the general pool once it finishes all its work. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       let helper_thread = ok_exn (create_helper_thread t) in
       let general_work_got_done = ref false in
@@ -183,7 +189,7 @@ let%test_module _ =
     ;;
 
     (* Error cases for mismatches between pool and helper thread. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       let t_bad = ok_exn (create ~max_num_threads:1 ()) in
       let helper_thread = ok_exn (create_helper_thread t) in
@@ -196,7 +202,7 @@ let%test_module _ =
     ;;
 
     (* Setting thread name and priority. *)
-    let%test_unit _ =
+    let%expect_test _ =
       let module RLimit = Core.Unix.RLimit in
       Result.iter RLimit.nice ~f:(fun rlimit_nice ->
         let test_parameters =
@@ -284,7 +290,7 @@ let%test_module _ =
     ;;
 
     (* [Core.Thread.create] failure *)
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:2 ()) in
       (* simulate failure *)
       set_last_thread_creation_failure t (Time_ns.now ());
@@ -298,7 +304,7 @@ let%test_module _ =
       wait_until_no_unfinished_work t
     ;;
 
-    let%test_unit "become_helper_thread" =
+    let%expect_test "become_helper_thread" =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       let helper_thread = Thread_safe_ivar.create () in
       ok_exn
@@ -317,7 +323,7 @@ let%test_module _ =
     (* Affinity *)
     module Cpuset = Cpu_affinity.Cpuset
 
-    let%test_unit _ =
+    let%expect_test _ =
       let t = ok_exn (create ~max_num_threads:1 ()) in
       assert (
         match cpu_affinity t with
@@ -325,7 +331,7 @@ let%test_module _ =
         | Cpuset _ -> false)
     ;;
 
-    let%test_unit _ =
+    let%expect_test _ =
       let cpuset = Int.Set.singleton 0 |> Cpuset.create_exn in
       let t = ok_exn (create ~cpu_affinity:(Cpuset cpuset) ~max_num_threads:1 ()) in
       assert (
@@ -351,16 +357,21 @@ let%test_module _ =
       assert (Cpuset.equal expected_cpuset (Option.value_exn !reported_cpuset))
     ;;
 
-    let%test_unit "inherit affinity" =
+    let%expect_test "inherit affinity" =
       test_affinity ~cpu_affinity:Inherit ~max_num_threads:1
     ;;
 
-    let%test_unit "empty cpuset is invalid" =
-      require_does_not_raise [%here] (fun () ->
-        ignore (Cpuset.create_exn Int.Set.empty : Cpuset.t))
+    let%expect_test "empty cpuset is invalid" =
+      require_does_raise [%here] ~hide_positions:true (fun () ->
+        ignore (Cpuset.create_exn Int.Set.empty : Cpuset.t));
+      [%expect {|
+        ("validation failed" (
+          ()
+          ("validation errors" (("" "value 0 < bound 1")))
+          lib/thread_pool_cpu_affinity/src/thread_pool_cpu_affinity.ml:LINE:COL)) |}]
     ;;
 
-    let%test_unit "can affinitize to a single core" =
+    let%expect_test "can affinitize to a single core" =
       test_affinity
         ~cpu_affinity:(Cpuset (Int.Set.singleton 0 |> Cpuset.create_exn))
         ~max_num_threads:1
@@ -386,7 +397,7 @@ let%test_module _ =
       let quickcheck_shrinker = Base_quickcheck.Shrinker.atomic
     end
 
-    let%test_unit "can affinitize to any subset on the system" =
+    let%expect_test "can affinitize to any subset on the system" =
       Base_quickcheck.Test.run_exn
         ~config:{ Base_quickcheck.Test.default_config with test_count = 100 }
         ~f:(fun cpuset ->
