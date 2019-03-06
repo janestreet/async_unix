@@ -1,5 +1,6 @@
 open! Core
 open! Import
+module Mutex = Error_checking_mutex
 
 type 'a t =
   { mutable value : 'a option

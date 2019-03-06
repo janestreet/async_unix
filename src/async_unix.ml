@@ -14,6 +14,7 @@ module Shutdown = Shutdown
 module Signal = Signal
 module Socket = Unix_syscalls.Socket
 module Sys = Async_sys
+module Tcp = Tcp
 module Thread_safe = Thread_safe
 module Writer = Writer
 

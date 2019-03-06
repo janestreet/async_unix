@@ -592,7 +592,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
     ; timerfd
-    ; timerfd_set_at = Time_ns.max_value
+    ; timerfd_set_at = Time_ns.max_value_for_1us_rounding
     ; scheduler_thread_id = -1 (* set when [be_the_scheduler] is called *)
     ; interruptor
     ; signal_manager =
@@ -870,7 +870,7 @@ let compute_timeout_and_check_file_descr_watcher t =
         if not have_min_inter_cycle_timeout
         then Time_ns.Span.zero
         else (
-          t.timerfd_set_at <- Time_ns.max_value;
+          t.timerfd_set_at <- Time_ns.max_value_for_1us_rounding;
           Linux_ext.Timerfd.set_after timerfd min_inter_cycle_timeout;
           max_inter_cycle_timeout)
       else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
