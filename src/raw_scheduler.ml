@@ -920,15 +920,10 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
       one_iter t;
       loop ()
   in
-  let exn =
-    try `User_uncaught (loop ()) with
-    | exn -> `Async_uncaught exn
-  in
-  let should_dump_core, error =
-    match exn with
-    | `User_uncaught error -> false, error
-    | `Async_uncaught exn ->
-      true, Error.create "bug in async scheduler" (exn, t) [%sexp_of: exn * t]
+  let error_kind, error =
+    try `User_uncaught, loop () with
+    | exn ->
+      `Async_uncaught, Error.create "bug in async scheduler" (exn, t) [%sexp_of: exn * t]
   in
   if raise_unhandled_exn
   then Error.raise error
@@ -939,11 +934,14 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
        exception handler does the same. *)
     (try Caml.do_at_exit () with
      | _ -> ());
-    Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
-    if should_dump_core
-    then (
-      Debug.log_string "dumping core";
-      Dump_core_on_job_delay.dump_core ());
+    (match error_kind with
+     | `User_uncaught ->
+       (* Don't use Debug.log, to avoid redundant error (task_id in particular) *)
+       eprintf !"%{Sexp#hum}\n%!" [%sexp (Time_ns.now () : Time_ns.t), (error : Error.t)]
+     | `Async_uncaught ->
+       Debug.log "unhandled exception in Async scheduler" error [%sexp_of: Error.t];
+       Debug.log_string "dumping core";
+       Dump_core_on_job_delay.dump_core ());
     Unix.exit_immediately 1)
 ;;
 
