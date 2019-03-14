@@ -220,6 +220,10 @@ let sexp_of_t
     }]
 ;;
 
+type t_hum = t
+
+let sexp_of_t_hum t = [%sexp (t.fd : Fd.t_hum)]
+
 type writer = t [@@deriving sexp_of]
 
 let set_raise_when_consumer_leaves t bool = t.raise_when_consumer_leaves <- bool
@@ -766,7 +770,8 @@ let can_write t =
 ;;
 
 let ensure_can_write t =
-  if not (can_write t) then raise_s [%message "attempt to use closed writer" ~_:(t : t)]
+  if not (can_write t)
+  then raise_s [%message "attempt to use closed writer" ~_:(t : t_hum)]
 ;;
 
 let open_file ?(append = false) ?buf_len ?syscall ?(perm = 0o666) ?line_ending file =

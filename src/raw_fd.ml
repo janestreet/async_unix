@@ -135,6 +135,15 @@ module T = struct
     ; close_finished : unit Ivar.t
     }
   [@@deriving fields, sexp_of]
+
+  type t_hum = t
+
+  let sexp_of_t_hum { file_descr; info; kind; _ } =
+    let file_descr =
+      if am_running_inline_test then [%sexp "_"] else [%sexp (file_descr : File_descr.t)]
+    in
+    [%sexp { file_descr : Sexp.t; info : Info.t; kind : Kind.t }]
+  ;;
 end
 
 include T

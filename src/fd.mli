@@ -52,6 +52,7 @@ module Kind : sig
 end
 
 type t [@@deriving sexp_of]
+type t_hum = t [@@deriving sexp_of]
 
 val info : t -> Info.t
 
