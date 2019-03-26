@@ -13,7 +13,7 @@ type t =
      for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
      property is that if [already_interrupted] is true then [pipe] is nonempty*)
   ; mutable already_interrupted : bool
-  ; clearbuffer : Bytes.t sexp_opaque
+  ; clearbuffer : (Bytes.t[@sexp.opaque])
   }
 [@@deriving sexp_of]
 

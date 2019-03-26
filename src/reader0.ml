@@ -110,15 +110,17 @@ module Internal = struct
     =
     let unless_testing x = Option.some_if (not am_running_inline_test) x in
     [%sexp
-      { id = (id |> unless_testing : Id.t sexp_option)
+      { id = (id |> unless_testing : (Id.t option[@sexp.option]))
       ; state : State.t
       ; available : int
       ; pos : int
-      ; open_flags = (open_flags |> unless_testing : open_flags Deferred.t sexp_option)
-      ; last_read_time = (last_read_time |> unless_testing : Time.t sexp_option)
+      ; open_flags =
+          (open_flags |> unless_testing : (open_flags Deferred.t option[@sexp.option]))
+      ; last_read_time =
+          (last_read_time |> unless_testing : (Time.t option[@sexp.option]))
       ; close_may_destroy_buf : [`Yes | `Not_now | `Not_ever]
       ; close_finished : unit Ivar.t
-      ; fd = (fd |> unless_testing : Fd.t sexp_option)
+      ; fd = (fd |> unless_testing : (Fd.t option[@sexp.option]))
       }]
   ;;
 

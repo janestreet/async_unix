@@ -2,7 +2,7 @@ open Core
 module Signal = Core.Signal
 
 module Handlers = struct
-  type t = { bag : (Signal.t -> unit) sexp_opaque Bag.t } [@@deriving sexp_of]
+  type t = { bag : ((Signal.t -> unit)[@sexp.opaque]) Bag.t } [@@deriving sexp_of]
 
   let create () = { bag = Bag.create () }
   let add t handler = Bag.add t.bag handler
@@ -19,7 +19,7 @@ type delivered = (Signal.t * Handlers.t) Thread_safe_queue.t
 
 type t =
   { handlers_by_signal : Handlers.t Signal.Table.t
-  ; delivered : delivered sexp_opaque
+  ; delivered : (delivered[@sexp.opaque])
   ; thread_safe_notify_signal_delivered : unit -> unit
   }
 [@@deriving sexp_of]

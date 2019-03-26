@@ -76,9 +76,9 @@ module Stable = struct
         | `User_defined of (module Rotation_id_intf) ]
 
       type t =
-        { messages : int sexp_option
-        ; size : Byte_units.V1.t sexp_option
-        ; time : Time.Ofday.V1.t sexp_option
+        { messages : int option
+        ; size : Byte_units.V1.t option
+        ; time : Time.Ofday.V1.t option
         ; keep : [`All | `Newer_than of Time.Span.V3.t | `At_least of int]
         ; naming_scheme : naming_scheme
         ; zone : Time.Zone.V1.t

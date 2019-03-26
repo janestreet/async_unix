@@ -85,7 +85,7 @@ type t =
      current [buf] in the writer. *)
   (* [scheduled] holds iovecs that we plan to write. *)
   ; scheduled :
-      Scheduled.t sexp_opaque
+      Scheduled.t
   (* [scheduled_bytes] is the sum of the lengths of the iovecs in[scheduled] *)
   ; mutable scheduled_bytes :
       int
@@ -93,11 +93,11 @@ type t =
      [0, scheduled_back)             received and scheduled
      [scheduled_back, back)          received but not scheduled
      [back, Bigstring.length buf)    free space*)
-  ; mutable buf : Bigstring.t sexp_opaque
+  ; mutable buf : Bigstring.t
   ; mutable scheduled_back : int
   ; mutable back : int
   ; flushes :
-      (Time_ns.t Ivar.t * Int63.t) Queue.t sexp_opaque
+      (Time_ns.t Ivar.t * Int63.t) Queue.t
   (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
      [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
      [`Closed_and_flushing].  Once the writer is flushed and we're actually going to
@@ -123,9 +123,9 @@ type t =
      closed when [shutdown] is called, and for shutdown to wait for the close to finish.
      [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the
      close finishes, at which point it transitions to[None]. *)
-  ; mutable flush_at_shutdown_elt : t sexp_opaque Bag.Elt.t option
+  ; mutable flush_at_shutdown_elt : t Bag.Elt.t option
   ; mutable check_buffer_age :
-      t sexp_opaque Check_buffer_age'.t Bag.Elt.t option
+      t Check_buffer_age'.t Bag.Elt.t option
   (* The "consumer" of a writer is whomever is reading the bytes that the writer
      is writing.  E.g. if the writer's file descriptor is a socket, then it is whomever
      is on the other side of the socket connection.  If the consumer leaves, Unix will
@@ -190,8 +190,8 @@ let sexp_of_t
      tests.  Linux kernels (CentOS 6) expose O_CLOEXEC via fcntl(fd, F_GETFL), but newer
      (CentOS 7) ones don't *)
   [%sexp
-    { id = (suppress_in_test id : Id.t sexp_option)
-    ; fd = (suppress_in_test fd : Fd.t sexp_option)
+    { id = (suppress_in_test id : (Id.t option[@sexp.option]))
+    ; fd = (suppress_in_test fd : (Fd.t option[@sexp.option]))
     ; monitor = (monitor_name_in_test monitor : Sexp.t)
     ; inner_monitor = (monitor_name_in_test inner_monitor : Sexp.t)
     ; background_writer_state : [`Running | `Not_running | `Stopped_permanently]
@@ -208,15 +208,17 @@ let sexp_of_t
     ; num_producers_to_flush_at_close = (Bag.length producers_to_flush_at_close : int)
     ; flush_at_shutdown_elt =
         ( suppress_in_test flush_at_shutdown_elt
-          : t sexp_opaque Bag.Elt.t option sexp_option )
+          : ((t[@sexp.opaque]) Bag.Elt.t option option[@sexp.option]) )
     ; check_buffer_age =
         ( suppress_in_test check_buffer_age
-          : t sexp_opaque Check_buffer_age'.t Bag.Elt.t option sexp_option )
+          : ((t[@sexp.opaque]) Check_buffer_age'.t Bag.Elt.t option option[@sexp.option])
+        )
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
-    ; open_flags = (suppress_in_test open_flags : open_flags Deferred.t sexp_option)
+    ; open_flags =
+        (suppress_in_test open_flags : (open_flags Deferred.t option[@sexp.option]))
     ; line_ending : Line_ending.t
-    ; backing_out_channel : Backing_out_channel.t sexp_option
+    ; backing_out_channel : (Backing_out_channel.t option[@sexp.option])
     }]
 ;;
 

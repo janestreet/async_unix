@@ -34,7 +34,8 @@ type t =
        kernel scheduler in sexps of the scheduler, which already has its own
        [kernel_scheduler] field. *)
     kernel_scheduler :
-      Kernel_scheduler.t sexp_opaque
+      (Kernel_scheduler.t[@sexp.opaque]
+      )
   ; mutable pollers : Poller.t array
   }
 [@@deriving fields, sexp_of]

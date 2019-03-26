@@ -213,7 +213,7 @@ module Where_to_listen = struct
   type ('address, 'listening_on) t =
     { socket_type : 'address Socket.Type.t
     ; address : 'address
-    ; listening_on : ('address -> 'listening_on) sexp_opaque
+    ; listening_on : ('address -> 'listening_on[@sexp.opaque])
     }
   [@@deriving sexp_of, fields]
 

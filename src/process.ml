@@ -163,7 +163,7 @@ module Failure = struct
   type t =
     { prog : string
     ; args : string list
-    ; working_dir : string sexp_option
+    ; working_dir : string option [@sexp.option]
     ; env : env [@sexp_drop_if should_drop_env]
     ; exit_status : Unix.Exit_or_signal.error
     ; stdout : Lines_or_sexp.t

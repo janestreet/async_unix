@@ -130,7 +130,7 @@ module Internal = struct
       (* A thread can be "available", meaning that it isn't working on anything, or
          doing work added to the thread pool, or serving as a helper thread.  *)
       ; mutable state :
-          [`Available | `Working | `Helper of t sexp_opaque Helper_thread.t]
+          [`Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t]
       (* [unfinished_work] is the amount of work remaining for this thread to do.  It
          includes all the work in [work_queue], plus perhaps an additional work that is
          running. *)

@@ -157,8 +157,9 @@ let create_fd ?avoid_nonblock_if_possible t kind file_descr info =
         "Async was unable to add a file descriptor to its table of open file descriptors"
           (file_descr : File_descr.t)
           (error : Error.t)
-          (backtrace : Backtrace.t sexp_option)
-          ~scheduler:(if am_running_inline_test then None else Some t : t sexp_option)]
+          (backtrace : (Backtrace.t option[@sexp.option]))
+          ~scheduler:
+            (if am_running_inline_test then None else Some t : (t option[@sexp.option]))]
 ;;
 
 let thread_pool_cpu_affinity t = Thread_pool.cpu_affinity t.thread_pool
@@ -376,7 +377,8 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
           ~num_threads_created:(Thread_pool.num_threads thread_pool : int)
           ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
           ~last_thread_creation_failure:
-            (Thread_pool.last_thread_creation_failure thread_pool : Sexp.t sexp_option)]
+            ( Thread_pool.last_thread_creation_failure thread_pool
+              : (Sexp.t option[@sexp.option]) )]
     in
     if should_abort
     then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
