@@ -53,45 +53,40 @@ module Internal = struct
 
   type t =
     { fd : Fd.t
-    ; id :
-        Id.t
-    (* [buf] holds data read by the reader from the OS, but not yet read by user code.
-       When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
-       any code that accesses [buf] that [t] has not been closed.  In particular, after
-       any deferred operation, we must check whether [t] has been closed while we were
-       waiting. *)
-    ; mutable buf :
-        Bigstring.t
-    (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
-       destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
-       the middle of a system call in another thread that refers to [buf], in which case
-       it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
-       system call finishes before doing so.
+    ; id : Id.t
+    ; (* [buf] holds data read by the reader from the OS, but not yet read by user code.
+         When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
+         any code that accesses [buf] that [t] has not been closed.  In particular, after
+         any deferred operation, we must check whether [t] has been closed while we were
+         waiting. *)
+      mutable buf : Bigstring.t
+    ; (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
+         destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
+         the middle of a system call in another thread that refers to [buf], in which case
+         it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
+         system call finishes before doing so.
 
-       [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
-       to client code, which may in turn hold on to it (e.g. via
-       [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
-    ; mutable close_may_destroy_buf :
-        [`Yes | `Not_now | `Not_ever]
-    (* [pos] is the first byte of data in [buf] to b be read by user code. *)
-    ; mutable pos :
-        int
-    (* [available] is how many bytes in [buf] are available to be read by user code. *)
-    ; mutable available :
-        int
-    (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
-       user call extant that is waiting for data from the reader. *)
-    ; mutable state : State.t
+         [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
+         to client code, which may in turn hold on to it (e.g. via
+         [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
+      mutable close_may_destroy_buf : [`Yes | `Not_now | `Not_ever]
+    ; (* [pos] is the first byte of data in [buf] to b be read by user code. *)
+      mutable pos : int
+    ; (* [available] is how many bytes in [buf] are available to be read by user code. *)
+      mutable available : int
+    ; (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
+         user call extant that is waiting for data from the reader. *)
+      mutable state : State.t
     ; close_finished : unit Ivar.t
-    ; mutable last_read_time :
-        Time.t
-    (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
-       created, and starts a deferred computation that calls [Unix.fcntl_getfl].
-       [open_flags] is used to report an error when [fd] is not readable.  [Fd] treats the
-       call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
-       completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
-       leak even though client code doesn't explicitly wait on [open_flags]. *)
-    ; open_flags : open_flags Deferred.t
+    ; mutable last_read_time : Time.t
+    ; (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
+         created, and starts a deferred computation that calls [Unix.fcntl_getfl].
+         [open_flags] is used to report an error when [fd] is not readable.  [Fd] treats
+         the call to [fcntl_getfl] as an active system call, which prevents [Unix.close
+         fd] from completing until [fcntl_getfl] finishes.  This prevents a
+         file-descriptor or thread leak even though client code doesn't explicitly wait on
+         [open_flags]. *)
+      open_flags : open_flags Deferred.t
     }
   [@@deriving fields]
 

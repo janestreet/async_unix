@@ -7,7 +7,6 @@ include (
     module type of struct
     include From_kernel
   end
-  with module Scheduler := From_kernel.Scheduler
   with module Time_ns := From_kernel.Time_ns)
 
 module Scheduler = Scheduler

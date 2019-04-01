@@ -6,6 +6,8 @@ open! Core
 open! Import
 include Raw_scheduler
 
+let current_execution_context = Async_kernel_scheduler.current_execution_context
+
 let time_spent_waiting_for_io () =
   let t = t () in
   t.time_spent_waiting_for_io
@@ -30,4 +32,4 @@ let set_min_inter_cycle_timeout min_inter_cycle_timeout =
 
 let max_num_open_file_descrs () = max_num_open_file_descrs (t ())
 let max_num_threads () = max_num_threads (t ())
-let current_execution_context () = current_execution_context (t ())
+let _ = current_execution_context

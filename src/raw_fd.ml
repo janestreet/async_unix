@@ -91,48 +91,41 @@ end
 
 module T = struct
   type t =
-    { file_descr :
-        File_descr.t
-    (* [info] is for debugging info. It is mutable because it changes after [bind],
-       [listen], or[connect]. *)
-    ; mutable info :
-        Info.t
-    (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
-    ; mutable kind :
-        Kind.t
-    (* [supports_nonblock] reflects whether the file_descr supports nonblocking
-       system calls (read, write, etc.).  It is mutable because we allow users to
-       change from [supports_nonblock = true] to [supports_nonblock = false]. *)
-    ; mutable supports_nonblock :
-        bool
-    (* [have_set_nonblock] is true if we have called [Unix.set_nonblock file_descr],
-       which we must do before making any system calls that we expect to not block. *)
-    ; mutable have_set_nonblock : bool
+    { file_descr : File_descr.t
+    ; (* [info] is for debugging info. It is mutable because it changes after [bind],
+         [listen], or[connect]. *)
+      mutable info : Info.t
+    ; (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
+      mutable kind : Kind.t
+    ; (* [supports_nonblock] reflects whether the file_descr supports nonblocking
+         system calls (read, write, etc.).  It is mutable because we allow users to
+         change from [supports_nonblock = true] to [supports_nonblock = false]. *)
+      mutable supports_nonblock : bool
+    ; (* [have_set_nonblock] is true if we have called [Unix.set_nonblock file_descr],
+         which we must do before making any system calls that we expect to not block. *)
+      mutable have_set_nonblock : bool
     ; mutable state : State.t
-    ; watching :
-        Watching.t Read_write.Mutable.t
-    (* [watching_has_changed] is true if [watching] has changed since the last time
-       [watching] was synchronized with the file_descr_watcher.  In this case, the
-       fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
-       it can be synchronized later. *)
-    ; mutable watching_has_changed :
-        bool
-    (* [num_active_syscalls] is used to ensure that we don't call [close] on a file
-       descriptor until there are no active system calls involving that file descriptor.
-       This prevents races in which the OS assigns that file descriptor to a new
-       open file, and thus a system call deals with the wrong open file.   If the
-       state of an fd is [Close_requested], then once [num_active_syscalls] drops to
-       zero, the close() syscall will start and the state will transition to [Closed],
-       thus preventing further system calls from using the file descriptor.
+    ; watching : Watching.t Read_write.Mutable.t
+    ; (* [watching_has_changed] is true if [watching] has changed since the last time
+         [watching] was synchronized with the file_descr_watcher.  In this case, the
+         fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
+         it can be synchronized later. *)
+      mutable watching_has_changed : bool
+    ; (* [num_active_syscalls] is used to ensure that we don't call [close] on a file
+         descriptor until there are no active system calls involving that file descriptor.
+         This prevents races in which the OS assigns that file descriptor to a new
+         open file, and thus a system call deals with the wrong open file.   If the
+         state of an fd is [Close_requested], then once [num_active_syscalls] drops to
+         zero, the close() syscall will start and the state will transition to [Closed],
+         thus preventing further system calls from using the file descriptor.
 
-       [num_active_syscalls] is abused slightly to include the syscall to the
-       file_descr_watcher to check for ready I/O.  Watching for read and for write
-       each potentially count for one active syscall. *)
-    ; mutable num_active_syscalls :
-        int
-    (* [close_finished] becomes determined after the file descriptor has been closed
-       and the underlying close() system call has finished. *)
-    ; close_finished : unit Ivar.t
+         [num_active_syscalls] is abused slightly to include the syscall to the
+         file_descr_watcher to check for ready I/O.  Watching for read and for write
+         each potentially count for one active syscall. *)
+      mutable num_active_syscalls : int
+    ; (* [close_finished] becomes determined after the file descriptor has been closed
+         and the underlying close() system call has finished. *)
+      close_finished : unit Ivar.t
     }
   [@@deriving fields, sexp_of]
 

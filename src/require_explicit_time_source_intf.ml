@@ -20,7 +20,6 @@ module type Require_explicit_time_source = sig
   module type of struct
     include From_kernel
   end
-    with module Scheduler := From_kernel.Scheduler
     with module Time_ns := From_kernel.Time_ns
 
   module Scheduler : sig

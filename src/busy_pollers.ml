@@ -30,13 +30,12 @@ module Poller = struct
 end
 
 type t =
-  { (* [kernel_scheduler] is [sexp_opaque] so that one doesn't get two copies of the
+  { (* [kernel_scheduler] is [@sexp.opaque] so that one doesn't get two copies of the
        kernel scheduler in sexps of the scheduler, which already has its own
        [kernel_scheduler] field. *)
-    kernel_scheduler :
-      (Kernel_scheduler.t[@sexp.opaque]
-      )
-  ; mutable pollers : Poller.t array
+    kernel_scheduler : (Kernel_scheduler.t[@sexp.opaque])
+  ;
+    mutable pollers : Poller.t array
   }
 [@@deriving fields, sexp_of]
 

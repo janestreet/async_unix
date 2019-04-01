@@ -29,46 +29,7 @@ module File_descr_watcher = struct
   ;;
 end
 
-type 'a with_options = 'a Kernel_scheduler.with_options
-
-include struct
-  open Kernel_scheduler
-
-  let preserve_execution_context = preserve_execution_context
-  let preserve_execution_context' = preserve_execution_context'
-  let schedule = schedule
-  let schedule' = schedule'
-  let within = within
-  let within' = within'
-  let within_context = within_context
-  let within_v = within_v
-  let find_local = find_local
-  let with_local = with_local
-end
-
-let cycle_count () = Kernel_scheduler.(cycle_count (t ()))
-let cycle_start_ns () = Kernel_scheduler.(cycle_start (t ()))
-let cycle_start () = Time_ns.to_time_float_round_nearest (cycle_start_ns ())
-let cycle_times_ns () = Kernel_scheduler.(map_cycle_times (t ())) ~f:Fn.id
-
-let cycle_times () =
-  Kernel_scheduler.(map_cycle_times (t ())) ~f:Time_ns.Span.to_span_float_round_nearest
-;;
-
-let total_cycle_time () = Kernel_scheduler.(total_cycle_time (t ()))
-let long_cycles ~at_least = Kernel_scheduler.(long_cycles (t ())) ~at_least
-let event_precision_ns () = Kernel_scheduler.(event_precision (t ()))
-let event_precision () = Time_ns.Span.to_span_float_round_nearest (event_precision_ns ())
-
-let set_max_num_jobs_per_priority_per_cycle i =
-  Kernel_scheduler.(set_max_num_jobs_per_priority_per_cycle (t ())) i
-;;
-
-let max_num_jobs_per_priority_per_cycle () =
-  Kernel_scheduler.(max_num_jobs_per_priority_per_cycle (t ()))
-;;
-
-let force_current_cycle_to_end () = Kernel_scheduler.(force_current_cycle_to_end (t ()))
+include Async_kernel_scheduler
 
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
@@ -81,55 +42,47 @@ type t =
        the lock when it doesn't hold it. *)
     mutex : Nano_mutex.t
   ; mutable is_running : bool
-  ; mutable have_called_go :
-      bool
-  (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
-     the last time their desired state was set in the [file_descr_watcher]. *)
-  ; fds_whose_watching_has_changed : Fd.t Stack.t
+  ; mutable have_called_go : bool
+  ; (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
+       the last time their desired state was set in the [file_descr_watcher]. *)
+    fds_whose_watching_has_changed : Fd.t Stack.t
   ; file_descr_watcher : File_descr_watcher.t
-  ; mutable time_spent_waiting_for_io :
-      Tsc.Span.t
-  (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
-     when they are created, and removed when they transition to [Closed]. *)
-  ; fd_by_descr :
-      Fd_by_descr.t
-  (* If we are using a file descriptor watcher that does not support sub-millisecond
-     timeout, [timerfd] contains a timerfd used to handle the next expiration.
-     [timerfd_set_at] holds the the time at which [timerfd] is set to expire.  This
-     lets us avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_after] unless
-     we need to change that time. *)
-  ; mutable timerfd : Linux_ext.Timerfd.t option
-  ; mutable timerfd_set_at :
-      Time_ns.t
-  (* A distinguished thread, called the "scheduler" thread, is continually looping,
-     checking file descriptors for I/O and then running a cycle.  It manages
-     the [file_descr_watcher] and runs signal handlers.
+  ; mutable time_spent_waiting_for_io : Tsc.Span.t
+  ; (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
+       when they are created, and removed when they transition to [Closed]. *)
+    fd_by_descr : Fd_by_descr.t
+  ; (* If we are using a file descriptor watcher that does not support sub-millisecond
+       timeout, [timerfd] contains a timerfd used to handle the next expiration.
+       [timerfd_set_at] holds the the time at which [timerfd] is set to expire.  This
+       lets us avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_after] unless
+       we need to change that time. *)
+    mutable timerfd : Linux_ext.Timerfd.t option
+  ; mutable timerfd_set_at : Time_ns.t
+  ; (* A distinguished thread, called the "scheduler" thread, is continually looping,
+       checking file descriptors for I/O and then running a cycle.  It manages
+       the [file_descr_watcher] and runs signal handlers.
 
-     [scheduler_thread_id] is mutable because we create the scheduler before starting
-     the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
-     is set and never changes again. *)
-  ; mutable scheduler_thread_id :
-      int
-  (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
-     descriptor watcher. *)
-  ; interruptor : Interruptor.t
-  ; signal_manager :
-      Raw_signal_manager.t
-  (* The [thread_pool] is used for making blocking system calls in threads other than
-     the scheduler thread, and for servicing [In_thread.run] requests. *)
-  ; thread_pool :
-      Thread_pool.t
-  (* [handle_thread_pool_stuck] is called once per second if the thread pool is"stuck",
-     i.e has not completed a job for one second and has no available threads. *)
-  ; mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
+       [scheduler_thread_id] is mutable because we create the scheduler before starting
+       the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
+       is set and never changes again. *)
+    mutable scheduler_thread_id : int
+  ; (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
+       descriptor watcher. *)
+    interruptor : Interruptor.t
+  ; signal_manager : Raw_signal_manager.t
+  ; (* The [thread_pool] is used for making blocking system calls in threads other than
+       the scheduler thread, and for servicing [In_thread.run] requests. *)
+    thread_pool : Thread_pool.t
+  ; (* [handle_thread_pool_stuck] is called once per second if the thread pool is"stuck",
+       i.e has not completed a job for one second and has no available threads. *)
+    mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
   ; busy_pollers : Busy_pollers.t
   ; mutable busy_poll_thread_is_running : bool
   ; mutable next_tsc_calibration : Tsc.t
-  ; kernel_scheduler :
-      Kernel_scheduler.t
-  (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
-     E.g. in Ecaml it is set to something that causes Emacs to run a cycle. *)
-  ; mutable have_lock_do_cycle : (unit -> unit) option (* configuration*)
+  ; kernel_scheduler : Kernel_scheduler.t
+  ; (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
+       E.g. in Ecaml it is set to something that causes Emacs to run a cycle. *)
+    mutable have_lock_do_cycle : (unit -> unit) option (* configuration*)
   ; mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t
   ; mutable min_inter_cycle_timeout : Min_inter_cycle_timeout.t
   }
@@ -1030,13 +983,6 @@ let set_detect_invalid_access_from_thread bool =
   update_check_access (the_one_and_only ~should_lock:false) bool
 ;;
 
-let set_record_backtraces bool = Kernel_scheduler.(set_record_backtraces (t ()) bool)
-
-module Expert = struct
-  let set_on_start_of_cycle f = Kernel_scheduler.(set_on_start_of_cycle (t ()) f)
-  let set_on_end_of_cycle f = Kernel_scheduler.(set_on_end_of_cycle (t ()) f)
-end
-
 let set_max_inter_cycle_timeout span =
   (the_one_and_only ~should_lock:false).max_inter_cycle_timeout
   <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span_float_round_nearest span)
@@ -1124,31 +1070,4 @@ let handle_thread_pool_stuck f =
       execution_context
       (fun () -> f ~stuck_for)
       ())
-;;
-
-let yield () =
-  let t = t () in
-  Kernel_scheduler.yield t.kernel_scheduler
-;;
-
-let yield_until_no_jobs_remain () =
-  let t = t () in
-  Kernel_scheduler.yield_until_no_jobs_remain t.kernel_scheduler
-;;
-
-let yield_every ~n =
-  let yield_every = Staged.unstage (Kernel_scheduler.yield_every ~n) in
-  stage (fun () ->
-    let t = t () in
-    yield_every t.kernel_scheduler)
-;;
-
-let num_jobs_run () =
-  let t = t () in
-  Kernel_scheduler.num_jobs_run t.kernel_scheduler
-;;
-
-let num_pending_jobs () =
-  let t = t () in
-  Kernel_scheduler.num_pending_jobs t.kernel_scheduler
 ;;

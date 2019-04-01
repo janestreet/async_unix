@@ -560,14 +560,12 @@ end = struct
     { write : Message.t Queue.t -> unit Deferred.t
     ; rotate : unit -> unit Deferred.t
     ; close : unit -> unit Deferred.t
-    ; flush :
-        unit
-        -> unit Deferred.t
-    (* experimentation shows that this record, without this field, can sometimes raise
-       when passed to Heap_block.create_exn, which we need to do to add a finalizer.  This
-       seems to occur when the functions are top-level and/or constant.  More
-       investigation is probably worthwhile. *)
-    ; heap_block : Definitely_a_heap_block.t
+    ; flush : unit -> unit Deferred.t
+    ; (* experimentation shows that this record, without this field, can sometimes raise
+         when passed to Heap_block.create_exn, which we need to do to add a finalizer.
+         This seems to occur when the functions are top-level and/or constant.  More
+         investigation is probably worthwhile. *)
+      heap_block : Definitely_a_heap_block.t
     }
 
   let create ?(rotate = fun () -> return ()) ?(close = fun () -> return ()) ~flush write =

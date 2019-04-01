@@ -19,22 +19,19 @@ module Check_buffer_age' = struct
   type 'a t =
     { writer : 'a
     ; maximum_age : Time_ns.Span.t
-    ; mutable bytes_received_at_now_minus_maximum_age :
-        Int63.t
-    (* The 2 following queues hold the not-yet-written bytes received by the writer in the
-       last [maximum_age] period of time, with the time they were received at.
-       [Queue.length bytes_received_queue = Queue.length times_received_queue]. *)
-    ; bytes_received_queue : Int63.t Queue.t
-    ; times_received_queue :
-        Time_ns.t Queue.t
-    (* Number of bytes "seen" by the checker.  [t.writer.bytes_received - t.bytes_seen]
-       represents the number of bytes received by the writer since the last time the
-       checker ran. *)
-    ; mutable bytes_seen :
-        Int63.t
-    (* The buffer-age check is responsible for filling in [too_old] if it detects an age
-       violation. *)
-    ; mutable too_old : unit Ivar.t
+    ; mutable bytes_received_at_now_minus_maximum_age : Int63.t
+    ; (* The 2 following queues hold the not-yet-written bytes received by the writer in
+         the last [maximum_age] period of time, with the time they were received at.
+         [Queue.length bytes_received_queue = Queue.length times_received_queue]. *)
+      bytes_received_queue : Int63.t Queue.t
+    ; times_received_queue : Time_ns.t Queue.t
+    ; (* Number of bytes "seen" by the checker.  [t.writer.bytes_received - t.bytes_seen]
+         represents the number of bytes received by the writer since the last time the
+         checker ran. *)
+      mutable bytes_seen : Int63.t
+    ; (* The buffer-age check is responsible for filling in [too_old] if it detects an age
+         violation. *)
+      mutable too_old : unit Ivar.t
     }
   [@@deriving fields, sexp_of]
 end
@@ -60,94 +57,81 @@ end
 
 type t =
   { id : Id.t
-  ; mutable fd :
-      Fd.t
-  (* The writer uses a background job to flush data.  The job runs within [inner_monitor],
-     which has a handler that wraps all errors to include [sexp_of_t t], and sends them to
-     [monitor]. *)
-  ; monitor : Monitor.t
+  ; mutable fd : Fd.t
+  ; (* The writer uses a background job to flush data.  The job runs within
+       [inner_monitor], which has a handler that wraps all errors to include [sexp_of_t
+       t], and sends them to [monitor]. *)
+    monitor : Monitor.t
   ; inner_monitor : Monitor.t
   ; mutable background_writer_state : [`Running | `Not_running | `Stopped_permanently]
-  ; background_writer_stopped :
-      unit Ivar.t
-  (* [syscall] determines the batching approach that the writer uses to batch data
-     together and flush it using the underlying write syscall. *)
-  ; syscall :
-      [`Per_cycle | `Periodic of Time.Span.t]
-  (* Counts since the writer was created. *)
-  ; mutable bytes_received : Int63.t
-  ; mutable bytes_written :
-      Int63.t
-  (* Bytes that we have received but not yet written are stored in two places: [scheduled]
-     and [buf].  The bytes that we need to write are the concatenation of the sequence
-     of iovecs in [scheduled] followed by the bytes in [buf] from [scheduled_back] to
-     [back].  Note that iovecs in [scheduled] can point to regions in [buf], even the
-     current [buf] in the writer. *)
-  (* [scheduled] holds iovecs that we plan to write. *)
-  ; scheduled :
-      Scheduled.t
-  (* [scheduled_bytes] is the sum of the lengths of the iovecs in[scheduled] *)
-  ; mutable scheduled_bytes :
-      int
-  (* [buf] has three regions                            :
-     [0, scheduled_back)             received and scheduled
-     [scheduled_back, back)          received but not scheduled
-     [back, Bigstring.length buf)    free space*)
-  ; mutable buf : Bigstring.t
+  ; background_writer_stopped : unit Ivar.t
+  ; (* [syscall] determines the batching approach that the writer uses to batch data
+       together and flush it using the underlying write syscall. *)
+    syscall : [`Per_cycle | `Periodic of Time.Span.t]
+  ; (* Counts since the writer was created. *)
+    mutable bytes_received : Int63.t
+  ; mutable bytes_written : Int63.t
+  ; (* Bytes that we have received but not yet written are stored in two places:
+       [scheduled] and [buf].  The bytes that we need to write are the concatenation of
+       the sequence of iovecs in [scheduled] followed by the bytes in [buf] from
+       [scheduled_back] to [back].  Note that iovecs in [scheduled] can point to regions
+       in [buf], even the current [buf] in the writer. *)
+    (* [scheduled] holds iovecs that we plan to write. *)
+    scheduled : Scheduled.t
+  ; (* [scheduled_bytes] is the sum of the lengths of the iovecs in[scheduled] *)
+    mutable scheduled_bytes : int
+  ; (* [buf] has three regions:
+       [0, scheduled_back)             received and scheduled
+       [scheduled_back, back)          received but not scheduled
+       [back, Bigstring.length buf)    free space*)
+    mutable buf : Bigstring.t
   ; mutable scheduled_back : int
   ; mutable back : int
-  ; flushes :
-      (Time_ns.t Ivar.t * Int63.t) Queue.t
-  (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
-     [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
-     [`Closed_and_flushing].  Once the writer is flushed and we're actually going to
-     close [fd], it transitions to[`Closed].
+  ; flushes : (Time_ns.t Ivar.t * Int63.t) Queue.t
+  ; (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
+       [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
+       [`Closed_and_flushing].  Once the writer is flushed and we're actually going to
+       close [fd], it transitions to[`Closed].
 
-     The distinction between [`Closed] and [`Closed_and_flushing] is necessary because
-     we want to allow [write]s to happen while [`Closed_and_flushing], but not when
-     [`Closed].  This is necessary to allow upstream producers to flush their data
-     to the writer when it is closed. *)
-  ; mutable close_state :
-      [`Open | `Closed_and_flushing | `Closed]
-  (* [close_finished] is filled when the close() system call on [fd] finishes. *)
-  ; close_finished : unit Ivar.t (* [close_started] is filled when [close] is called. *)
-  ; close_started :
-      unit Ivar.t
-  (* [producers_to_flush_at_close] holds all upstream producers feeding data to this
-     writer, and thus should be flushed when we close this writer, before flushing
-     the writer itself. *)
-  ; producers_to_flush_at_close :
-      (unit -> unit Deferred.t) Bag.t
-  (* [flush_at_shutdown_elt] holds the element in [writers_to_flush_at_shutdown] for
-     this writer.  Being in that bag is what causes this writer to be automatically
-     closed when [shutdown] is called, and for shutdown to wait for the close to finish.
-     [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the
-     close finishes, at which point it transitions to[None]. *)
-  ; mutable flush_at_shutdown_elt : t Bag.Elt.t option
-  ; mutable check_buffer_age :
-      t Check_buffer_age'.t Bag.Elt.t option
-  (* The "consumer" of a writer is whomever is reading the bytes that the writer
-     is writing.  E.g. if the writer's file descriptor is a socket, then it is whomever
-     is on the other side of the socket connection.  If the consumer leaves, Unix will
-     indicate this by returning EPIPE or ECONNRESET to a write() syscall.  We keep
-     track of this with the [consumer_left] ivar, which is exposed in writer.mli.
-     We also allow the user to configure what action the writer takes when the
-     consumer leaves.  By default, it raises, but that can be disabled. *)
-  ; consumer_left : unit Ivar.t
-  ; mutable raise_when_consumer_leaves :
-      bool
-  (* default is [true] *)
-  (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
-     created, and starts a deferred computation that calls [Unix.fcntl_getfl].
-     [open_flags] is used to report an error when [fd] is not writable.  [Fd] treats the
-     call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
-     completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
-     leak even though client code doesn't explicitly wait on [open_flags]. *)
-  ; open_flags : open_flags Deferred.t
-  ; line_ending :
-      Line_ending.t
-  (* If specified, subsequent writes are synchronously redirected here. *)
-  ; mutable backing_out_channel : Backing_out_channel.t option
+       The distinction between [`Closed] and [`Closed_and_flushing] is necessary because
+       we want to allow [write]s to happen while [`Closed_and_flushing], but not when
+       [`Closed].  This is necessary to allow upstream producers to flush their data to
+       the writer when it is closed. *)
+    mutable close_state : [`Open | `Closed_and_flushing | `Closed]
+  ; (* [close_finished] is filled when the close() system call on [fd] finishes. *)
+    close_finished : unit Ivar.t
+  ; (* [close_started] is filled when [close] is called. *)
+    close_started : unit Ivar.t
+  ; (* [producers_to_flush_at_close] holds all upstream producers feeding data to this
+       writer, and thus should be flushed when we close this writer, before flushing
+       the writer itself. *)
+    producers_to_flush_at_close : (unit -> unit Deferred.t) Bag.t
+  ; (* [flush_at_shutdown_elt] holds the element in [writers_to_flush_at_shutdown] for
+       this writer.  Being in that bag is what causes this writer to be automatically
+       closed when [shutdown] is called, and for shutdown to wait for the close to finish.
+       [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the
+       close finishes, at which point it transitions to[None]. *)
+    mutable flush_at_shutdown_elt : t Bag.Elt.t option
+  ; mutable check_buffer_age : t Check_buffer_age'.t Bag.Elt.t option
+  ; (* The "consumer" of a writer is whomever is reading the bytes that the writer
+       is writing.  E.g. if the writer's file descriptor is a socket, then it is whomever
+       is on the other side of the socket connection.  If the consumer leaves, Unix will
+       indicate this by returning EPIPE or ECONNRESET to a write() syscall.  We keep
+       track of this with the [consumer_left] ivar, which is exposed in writer.mli.
+       We also allow the user to configure what action the writer takes when the
+       consumer leaves.  By default, it raises, but that can be disabled. *)
+    consumer_left : unit Ivar.t
+  ; mutable raise_when_consumer_leaves : bool (* default is [true] *)
+  ; (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
+       created, and starts a deferred computation that calls [Unix.fcntl_getfl].
+       [open_flags] is used to report an error when [fd] is not writable.  [Fd] treats the
+       call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
+       completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
+       leak even though client code doesn't explicitly wait on [open_flags]. *)
+    open_flags : open_flags Deferred.t
+  ; line_ending : Line_ending.t
+  ; (* If specified, subsequent writes are synchronously redirected here. *)
+    mutable backing_out_channel : Backing_out_channel.t option
   }
 [@@deriving fields]
 

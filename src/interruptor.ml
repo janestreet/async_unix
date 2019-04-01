@@ -5,14 +5,13 @@ module Fd = Raw_fd
 let debug = Debug.interruptor
 
 type t =
-  { pipe :
-      Fd.t Read_write.t
-  (* [already_interrupted] keeps track of whether we've already interrupted since the
-     most recent call to [clear], and if so, avoid writing to the pipe again.
-     [already_interrupted] does not exactly track the state of [pipe].  It is possible
-     for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
-     property is that if [already_interrupted] is true then [pipe] is nonempty*)
-  ; mutable already_interrupted : bool
+  { pipe : Fd.t Read_write.t
+  ; (* [already_interrupted] keeps track of whether we've already interrupted since the
+       most recent call to [clear], and if so, avoid writing to the pipe again.
+       [already_interrupted] does not exactly track the state of [pipe].  It is possible
+       for [already_interrupted] to be false and for the [pipe] to be nonempty.  The key
+       property is that if [already_interrupted] is true then [pipe] is nonempty*)
+    mutable already_interrupted : bool
   ; clearbuffer : (Bytes.t[@sexp.opaque])
   }
 [@@deriving sexp_of]
