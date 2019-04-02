@@ -60,17 +60,25 @@ let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
 ;;
 
 let run ?priority ?thread ?(when_finished = `Best) ?name f =
-  let t = the_one_and_only ~should_lock:true in
-  if t.is_running
-  then run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f
-  else
-    (* We use [bind unit ...] to force calls to [run_no_exn] to wait until after the
-       scheduler is started.  We do this because [run_no_exn] will cause things to run in
-       other threads, and when a job is finished in another thread, it will try to acquire
-       the async lock and manipulate async datastructures.  This seems hard to think about
-       if async hasn't even started yet. *)
+  match !Raw_scheduler.the_one_and_only_ref with
+  | Initialized t
+    when t.is_running ->
+    run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f
+  | _ ->
+    (* We use [bind unit ...] to force calls to [run_after_scheduler_is_started] to wait
+       until after the scheduler is started.  We do this because
+       [run_after_scheduler_is_started] will cause things to run in other threads, and
+       when a job is finished in another thread, it will try to acquire the async lock and
+       manipulate async datastructures.  This seems hard to think about if async hasn't
+       even started yet. *)
     Deferred.bind (return ()) ~f:(fun () ->
-      run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f)
+      run_after_scheduler_is_started
+        ~priority
+        ~thread
+        ~when_finished
+        ~name
+        ~t:(Raw_scheduler.t ())
+        f)
 ;;
 
 module Helper_thread = struct
