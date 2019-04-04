@@ -376,31 +376,9 @@ let set_close_on_exec fd = Fd.with_file_descr_exn fd Unix.set_close_on_exec
 let clear_close_on_exec fd = Fd.with_file_descr_exn fd Unix.clear_close_on_exec
 
 let mkdir ?p ?(perm = 0o777) dirname =
-  let mkdir dirname =
-    In_thread.syscall_exn ~name:"mkdir" (fun () -> Unix.mkdir dirname ~perm)
-  in
   match p with
-  | None -> mkdir dirname
-  | Some () ->
-    let rec loop acc dirname =
-      match Filename.split dirname with
-      | ("." as base), "." -> base, acc
-      | ("/" as base), "/" -> base, acc
-      | rest, dir -> loop (dir :: acc) rest
-    in
-    (* if [dirname = "/a/b/c"], then [base = "/"] and [dirs = ["a"; "b"; "c"]] *)
-    let base, dirs = loop [] dirname in
-    let%map (_ : string) =
-      Deferred.List.fold dirs ~init:base ~f:(fun acc dir ->
-        let dir = String.concat [ acc; "/"; dir ] in
-        match%map Monitor.try_with (fun () -> mkdir dir) with
-        | Ok () -> dir
-        | Error e ->
-          (match Monitor.extract_exn e with
-           | Unix_error (EEXIST, _, _) -> dir
-           | _ -> raise e))
-    in
-    ()
+  | None -> In_thread.syscall_exn ~name:"mkdir" (fun () -> Unix.mkdir dirname ~perm)
+  | Some () -> In_thread.syscall_exn ~name:"mkdir" (fun () -> Unix.mkdir_p dirname ~perm)
 ;;
 
 let rmdir dirname = In_thread.syscall_exn ~name:"rmdir" (fun () -> Unix.rmdir dirname)

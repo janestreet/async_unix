@@ -85,6 +85,7 @@ type t =
     mutable have_lock_do_cycle : (unit -> unit) option (* configuration*)
   ; mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t
   ; mutable min_inter_cycle_timeout : Min_inter_cycle_timeout.t
+  ; initialized_at : Backtrace.t
   }
 [@@deriving fields, sexp_of]
 
@@ -265,6 +266,7 @@ let invariant t : unit =
              Time_ns.Span.( <= )
                (Min_inter_cycle_timeout.raw min_inter_cycle_timeout)
                (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout))))
+      ~initialized_at:ignore
   with
   | exn -> raise_s [%message "Scheduler.invariant failed" (exn : exn) ~scheduler:(t : t)]
 ;;
@@ -562,6 +564,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; have_lock_do_cycle = None
     ; max_inter_cycle_timeout = Config.max_inter_cycle_timeout
     ; min_inter_cycle_timeout = Config.min_inter_cycle_timeout
+    ; initialized_at = Backtrace.get ()
     }
   in
   t_ref := Some t;
@@ -948,8 +951,13 @@ let go_main
       ~main
       ()
   =
-  if not (is_ready_to_initialize ())
-  then raise_s [%message "Async was initialized prior to [Scheduler.go_main]"];
+  (match !the_one_and_only_ref with
+   | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+   | Initialized { initialized_at; _ } ->
+     raise_s
+       [%message
+         "Async was initialized prior to [Scheduler.go_main]"
+           (initialized_at : Backtrace.t)]);
   let max_num_open_file_descrs =
     Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
   in
@@ -1057,6 +1065,7 @@ let fold_fields (type a) ~init folder : a =
     ~have_lock_do_cycle:f
     ~max_inter_cycle_timeout:f
     ~min_inter_cycle_timeout:f
+    ~initialized_at:f
 ;;
 
 let handle_thread_pool_stuck f =
