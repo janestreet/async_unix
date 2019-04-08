@@ -1,4 +1,5 @@
 open Core
+open Poly
 module Syscall_result = Unix.Syscall_result
 
 let max_tries = 1000

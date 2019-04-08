@@ -1,4 +1,5 @@
 open! Core
+open Poly
 open! Async
 open! Thread_safe_pipe
 
