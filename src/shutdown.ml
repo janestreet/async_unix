@@ -18,6 +18,12 @@ let default_force () = !default_force_ref
 let set_default_force force = default_force_ref := force
 let shutting_down () = !shutting_down_ref
 
+let is_shutting_down () =
+  match shutting_down () with
+  | `No -> false
+  | `Yes _ -> true
+;;
+
 (* Be careful to ensure [shutdown] doesn't raise just because
    stderr is closed *)
 let ignore_exn f =
