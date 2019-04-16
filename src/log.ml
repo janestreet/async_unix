@@ -519,11 +519,18 @@ module Output : sig
   val stdout : ?format:Format.t -> unit -> t
   val stderr : ?format:Format.t -> unit -> t
   val writer : Format.t -> Writer.t -> t
-  val file : Format.t -> filename:string -> t
-  val rotating_file : Format.t -> basename:string -> Rotation.t -> t
+  val file : ?perm:Unix.file_perm -> Format.t -> filename:string -> t
+
+  val rotating_file
+    :  ?perm:Unix.file_perm
+    -> Format.t
+    -> basename:string
+    -> Rotation.t
+    -> t
 
   val rotating_file_with_tail
-    :  Format.t
+    :  ?perm:Unix.file_perm
+    -> Format.t
     -> basename:string
     -> Rotation.t
     -> t * string Tail.t
@@ -633,18 +640,18 @@ end = struct
     | `Text -> Message.write_write_only_text msg w
   ;;
 
-  let open_file filename =
+  let open_file ?perm filename =
     (* guard the open_file with a unit deferred to prevent any work from happening
        before async spins up.  Without this no real work will be done, but async will be
        initialized, which will raise if we later call Scheduler.go_main. *)
-    return () >>= fun () -> Writer.open_file ~append:true filename
+    return () >>= fun () -> Writer.open_file ~append:true filename ?perm
   ;;
 
-  let open_writer ~filename =
+  let open_writer ~filename ~perm =
     (* the lazy pushes evaluation to the first place we use it, which keeps writer
        creation errors within the error handlers for the log. *)
     lazy
-      (open_file filename
+      (open_file filename ?perm
        >>| fun w ->
        (* if we are writing to a slow device, or a temporarily disconnected
           device it's better to push back on memory in the hopes that the
@@ -666,10 +673,10 @@ end = struct
   ;;
 
   module File : sig
-    val create : Format.t -> filename:string -> t
+    val create : ?perm:Unix.file_perm -> Format.t -> filename:string -> t
   end = struct
-    let create format ~filename =
-      let w = open_writer ~filename in
+    let create ?perm format ~filename =
+      let w = open_writer ~filename ~perm in
       create
         ~close:(fun () -> if Lazy.is_val w then force w >>= Writer.close else return ())
         ~flush:(fun () -> if Lazy.is_val w then force w >>= Writer.flushed else return ())
@@ -694,7 +701,12 @@ end = struct
   end
 
   module Rotating_file : sig
-    val create : Format.t -> basename:string -> Rotation.t -> t * string Tail.t
+    val create
+      :  ?perm:Unix.file_perm
+      -> Format.t
+      -> basename:string
+      -> Rotation.t
+      -> t * string Tail.t
   end = struct
     module Make (Id : Rotation.Id_intf) = struct
       let make_filename ~dirname ~basename id =
@@ -760,6 +772,7 @@ end = struct
         ; mutable last_size : int
         ; mutable last_time : Time.t
         ; log_files : string Tail.t
+        ; perm : int option
         }
       [@@deriving sexp_of]
 
@@ -798,7 +811,7 @@ end = struct
         t.last_messages <- 0;
         t.last_time <- Time.now ();
         t.filename <- filename;
-        t.writer <- open_writer ~filename
+        t.writer <- open_writer ~filename ~perm:t.perm
       ;;
 
       let write t msgs =
@@ -819,7 +832,7 @@ end = struct
         t.last_time <- current_time
       ;;
 
-      let create format ~basename rotation =
+      let create ?perm format ~basename rotation =
         let basename, dirname =
           (* make dirname absolute, because cwd may change *)
           match Filename.is_absolute basename with
@@ -837,12 +850,13 @@ end = struct
           ; dirname
           ; rotation
           ; format
-          ; writer = open_writer ~filename
+          ; writer = open_writer ~filename ~perm
           ; filename
           ; last_size = 0
           ; last_messages = 0
           ; last_time = Time.now ()
           ; log_files
+          ; perm
           }
         in
         let first_rotate_scheduled = ref false in
@@ -925,20 +939,20 @@ end = struct
         ;;
       end)
 
-    let create format ~basename (rotation : Rotation.t) =
+    let create ?perm format ~basename (rotation : Rotation.t) =
       match rotation.naming_scheme with
-      | `Numbered -> Numbered.create format ~basename rotation
-      | `Timestamped -> Timestamped.create format ~basename rotation
-      | `Dated -> Dated.create format ~basename rotation
+      | `Numbered -> Numbered.create format ~basename rotation ?perm
+      | `Timestamped -> Timestamped.create format ~basename rotation ?perm
+      | `Dated -> Dated.create format ~basename rotation ?perm
       | `User_defined id ->
         let module Id = (val id : Rotation.Id_intf) in
         let module User_defined = Make (Id) in
-        User_defined.create format ~basename rotation
+        User_defined.create format ~basename rotation ?perm
     ;;
   end
 
-  let rotating_file format ~basename rotation =
-    fst (Rotating_file.create format ~basename rotation)
+  let rotating_file ?perm format ~basename rotation =
+    fst (Rotating_file.create format ~basename rotation ?perm)
   ;;
 
   let rotating_file_with_tail = Rotating_file.create

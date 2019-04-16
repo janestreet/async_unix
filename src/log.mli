@@ -198,13 +198,23 @@ module Output : sig
   val stderr : ?format:Format.t -> unit -> t
 
   val writer : Format.t -> Writer.t -> t
-  val file : Format.t -> filename:string -> t
-  val rotating_file : Format.t -> basename:string -> Rotation.t -> t
+
+  (** The [perm] argument is passed through to [Writer.open_file], and so has the default
+      behavior described there. *)
+  val file : ?perm:Unix.file_perm -> Format.t -> filename:string -> t
+
+  val rotating_file
+    :  ?perm:Unix.file_perm
+    -> Format.t
+    -> basename:string
+    -> Rotation.t
+    -> t
 
   (** Returns a tail of the filenames. When [rotate] is called, the previous filename is
       put on the tail *)
   val rotating_file_with_tail
-    :  Format.t
+    :  ?perm:Unix.file_perm
+    -> Format.t
     -> basename:string
     -> Rotation.t
     -> t * string Tail.t
