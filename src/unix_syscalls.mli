@@ -549,14 +549,14 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-[@@deriving bin_io, sexp]
+[@@deriving bin_io, compare, hash, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-[@@deriving bin_io, sexp]
+[@@deriving bin_io, compare, hash, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
