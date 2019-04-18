@@ -90,7 +90,11 @@ module Internal = struct
     }
   [@@deriving fields]
 
-  let sexp_of_t
+  let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
+
+  type t_internals = t
+
+  let sexp_of_t_internals
         { available
         ; buf = _
         ; close_finished
@@ -505,7 +509,7 @@ module Internal = struct
                      raise_s
                        [%message
                          "read_one_chunk_at_a_time got overflow in buffer len"
-                           ~reader:(t : t)];
+                           ~reader:(t : t_internals)];
                    (* Grow the internal buffer if needed. *)
                    if new_len > buf_len
                    then (
@@ -777,7 +781,7 @@ module Internal = struct
                     | Parsing_sexp_comment
                     | Parsing_block_comment )
                   , _ )) ->
-             raise_s [%message "Reader.read_sexp got unexpected eof" (t : t)])
+             raise_s [%message "Reader.read_sexp got unexpected eof" ~reader:(t : t)])
         | `Ok ->
           (match
              Or_error.try_with (fun () -> parse_fun ~pos:t.pos ~len:t.available t.buf)

@@ -135,7 +135,11 @@ type t =
   }
 [@@deriving fields]
 
-let sexp_of_t
+let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
+
+type t_internals = t
+
+let sexp_of_t_internals
       { id
       ; fd
       ; monitor
@@ -205,10 +209,6 @@ let sexp_of_t
     ; backing_out_channel : (Backing_out_channel.t option[@sexp.option])
     }]
 ;;
-
-type t_hum = t
-
-let sexp_of_t_hum t = [%sexp (t.fd : Fd.t_hum)]
 
 type writer = t [@@deriving sexp_of]
 
@@ -291,7 +291,8 @@ let invariant t : unit =
       ~line_ending:ignore
       ~backing_out_channel:(check (Option.invariant Backing_out_channel.invariant))
   with
-  | exn -> raise_s [%message "writer invariant failed" (exn : exn) ~writer:(t : t)]
+  | exn ->
+    raise_s [%message "writer invariant failed" (exn : exn) ~writer:(t : t_internals)]
 ;;
 
 module Check_buffer_age : sig
@@ -736,7 +737,7 @@ let create
          [%message
            "Writer error from inner_monitor"
              ~_:(Monitor.extract_exn exn : Exn.t)
-             ~writer:(t : t)]));
+             ~writer:(t : t_internals)]));
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
   t
@@ -756,8 +757,7 @@ let can_write t =
 ;;
 
 let ensure_can_write t =
-  if not (can_write t)
-  then raise_s [%message "attempt to use closed writer" ~_:(t : t_hum)]
+  if not (can_write t) then raise_s [%message "attempt to use closed writer" ~_:(t : t)]
 ;;
 
 let open_file ?(append = false) ?buf_len ?syscall ?(perm = 0o666) ?line_ending file =
