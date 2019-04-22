@@ -150,7 +150,8 @@ let post_check t check_result =
     | Ok `Timeout -> ()
     | Ok `Ok ->
       Epoll.iter_ready t.epoll ~f:t.handle_fd_write_ready;
-      Epoll.iter_ready t.epoll ~f:t.handle_fd_read_ready
+      Epoll.iter_ready t.epoll ~f:t.handle_fd_read_ready;
+      Epoll.Expert.clear_ready t.epoll
   with
   | exn ->
     raise_s
