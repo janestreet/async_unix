@@ -210,6 +210,7 @@ let collect_stdout_lines_and_wait_exn = map_collect collect_stdout_lines_and_wai
 
 type 'a run =
   ?accept_nonzero_exit:int list
+  -> ?argv0:string
   -> ?env:env
   -> ?stdin:string
   -> ?working_dir:string
@@ -218,14 +219,14 @@ type 'a run =
   -> unit
   -> 'a Deferred.t
 
-let run ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
-  match%bind create ?env ?stdin ?working_dir ~prog ~args () with
+let run ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () =
+  match%bind create ?argv0 ?env ?stdin ?working_dir ~prog ~args () with
   | Error _ as e -> return e
   | Ok t -> collect_stdout_and_wait ?accept_nonzero_exit t
 ;;
 
-let map_run run f ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
-  let%map a = run ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () in
+let map_run run f ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () =
+  let%map a = run ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () in
   f a
 ;;
 
@@ -233,8 +234,17 @@ let run_exn = map_run run ok_exn
 let run_lines = map_run run (Or_error.map ~f:String.split_lines)
 let run_lines_exn = map_run run_lines ok_exn
 
-let run_expect_no_output ?accept_nonzero_exit ?env ?stdin ?working_dir ~prog ~args () =
-  match%map run ?accept_nonzero_exit ?env ?working_dir ?stdin ~prog ~args () with
+let run_expect_no_output
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  =
+  match%map run ?accept_nonzero_exit ?argv0 ?env ?working_dir ?stdin ~prog ~args () with
   | Error _ as err -> err
   | Ok "" -> Ok ()
   | Ok non_empty_output ->

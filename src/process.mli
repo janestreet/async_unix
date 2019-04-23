@@ -106,6 +106,7 @@ val collect_output_and_wait : t -> Output.t Deferred.t
     returns an error if the command does produce output. *)
 type 'a run =
   ?accept_nonzero_exit:int list (** default is [] *)
+  -> ?argv0:string
   -> ?env:env (** default is [`Extend []] *)
   -> ?stdin:string
   -> ?working_dir:string
