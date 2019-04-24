@@ -138,31 +138,31 @@ include struct
   end
 
   module Sexp : sig
-    include module type of struct
+  include module type of struct
     include Sexp
   end
 
 
-    val save : ?perm:int -> string -> t -> unit
-    [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking."]
+  val save : ?perm:int -> string -> t -> unit
+  [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking."]
 
-    val save_hum : ?perm:int -> string -> t -> unit
-    [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:true to avoid blocking."]
+  val save_hum : ?perm:int -> string -> t -> unit
+  [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:true to avoid blocking."]
 
-    val save_mach : ?perm:int -> string -> t -> unit
-    [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking."]
+  val save_mach : ?perm:int -> string -> t -> unit
+  [@@deprecated "[since 2015-12] Use Writer.save_sexp ~hum:false to avoid blocking."]
 
-    val save_sexps : ?perm:int -> string -> t list -> unit
-    [@@deprecated
-      "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking."]
+  val save_sexps : ?perm:int -> string -> t list -> unit
+  [@@deprecated
+    "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking."]
 
-    val save_sexps_hum : ?perm:int -> string -> t list -> unit
-    [@@deprecated "[since 2015-12] Use Writer.save_sexps ~hum:true to avoid blocking."]
+  val save_sexps_hum : ?perm:int -> string -> t list -> unit
+  [@@deprecated "[since 2015-12] Use Writer.save_sexps ~hum:true to avoid blocking."]
 
-    val save_sexps_mach : ?perm:int -> string -> t list -> unit
-    [@@deprecated
-      "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking."]
-  end =
+  val save_sexps_mach : ?perm:int -> string -> t list -> unit
+  [@@deprecated
+    "[since 2015-12] Use Writer.save_sexps ~hum:false to avoid blocking."]
+end =
     Sexp
 end
 

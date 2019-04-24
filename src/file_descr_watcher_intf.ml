@@ -24,10 +24,10 @@ module Timeout = struct
   let variant_of : type a. a t -> a -> [`Never | `Immediately | `After of Time_ns.Span.t]
     =
     fun t span_or_unit ->
-      match t with
-      | Never -> `Never
-      | Immediately -> `Immediately
-      | After -> `After (span_or_unit : Time_ns.Span.t)
+    match t with
+    | Never -> `Never
+    | Immediately -> `Immediately
+    | After -> `After (span_or_unit : Time_ns.Span.t)
   ;;
 end
 

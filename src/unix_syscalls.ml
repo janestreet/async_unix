@@ -516,9 +516,9 @@ end = struct
 
     let wait_nohang : type a. a t -> wait_on -> (Pid.t * a) option =
       fun t wait_on ->
-        match t with
-        | Normal -> wait_nohang wait_on
-        | Untraced -> wait_nohang_untraced wait_on
+      match t with
+      | Normal -> wait_nohang wait_on
+      | Untraced -> wait_nohang_untraced wait_on
     ;;
   end
 
@@ -529,7 +529,7 @@ end = struct
           ; result : (Pid.t * 'a, exn) Result.t Ivar.t
           ; wait_on : wait_on
           }
-        -> t
+          -> t
     [@@deriving sexp_of]
 
     let check (T t) =
@@ -712,7 +712,7 @@ module Socket = struct
       ; sexp_of_address : 'address -> Sexp.t
       }
       constraint 'address = [< Address.t]
-      [@@deriving fields]
+    [@@deriving fields]
 
     let sexp_of_t _ { address_of_sockaddr_exn = _; family; sexp_of_address = _ } =
       [%sexp (family : Unix.socket_domain)]
@@ -761,7 +761,7 @@ module Socket = struct
   [@@deriving sexp_of]
 
   type (+'a, 'b) t = 'b t_ constraint 'a = [< `Unconnected | `Bound | `Passive | `Active]
-    [@@deriving sexp_of]
+  [@@deriving sexp_of]
 
   let fd t = t.fd
   let of_fd fd type_ = { type_; fd }

@@ -111,7 +111,7 @@ end
 (** A [Where_to_listen] describes the socket that a tcp server should listen on. *)
 module Where_to_listen : sig
   type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t]
-    [@@deriving sexp_of]
+  [@@deriving sexp_of]
 
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]
@@ -140,7 +140,7 @@ end
 (** A [Server.t] represents a TCP server listening on a socket. *)
 module Server : sig
   type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t]
-    [@@deriving sexp_of]
+  [@@deriving sexp_of]
 
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]

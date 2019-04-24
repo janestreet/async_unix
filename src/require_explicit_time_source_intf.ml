@@ -17,31 +17,31 @@ module type Require_explicit_time_source = sig
   (** We shadow [Time_ns] and [Scheduler] from [Async_kernel] because the local versions
       have a different interface.  *)
   include
-  module type of struct
-    include From_kernel
-  end
+    module type of struct
+      include From_kernel
+    end
     with module Time_ns := From_kernel.Time_ns
 
   module Scheduler : sig
     include module type of struct
-    include Scheduler
-  end
+      include Scheduler
+    end
 
     val cycle_start : unit -> Time.t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
   module Time : sig
     include module type of struct
-    include Time
-  end
+      include Time
+    end
 
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
   module Time_ns : sig
     include module type of struct
-    include Time_ns
-  end
+      include Time_ns
+    end
 
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end

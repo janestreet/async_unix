@@ -5,7 +5,7 @@ open! Import
 (** To discourage use of the [Signal.Expert] module, we hide it here.  People can use
     [Core.Signal.Expert] if they need. *)
 include
-module type of Core.Signal
+  module type of Core.Signal
   with type t = Core.Signal.t
   with module Expert := Core.Signal.Expert
 

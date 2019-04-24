@@ -289,8 +289,8 @@ val waitpid_exn : Pid.t -> unit Deferred.t
 
 module Inet_addr : sig
   include module type of struct
-  include Unix.Inet_addr
-end
+    include Unix.Inet_addr
+  end
 
   (** [of_string_or_getbyname hostname] does a DNS lookup of hostname and returns the
       resulting IP address. *)
@@ -392,7 +392,7 @@ module Socket : sig
     constraint
       'b =
       [< Address.t]
-    [@@deriving sexp_of]
+  [@@deriving sexp_of]
 
   module Type : sig
     type 'a t constraint 'a = [< Address.t] [@@deriving sexp_of]
