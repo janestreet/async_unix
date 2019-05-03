@@ -540,7 +540,10 @@ val surroundf
 
 (** [would_log] returns true if a message at the given log level would be logged if sent
     immediately. *)
-val would_log : t -> Level.t option -> bool
+val would_log
+  :  t
+  -> Level.t option
+  -> bool
 
 module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors

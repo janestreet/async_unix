@@ -1,4 +1,5 @@
-# Async_unix
+"Async_unix"
+============
 
 Async_unix includes Unix-related dependencies for things like system calls and
 threads. Using these, it hooks the Async_kernel scheduler up to either `epoll`
