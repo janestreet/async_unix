@@ -36,6 +36,33 @@ end
     then waits for pushback on [p]. *)
 val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 
+(** [When_finished] describes how [In_thread.run f] behaves when the helper thread
+    finishes [f ()]. *)
+module When_finished : sig
+  type t =
+    | Notify_the_scheduler
+    (** The helper thread notifies the Async scheduler that the result is ready, so that
+        the scheduler will wake up in a timely manner and run a cycle. *)
+    | Take_the_async_lock
+    (** The helper thread blocks until it can acquire the Async lock, at which point it
+        runs a cycle. *)
+    | Try_to_take_the_async_lock
+    (** If the [thread_pool_cpu_affinity] is [Inherit], then the helper hread tries to
+        take the Async lock and run a cycle.  If the [thread_pool_cpu_affinity] is
+        [Cpuset] or the helper thread is unable to acquire the Async lock, then it
+        behaves as in [Notify_the_scheduler]. *)
+  [@@deriving enumerate, sexp_of]
+
+  (** [default] defines the default value used for [In_thread.run]'s [?when_finished]
+      argument.  Changes to [default] affect subsequent calls to [In_thread.run].
+      Initially, [default = Try_to_take_the_async_lock], which typically leads to better
+      latency by avoiding an extra context switch to pass the result to the Async
+      scheduler thread.  However, there are applications (e.g. jenga) where
+      [Notify_the_scheduler] leads to significantly higher throughput by greatly
+      decreasing the total number of Async cycles. *)
+  val default : t ref
+end
+
 (** [run ?priority ?thread ?name f] runs [f ()] in a separate thread outside Async and
     returns the result as a Deferred in the Async world.  If [f ()] raises an exception
     (asynchronously, since it is another thread) then that exception will be raised to the
@@ -72,19 +99,12 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
     If [name] is supplied, the name of the thread will be set to it for the duration of
     the execution of [f ()].
 
-    [when_finished] describes how the helper thread behaves once [f ()] has completed:
-    - with [`Take_the_lock] it takes the Async lock and runs a cycle immediately
-    - with [`Notify_the_scheduler] it just notifies the scheduler that the result is ready
-    - with [`Best] it tries to take the lock and run a cycle, but will fallback to
-      [`Notify_the_scheduler] method if the Async lock is already held by someone else
-      or the thread is considered unsuitable for running async jobs (e.g. if
-      [thread_pool_cpu_affinity] is used).
-      The default is [`Best], and one shouldn't need to change it -- it is useful only
-      for unit testing. *)
+    [when_finished] describes how the helper thread behaves once [f ()] has completed.
+    Its default value is the value of {!When_finished.default} when [run] is called. *)
 val run
   :  ?priority:Priority.t
   -> ?thread:Helper_thread.t
-  -> ?when_finished:[`Take_the_async_lock | `Notify_the_scheduler | `Best]
+  -> ?when_finished:When_finished.t
   -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t

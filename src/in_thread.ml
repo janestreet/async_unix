@@ -3,18 +3,35 @@ open Import
 open Raw_scheduler
 module Priority = Linux_ext.Priority
 
-let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
+module When_finished = struct
+  type t =
+    | Notify_the_scheduler
+    | Take_the_async_lock
+    | Try_to_take_the_async_lock
+  [@@deriving enumerate, sexp_of]
+
+  let default = ref Try_to_take_the_async_lock
+end
+
+let run_after_scheduler_is_started
+      ~priority
+      ~thread
+      ~(when_finished : When_finished.t)
+      ~name
+      ~t
+      f
+  =
   let ivar = Ivar.create () in
   let doit () =
     (* At this point, we are in a thread-pool thread, not the async thread. *)
     let result = Result.try_with f in
     let locked =
       match when_finished with
-      | `Take_the_async_lock ->
+      | Take_the_async_lock ->
         lock t;
         true
-      | `Notify_the_scheduler -> false
-      | `Best ->
+      | Notify_the_scheduler -> false
+      | Try_to_take_the_async_lock ->
         (match thread_pool_cpu_affinity t with
          | Inherit -> try_lock t
          | Cpuset _ ->
@@ -59,7 +76,7 @@ let run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f =
   Ivar.read ivar >>| Result.ok_exn
 ;;
 
-let run ?priority ?thread ?(when_finished = `Best) ?name f =
+let run ?priority ?thread ?(when_finished = !When_finished.default) ?name f =
   match !Raw_scheduler.the_one_and_only_ref with
   | Initialized t
     when t.is_running ->
