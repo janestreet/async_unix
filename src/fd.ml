@@ -298,20 +298,22 @@ let file_descr_exn t =
 
 let to_int_exn t = File_descr.to_int (file_descr_exn t)
 
-let replace t kind info =
-  if is_closed t
-  then
-    raise_s
-      [%message
-        "Fd.replace got closed fd"
-          ~fd:(t : t)
-          (kind : Kind.t)
-          ~scheduler:(the_one_and_only () : Scheduler.t)]
-  else (
-    t.kind <- kind;
-    t.info
-    <- Info.create
-         "replaced"
-         (info, `previously_was t.info)
-         [%sexp_of: Info.t * [`previously_was of Info.t]])
-;;
+module Private = struct
+  let replace t kind info =
+    if is_closed t
+    then
+      raise_s
+        [%message
+          "Fd.replace got closed fd"
+            ~fd:(t : t)
+            (kind : Kind.t)
+            ~scheduler:(the_one_and_only () : Scheduler.t)]
+    else (
+      t.kind <- kind;
+      t.info
+      <- Info.create
+           "replaced"
+           (info, `previously_was t.info)
+           [%sexp_of: Info.t * [`previously_was of Info.t]])
+  ;;
+end

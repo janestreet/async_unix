@@ -297,6 +297,10 @@ val file_descr_exn : t -> Unix.File_descr.t
     caveats as [file_descr_exn]. *)
 val to_int_exn : t -> int
 
-(** [replace t kind] is for internal use only, by [Unix_syscalls].  It is used when one
-    wants to reuse a file descriptor in an fd with a new kind. *)
-val replace : t -> Kind.t -> Info.t -> unit
+(**/**)
+
+module Private : sig
+  (** [replace t kind] is for internal use only, by [Unix_syscalls].  It is used when one
+      wants to reuse a file descriptor in an fd with a new kind. *)
+  val replace : t -> Kind.t -> Info.t -> unit
+end

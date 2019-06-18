@@ -852,7 +852,7 @@ module Socket = struct
         (let sexp_of_address = sexp_of_address t in
          [%sexp_of: [`bound_on of address]])
     in
-    Fd.replace t.fd (Socket `Bound) info
+    Fd.Private.replace t.fd (Socket `Bound) info
   ;;
 
   let bind ?(reuseaddr = true) t address =
@@ -879,7 +879,7 @@ module Socket = struct
   let listen ?(backlog = 64) t =
     let fd = t.fd in
     Fd.syscall_exn fd (fun file_descr -> Unix.listen file_descr ~backlog);
-    Fd.replace fd (Socket `Passive) (Info.of_string "listening");
+    Fd.Private.replace fd (Socket `Passive) (Info.of_string "listening");
     t
   ;;
 
@@ -992,7 +992,7 @@ module Socket = struct
     let success () =
       let sexp_of_address = sexp_of_address t in
       let info = Info.create "connected to" address [%sexp_of: address] in
-      Fd.replace t.fd (Fd.Kind.Socket `Active) info;
+      Fd.Private.replace t.fd (Fd.Kind.Socket `Active) info;
       `Ok t
     in
     let fail_closed () = raise_s [%message "connect on closed fd" ~_:(t.fd : Fd.t)] in
