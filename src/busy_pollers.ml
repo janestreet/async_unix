@@ -6,7 +6,7 @@ module Poller = struct
     type 'a t =
       { execution_context : Execution_context.t
       ; result : 'a Ivar.t
-      ; poll : unit -> [`Stop_polling of 'a | `Continue_polling]
+      ; poll : unit -> [ `Stop_polling of 'a | `Continue_polling ]
       ; mutable is_alive : bool
       }
     [@@deriving fields, sexp_of]

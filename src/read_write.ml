@@ -3,7 +3,8 @@ open Core
 module Key = struct
   type t =
     [ `Read
-    | `Write ]
+    | `Write
+    ]
   [@@deriving sexp]
 
   let flip = function

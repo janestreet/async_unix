@@ -62,7 +62,7 @@ let create
            ~here:[%here]
            (name, `pid pid, `prog prog, `args args)
            [%sexp_of:
-             string * [`pid of Pid.t] * [`prog of string] * [`args of string list]])
+             string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]])
     in
     let stdin =
       let fd = create_fd "stdin" stdin in
@@ -153,11 +153,8 @@ let collect_output_and_wait t =
 
 module Failure = struct
   let should_drop_env = function
-    | `Extend []
-    | `Override [] -> true
-    | `Extend (_ :: _)
-    | `Override (_ :: _)
-    | `Replace _ | `Replace_raw _ -> false
+    | `Extend [] | `Override [] -> true
+    | `Extend (_ :: _) | `Override (_ :: _) | `Replace _ | `Replace_raw _ -> false
   ;;
 
   type t =
@@ -178,8 +175,8 @@ let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
   let%map { stdout; stderr; exit_status } = collect_output_and_wait t in
   match exit_status with
   | Ok () -> Ok stdout
-  | Error (`Exit_non_zero n)
-    when List.mem accept_nonzero_exit n ~equal:Int.equal -> Ok stdout
+  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n ~equal:Int.equal ->
+    Ok stdout
   | Error exit_status ->
     let { prog; args; working_dir; env; _ } = t in
     Or_error.error

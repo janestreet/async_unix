@@ -8,7 +8,8 @@ module Read_result = struct
   module Z = struct
     type 'a t =
       [ `Ok of 'a
-      | `Eof ]
+      | `Eof
+      ]
     [@@deriving bin_io, sexp]
 
     let bind a ~f =
@@ -39,7 +40,8 @@ module Internal = struct
     type t =
       [ `Not_in_use
       | `In_use
-      | `Closed ]
+      | `Closed
+      ]
     [@@deriving sexp]
   end
 
@@ -48,7 +50,8 @@ module Internal = struct
   type open_flags =
     [ `Already_closed
     | `Ok of Open_flags.t
-    | `Error of exn ]
+    | `Error of exn
+    ]
   [@@deriving sexp_of]
 
   type t =
@@ -69,7 +72,7 @@ module Internal = struct
          [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
          to client code, which may in turn hold on to it (e.g. via
          [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
-      mutable close_may_destroy_buf : [`Yes | `Not_now | `Not_ever]
+      mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
     ; (* [pos] is the first byte of data in [buf] to b be read by user code. *)
       mutable pos : int
     ; (* [available] is how many bytes in [buf] are available to be read by user code. *)
@@ -117,7 +120,7 @@ module Internal = struct
           (open_flags |> unless_testing : (open_flags Deferred.t option[@sexp.option]))
       ; last_read_time =
           (last_read_time |> unless_testing : (Time.t option[@sexp.option]))
-      ; close_may_destroy_buf : [`Yes | `Not_now | `Not_ever]
+      ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
       ; close_finished : unit Ivar.t
       ; fd = (fd |> unless_testing : (Fd.t option[@sexp.option]))
       }]
@@ -219,15 +222,14 @@ module Internal = struct
 
   (* [get_data t] attempts to read data into [t.buf].  If the read gets data, [get_data]
      returns [`Ok], otherwise it returns [`Eof]. *)
-  let get_data t : [`Ok | `Eof] Deferred.t =
+  let get_data t : [ `Ok | `Eof ] Deferred.t =
     Deferred.create (fun result ->
       t.open_flags
       >>> fun open_flags ->
       let eof () = Ivar.fill result `Eof in
       match t.state, open_flags with
       | `Not_in_use, _ -> assert false
-      | `Closed, _
-      | _, `Already_closed -> eof ()
+      | `Closed, _ | _, `Already_closed -> eof ()
       | `In_use, ((`Error _ | `Ok _) as open_flags) ->
         let can_read_fd =
           match open_flags with
@@ -266,8 +268,7 @@ module Internal = struct
                    | EPIPE
                    | ETIMEDOUT )
                  , _
-                 , _ ) ->
-               eof ()
+                 , _ ) -> eof ()
              | Unix.Unix_error (EBADF, _, _) -> ebadf ()
              | _ -> handle exn)
           | `Ok (bytes_read, read_time) ->
@@ -388,7 +389,7 @@ module Internal = struct
      If no data can be read, then [with_nonempty_buffer] returns [f `Eof].
      [with_nonempty_buffer] must be called with [t.state] as [`Closed] or [`In_use].  It
      guarantees that if [f `Ok] is called, that [t.state = `In_use]. *)
-  let with_nonempty_buffer (type a) t (f : [`Ok | `Eof] -> a) : a Deferred.t =
+  let with_nonempty_buffer (type a) t (f : [ `Ok | `Eof ] -> a) : a Deferred.t =
     match t.state with
     | `Not_in_use -> assert false
     | `Closed -> return (f `Eof)
@@ -408,12 +409,13 @@ module Internal = struct
 
      With [force_refill = true], [with_nonempty_buffer'] will do a read, whether or not
      there is already data available in [t.buf]. *)
-  let with_nonempty_buffer' ?(force_refill = false) t (f : [`Ok | `Eof] -> unit) : unit =
+  let with_nonempty_buffer' ?(force_refill = false) t (f : [ `Ok | `Eof ] -> unit) : unit
+    =
     match t.state with
     | `Not_in_use -> assert false
     | `Closed -> f `Eof
     | `In_use ->
-      if not force_refill && t.available > 0
+      if (not force_refill) && t.available > 0
       then f `Ok
       else
         get_data t
@@ -434,16 +436,18 @@ module Internal = struct
     [ `Stop of 'a
     | `Stop_consumed of 'a * int
     | `Continue
-    | `Consumed of int * [`Need of int | `Need_unknown] ]
+    | `Consumed of int * [ `Need of int | `Need_unknown ]
+    ]
   [@@deriving sexp_of]
 
   type 'a read_one_chunk_at_a_time_result =
     [ `Eof
     | `Stopped of 'a
-    | `Eof_with_unconsumed_data of string ]
+    | `Eof_with_unconsumed_data of string
+    ]
   [@@deriving sexp_of]
 
-  type consumed = [`Consumed of int * [`Need of int | `Need_unknown]]
+  type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ]
   [@@deriving sexp_of]
 
   let read_one_chunk_at_a_time t ~handle_chunk =
@@ -536,7 +540,8 @@ module Internal = struct
 
   type 'a handle_iobuf_result =
     [ `Stop of 'a
-    | `Continue ]
+    | `Continue
+    ]
   [@@deriving sexp_of]
 
   let read_one_iobuf_at_a_time t ~handle_chunk =
@@ -648,7 +653,7 @@ module Internal = struct
     match p with
     | `Pred p ->
       let rec loop pos =
-        if pos = limit then None else if p (buf.{pos}) then Some pos else loop (pos + 1)
+        if pos = limit then None else if p buf.{pos} then Some pos else loop (pos + 1)
       in
       (* [p] is supplied by the user and may raise, so we wrap [loop] in a [try_with].  We
          put the [try_with] here rather than around the call to [p] to avoid per-character
@@ -688,8 +693,7 @@ module Internal = struct
              t.pos <- 0;
              t.available <- 0;
              (match max with
-              | Some max
-                when total > max ->
+              | Some max when total > max ->
                 let s = concat_helper ss ac in
                 k (Ok (`Max_exceeded s))
               | Some _ | None -> loop (ss :: ac) total)
@@ -715,7 +719,8 @@ module Internal = struct
 
   let read_line_gen t k =
     read_until t line_delimiter_pred ~keep_delim:false (function
-      | Error _ -> (* Impossible, since we supplied a [`Char] predicate. *)
+      | Error _ ->
+        (* Impossible, since we supplied a [`Char] predicate. *)
         assert false
       | Ok ((`Eof | `Eof_without_delim _) as x) -> k x
       | Ok (`Ok line) ->
@@ -899,17 +904,18 @@ module Internal = struct
                  | `In_use ->
                    let pos = t.pos + Bin_prot.Utils.size_header_length in
                    pos_ref := pos;
-                   (match
-                      Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
-                    with
-                    | Error _ as e -> k e
-                    | Ok v ->
-                      if !pos_ref - pos <> len
-                      then error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ();
-                      (match peek_or_read with
-                       | Peek -> ()
-                       | Read -> consume t need);
-                      k (Ok (`Ok v)))))))
+                   (
+                     match
+                       Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
+                     with
+                     | Error _ as e -> k e
+                     | Ok v ->
+                       if !pos_ref - pos <> len
+                       then error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ();
+                       (match peek_or_read with
+                        | Peek -> ()
+                        | Read -> consume t need);
+                       k (Ok (`Ok v)))))))
   ;;
 
   let read_marshal_raw t =
@@ -1110,7 +1116,8 @@ let do_read_k
       t
       (read_k : (r Or_error.t -> unit) -> unit)
       (make_result : r -> r')
-  : r' Deferred.t =
+  : r' Deferred.t
+  =
   use t;
   Deferred.create (fun result ->
     read_k (fun r ->
@@ -1200,11 +1207,11 @@ let get_error
   =
   try
     ignore
-      ( a_of_sexp
-          (match sexp_kind with
-           | Plain -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
-           | Annotated -> (annotated_sexp : sexp))
-        : a );
+      (a_of_sexp
+         (match sexp_kind with
+          | Plain -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
+          | Annotated -> (annotated_sexp : sexp))
+       : a);
     Ok ()
   with
   | exn ->
@@ -1235,15 +1242,16 @@ let gen_load_exn
       ~file
       (convert : sexp list -> a)
       (get_error : Sexp.Annotated.t list -> Error.t)
-  : a Deferred.t =
+  : a Deferred.t
+  =
   let may_load_file_multiple_times = ref false in
   let load ~sexp_kind =
     match%map
       Monitor.try_with ~extract_exn:true (fun () ->
         with_file ?exclusive file ~f:(fun t ->
-          (may_load_file_multiple_times :=
-             (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
-                kinds.  We can only load it multiple times if it has kind [File]. *)
+          (may_load_file_multiple_times
+           := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+                 kinds.  We can only load it multiple times if it has kind [File]. *)
              match Fd.kind (fd t) with
              | File -> true
              | Char | Fifo | Socket _ -> false);
@@ -1258,8 +1266,7 @@ let gen_load_exn
             readable. *)
          let parse_pos =
            match parse_state with
-           | `Sexp { parse_pos; _ }
-           | `Annot { parse_pos; _ } -> parse_pos
+           | `Sexp { parse_pos; _ } | `Annot { parse_pos; _ } -> parse_pos
          in
          Error.raise
            (Error.create

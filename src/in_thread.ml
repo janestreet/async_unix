@@ -63,8 +63,8 @@ let run_after_scheduler_is_started
          [%message
            "Async's thread pool was unable to create a single thread"
              ~_:
-               ( Thread_pool.last_thread_creation_failure t.thread_pool
-                 : (Sexp.t option[@sexp.option]) )]
+               (Thread_pool.last_thread_creation_failure t.thread_pool
+                : (Sexp.t option[@sexp.option]))]
    | Some helper_thread ->
      ok_exn
        (Thread_pool.add_work_for_helper_thread
@@ -78,8 +78,7 @@ let run_after_scheduler_is_started
 
 let run ?priority ?thread ?(when_finished = !When_finished.default) ?name f =
   match !Raw_scheduler.the_one_and_only_ref with
-  | Initialized t
-    when t.is_running ->
+  | Initialized t when t.is_running ->
     run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f
   | _ ->
     (* We use [bind unit ...] to force calls to [run_after_scheduler_is_started] to wait

@@ -9,7 +9,7 @@ open! Unix_syscalls
 
 (** A [Where_to_connect] describes the socket that a tcp client should connect to. *)
 module Where_to_connect : sig
-  type 'a t constraint 'a = [< Socket.Address.t] [@@deriving sexp_of]
+  type 'a t constraint 'a = [< Socket.Address.t ] [@@deriving sexp_of]
   type inet = Socket.Address.Inet.t t [@@deriving sexp_of]
   type unix = Socket.Address.Unix.t t [@@deriving sexp_of]
 
@@ -36,12 +36,13 @@ module Where_to_connect : sig
 end
 
 type 'a with_connect_options =
-  ?buffer_age_limit:[`At_most of Time.Span.t | `Unlimited]
+  ?buffer_age_limit:[ `At_most of Time.Span.t | `Unlimited ]
   -> ?interrupt:unit Deferred.t
   -> ?reader_buffer_size:int
   -> ?writer_buffer_size:int
   -> ?timeout:Time.Span.t
   -> 'a
+
 
 (** [with_connection where_to_connect f] looks up [where_to_connect] (using DNS
     as needed), connects, then calls [f], passing the connected socket and
@@ -57,21 +58,22 @@ type 'a with_connect_options =
     It is fine for [f] to ignore the supplied socket and just use the reader
     and writer. The socket is there to make it convenient to call [Socket]
     functions. *)
-val with_connection :
-  ('addr Where_to_connect.t
-   -> (([`Active], 'addr) Socket.t -> Reader.t -> Writer.t -> 'a Deferred.t)
-   -> 'a Deferred.t)
-    with_connect_options
+val with_connection
+  : ('addr Where_to_connect.t
+     -> (([ `Active ], 'addr) Socket.t -> Reader.t -> Writer.t -> 'a Deferred.t)
+     -> 'a Deferred.t)
+      with_connect_options
 
 (** [connect_sock where_to_connect] creates a socket and opens a TCP connection.  To use
     an existing socket, supply [~socket].  Any errors in the connection will be reported
     to the monitor that was current when [connect_sock] was called. *)
 val connect_sock
-  :  ?socket:([`Unconnected], 'addr) Socket.t
+  :  ?socket:([ `Unconnected ], 'addr) Socket.t
   -> ?interrupt:unit Deferred.t
   -> ?timeout:Time.Span.t
   -> 'addr Where_to_connect.t
-  -> ([`Active], 'addr) Socket.t Deferred.t
+  -> ([ `Active ], 'addr) Socket.t Deferred.t
+
 
 (** [connect where_to_connect] is a convenience wrapper around [connect_sock]
     that returns the socket, and a reader and writer for the socket.  The
@@ -88,16 +90,16 @@ val connect_sock
     writer. The socket is there to make it convenient to call [Socket]
     functions. *)
 val connect
-  :  ?socket:([`Unconnected], 'addr) Socket.t
+  :  ?socket:([ `Unconnected ], 'addr) Socket.t
   -> ('addr Where_to_connect.t
-      -> (([`Active], 'addr) Socket.t * Reader.t * Writer.t) Deferred.t)
+      -> (([ `Active ], 'addr) Socket.t * Reader.t * Writer.t) Deferred.t)
        with_connect_options
 
 module Bind_to_address : sig
   type t =
     | Address of Unix.Inet_addr.t
     | All_addresses
-    | Localhost  (** equivalent to [Address Unix.Inet_addr.localhost] *)
+    | Localhost (** equivalent to [Address Unix.Inet_addr.localhost] *)
   [@@deriving sexp_of]
 end
 
@@ -110,7 +112,7 @@ end
 
 (** A [Where_to_listen] describes the socket that a tcp server should listen on. *)
 module Where_to_listen : sig
-  type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t]
+  type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t ]
   [@@deriving sexp_of]
 
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
@@ -139,7 +141,7 @@ end
 
 (** A [Server.t] represents a TCP server listening on a socket. *)
 module Server : sig
-  type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t]
+  type ('address, 'listening_on) t constraint 'address = [< Socket.Address.t ]
   [@@deriving sexp_of]
 
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
@@ -179,6 +181,7 @@ module Server : sig
       is determined. *)
   val close_finished_and_handlers_determined : (_, _) t -> unit Deferred.t
 
+
   (** Options for server creation:
 
       [backlog] is the number of clients that can have a connection pending, as with
@@ -210,8 +213,8 @@ module Server : sig
     ?max_connections:int (** default is [10_000] *)
     -> ?max_accepts_per_batch:int (** default is [1] *)
     -> ?backlog:int (** default is [64] *)
-    -> ?socket:([`Unconnected], 'address) Socket.t
-    -> on_handler_error:[`Raise | `Ignore | `Call of 'address -> exn -> unit]
+    -> ?socket:([ `Unconnected ], 'address) Socket.t
+    -> on_handler_error:[ `Raise | `Ignore | `Call of 'address -> exn -> unit ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> 'callback
     -> ('address, 'listening_on) t Deferred.t
@@ -225,11 +228,11 @@ module Server : sig
       The server will stop accepting and close the listening socket when an error handler
       raises (either via [`Raise] or [`Call f] where [f] raises), or if [close] is
       called. *)
-  val create_sock :
-    ( 'address
-    , 'listening_on
-    , 'address -> ([`Active], 'address) Socket.t -> unit Deferred.t )
-      create_options
+  val create_sock
+    : ( 'address
+      , 'listening_on
+      , 'address -> ([ `Active ], 'address) Socket.t -> unit Deferred.t )
+        create_options
 
   (** [create where_to_listen handler] is a convenience wrapper around [create_sock] that
       pass a reader and writer for the client socket to the callback.  If the deferred
@@ -248,7 +251,7 @@ module Server : sig
       An anticipated use is with {!Async_udp.bind_to_interface_exn}.  Accepting
       connections on the socket directly will circumvent [max_connections] and
       [on_handler_error], however, and is not recommended. *)
-  val listening_socket : ('address, _) t -> ([`Passive], 'address) Socket.t
+  val listening_socket : ('address, _) t -> ([ `Passive ], 'address) Socket.t
 
   val num_connections : (_, _) t -> int
 

@@ -59,7 +59,7 @@ val set_default_force : (unit -> unit Deferred.t) -> unit
 
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
     what status. *)
-val shutting_down : unit -> [`No | `Yes of int]
+val shutting_down : unit -> [ `No | `Yes of int ]
 
 val is_shutting_down : unit -> bool
 

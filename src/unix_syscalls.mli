@@ -49,7 +49,8 @@ type open_flag =
   | `Noctty
   | `Dsync
   | `Sync
-  | `Rsync ]
+  | `Rsync
+  ]
 
 type file_perm = int
 
@@ -60,7 +61,7 @@ val openfile : ?perm:file_perm -> string -> mode:open_flag list -> Fd.t Deferred
     descriptor and returns the result of [f].  If [exclusive] is supplied, then the file
     descriptor is locked before calling [f] and unlocked after calling [f]. *)
 val with_file
-  :  ?exclusive:[`Read | `Write]
+  :  ?exclusive:[ `Read | `Write ]
   -> ?perm:file_perm
   -> string
   -> mode:open_flag list
@@ -77,7 +78,7 @@ val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
 
 include module type of Fd.Close
 
-val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End] -> int64 Deferred.t
+val lseek : Fd.t -> int64 -> mode:[< `Set | `Cur | `End ] -> int64 Deferred.t
 val truncate : string -> len:int64 -> unit Deferred.t
 val ftruncate : Fd.t -> len:int64 -> unit Deferred.t
 val fsync : Fd.t -> unit Deferred.t
@@ -87,13 +88,13 @@ val sync : unit -> unit Deferred.t
 (** [lockf fd read_or_write ?len] exclusively locks for reading/writing the section of the
     open file [fd] specified by the current file position and [len] (see man lockf).  It
     returns when the lock has been acquired.  It raises if [fd] is closed. *)
-val lockf : ?len:Int64.t -> Fd.t -> [`Read | `Write] -> unit Deferred.t
+val lockf : ?len:Int64.t -> Fd.t -> [ `Read | `Write ] -> unit Deferred.t
 
 (** [try_lockf fd read_or_write ?len] attempts to exclusively lock for reading/writing the
     section of the open file [fd] specified by the current file position and [len] (see
     man lockf).  It returns [true] if it acquired the lock.  It raises if [fd] is
     closed. *)
-val try_lockf : ?len:Int64.t -> Fd.t -> [`Read | `Write] -> bool
+val try_lockf : ?len:Int64.t -> Fd.t -> [ `Read | `Write ] -> bool
 
 (** [lockf_is_locked fd ?len] checks the lock on section of the open file [fd] specified
     by the current file position and [len] (see [man lockf]).  If the section is unlocked
@@ -113,7 +114,8 @@ module File_kind : sig
     | `Block
     | `Link
     | `Fifo
-    | `Socket ]
+    | `Socket
+    ]
   [@@deriving sexp]
 
   include Comparable.S with type t := t
@@ -166,10 +168,10 @@ val fchown : Fd.t -> uid:int -> gid:int -> unit Deferred.t
 
 val access
   :  string
-  -> [`Read | `Write | `Exec | `Exists] list
+  -> [ `Read | `Write | `Exec | `Exists ] list
   -> (unit, exn) Result.t Deferred.t
 
-val access_exn : string -> [`Read | `Write | `Exec | `Exists] list -> unit Deferred.t
+val access_exn : string -> [ `Read | `Write | `Exec | `Exists ] list -> unit Deferred.t
 val set_close_on_exec : Fd.t -> unit
 val clear_close_on_exec : Fd.t -> unit
 val mkdir : ?p:unit -> ?perm:file_perm -> string -> unit Deferred.t
@@ -194,7 +196,7 @@ val closedir : dir_handle -> unit Deferred.t
 
 (** The [info] supplied to pipe is debugging information that will be included in the
     returned [Fd]s. *)
-val pipe : Info.t -> ([`Reader of Fd.t] * [`Writer of Fd.t]) Deferred.t
+val pipe : Info.t -> ([ `Reader of Fd.t ] * [ `Writer of Fd.t ]) Deferred.t
 
 (** Create a named pipe with the given permissions. *)
 val mkfifo : ?perm:file_perm (** default is [0o666] *) -> string -> unit Deferred.t
@@ -214,24 +216,24 @@ val getgrouplist : string -> int -> int array Deferred.t
 
 (** Time functions. *)
 type process_times = Unix.process_times =
-  { tms_utime : float  (** User time for the process *)
-  ; tms_stime : float  (** System time for the process *)
-  ; tms_cutime : float  (** User time for the children processes *)
-  ; tms_cstime : float  (** System time for the children processes *)
+  { tms_utime : float (** User time for the process *)
+  ; tms_stime : float (** System time for the process *)
+  ; tms_cutime : float (** User time for the children processes *)
+  ; tms_cstime : float (** System time for the children processes *)
   }
 
 val times : unit -> process_times
 
 type tm = Unix.tm =
-  { tm_sec : int  (** Seconds 0..59 *)
-  ; tm_min : int  (** Minutes 0..59 *)
-  ; tm_hour : int  (** Hours 0..23 *)
-  ; tm_mday : int  (** Day of month 1..31 *)
-  ; tm_mon : int  (** Month of year 0..11 *)
-  ; tm_year : int  (** Year - 1900 *)
-  ; tm_wday : int  (** Day of week (Sunday is 0) *)
-  ; tm_yday : int  (** Day of year 0..365 *)
-  ; tm_isdst : bool  (** Daylight time savings in effect *)
+  { tm_sec : int (** Seconds 0..59 *)
+  ; tm_min : int (** Minutes 0..59 *)
+  ; tm_hour : int (** Hours 0..23 *)
+  ; tm_mday : int (** Day of month 1..31 *)
+  ; tm_mon : int (** Month of year 0..11 *)
+  ; tm_year : int (** Year - 1900 *)
+  ; tm_wday : int (** Day of week (Sunday is 0) *)
+  ; tm_yday : int (** Day of year 0..365 *)
+  ; tm_isdst : bool (** Daylight time savings in effect *)
   }
 
 val time : unit -> float
@@ -263,7 +265,7 @@ val fork_exec
   :  prog:string
   -> argv:string list
   -> ?use_path:bool (** default is [true] *)
-  -> ?env:[env | `Replace_raw of string list]
+  -> ?env:[ env | `Replace_raw of string list ]
   -> unit
   -> Pid.t Deferred.t
 
@@ -271,7 +273,8 @@ type wait_on =
   [ `Any
   | `Group of Pid.t
   | `My_group
-  | `Pid of Pid.t ]
+  | `Pid of Pid.t
+  ]
 [@@deriving sexp]
 
 val wait : wait_on -> (Pid.t * Exit_or_signal.t) Deferred.t
@@ -308,7 +311,7 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [`Unix of string] [@@deriving bin_io, sexp, compare]
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
 
       val create : string -> t
       val to_string : t -> string
@@ -316,7 +319,7 @@ module Socket : sig
     end
 
     module Inet : sig
-      type t = [`Inet of Inet_addr.t * int] [@@deriving bin_io, compare, sexp_of]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
 
       val t_of_sexp : Sexp.t -> t
       [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
@@ -349,7 +352,8 @@ module Socket : sig
 
     type t =
       [ Inet.t
-      | Unix.t ]
+      | Unix.t
+      ]
     [@@deriving bin_io, sexp_of]
 
     val t_of_sexp : Sexp.t -> t
@@ -360,12 +364,12 @@ module Socket : sig
       type nonrec t = t [@@deriving bin_io, sexp]
     end
 
-    val to_string : [< t] -> string
-    val to_sockaddr : [< t] -> Core.Unix.sockaddr
+    val to_string : [< t ] -> string
+    val to_sockaddr : [< t ] -> Core.Unix.sockaddr
   end
 
   module Family : sig
-    type 'a t constraint 'a = [< Address.t]
+    type 'a t constraint 'a = [< Address.t ]
 
     val unix : Address.Unix.t t
     val inet : Address.Inet.t t
@@ -386,16 +390,12 @@ module Socket : sig
                      | ---connect--> Active
       v} *)
   type (+'a, 'b) t
-    constraint
-      'a =
-      [< `Unconnected | `Bound | `Passive | `Active]
-    constraint
-      'b =
-      [< Address.t]
+    constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
+    constraint 'b = [< Address.t ]
   [@@deriving sexp_of]
 
   module Type : sig
-    type 'a t constraint 'a = [< Address.t] [@@deriving sexp_of]
+    type 'a t constraint 'a = [< Address.t ] [@@deriving sexp_of]
 
     val tcp : Address.Inet.t t
     val udp : Address.Inet.t t
@@ -403,47 +403,49 @@ module Socket : sig
     val unix_dgram : Address.Unix.t t
   end
 
-  val create : 'addr Type.t -> ([`Unconnected], 'addr) t
+  val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
 
   val connect
-    :  ([< `Unconnected | `Bound], 'addr) t
+    :  ([< `Unconnected | `Bound ], 'addr) t
     -> 'addr
-    -> ([`Active], 'addr) t Deferred.t
+    -> ([ `Active ], 'addr) t Deferred.t
 
   val connect_interruptible
-    :  ([< `Unconnected | `Bound], 'addr) t
+    :  ([< `Unconnected | `Bound ], 'addr) t
     -> 'addr
     -> interrupt:unit Deferred.t
-    -> [`Ok of ([`Active], 'addr) t | `Interrupted] Deferred.t
+    -> [ `Ok of ([ `Active ], 'addr) t | `Interrupted ] Deferred.t
+
 
   (** [bind socket addr] sets close_on_exec for the fd of [socket]. *)
   val bind
     :  ?reuseaddr:bool (** default is [true] *)
-    -> ([`Unconnected], 'addr) t
+    -> ([ `Unconnected ], 'addr) t
     -> 'addr
-    -> ([`Bound], 'addr) t Deferred.t
+    -> ([ `Bound ], 'addr) t Deferred.t
 
   (** [bind_inet socket addr] is just like [bind] but is restricted to [Inet.t] addresses
       and is therefore guaranteed not to block. *)
   val bind_inet
     :  ?reuseaddr:bool (** default is [true] *)
-    -> ([`Unconnected], Address.Inet.t) t
+    -> ([ `Unconnected ], Address.Inet.t) t
     -> Address.Inet.t
-    -> ([`Bound], Address.Inet.t) t
+    -> ([ `Bound ], Address.Inet.t) t
 
   val listen
     :  ?backlog:int (** default is 64; see {!Unix.listen} *)
-    -> ([`Bound], 'addr) t
-    -> ([`Passive], 'addr) t
+    -> ([ `Bound ], 'addr) t
+    -> ([ `Passive ], 'addr) t
 
   val accept
-    :  ([`Passive], 'addr) t
-    -> [`Ok of ([`Active], 'addr) t * 'addr | `Socket_closed] Deferred.t
+    :  ([ `Passive ], 'addr) t
+    -> [ `Ok of ([ `Active ], 'addr) t * 'addr | `Socket_closed ] Deferred.t
 
   val accept_interruptible
-    :  ([`Passive], 'addr) t
+    :  ([ `Passive ], 'addr) t
     -> interrupt:unit Deferred.t
-    -> [`Ok of ([`Active], 'addr) t * 'addr | `Socket_closed | `Interrupted] Deferred.t
+    -> [ `Ok of ([ `Active ], 'addr) t * 'addr | `Socket_closed | `Interrupted ]
+         Deferred.t
 
   (** [accept_at_most] is like [accept], but will return up to [limit] connections before
       yielding, where [limit >= 1].  [accept_at_most] first waits for one connection and
@@ -463,18 +465,18 @@ module Socket : sig
          Brecht, Pariag, and Gammo.  USENIX ATEC '04
       v} *)
   val accept_at_most
-    :  ([`Passive], 'addr) t
+    :  ([ `Passive ], 'addr) t
     -> limit:int
-    -> [`Ok of (([`Active], 'addr) t * 'addr) list | `Socket_closed] Deferred.t
+    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list | `Socket_closed ] Deferred.t
 
   val accept_at_most_interruptible
-    :  ([`Passive], 'addr) t
+    :  ([ `Passive ], 'addr) t
     -> limit:int
     -> interrupt:unit Deferred.t
-    -> [`Ok of (([`Active], 'addr) t * 'addr) list | `Socket_closed | `Interrupted]
+    -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list | `Socket_closed | `Interrupted ]
          Deferred.t
 
-  val shutdown : ('a, 'addr) t -> [`Receive | `Send | `Both] -> unit
+  val shutdown : ('a, 'addr) t -> [ `Receive | `Send | `Both ] -> unit
   val fd : ('a, 'addr) t -> Fd.t
   val of_fd : Fd.t -> 'addr Type.t -> ('a, 'addr) t
   val getsockname : ('a, 'addr) t -> 'addr
@@ -524,8 +526,8 @@ module Socket : sig
       Typically, one would use this function for very specific non-multicast requirements.
       For similar functionality when using multicast, see
       {!Core_unix.mcast_set_ifname}. *)
-  val bind_to_interface_exn :
-    (([`Unconnected], _) t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
+  val bind_to_interface_exn
+    : (([ `Unconnected ], _) t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
 end
 
 val bind_to_interface_exn : (Fd.t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
@@ -716,48 +718,48 @@ exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
   type t = Caml.Unix.terminal_io =
-    { mutable c_ignbrk : bool  (** Ignore the break condition. *)
-    ; mutable c_brkint : bool  (** Signal interrupt on break condition. *)
-    ; mutable c_ignpar : bool  (** Ignore characters with parity errors. *)
-    ; mutable c_parmrk : bool  (** Mark parity errors. *)
-    ; mutable c_inpck : bool  (** Enable parity check on input. *)
-    ; mutable c_istrip : bool  (** Strip 8th bit on input characters. *)
-    ; mutable c_inlcr : bool  (** Map NL to CR on input. *)
-    ; mutable c_igncr : bool  (** Ignore CR on input. *)
-    ; mutable c_icrnl : bool  (** Map CR to NL on input. *)
-    ; mutable c_ixon : bool  (** Recognize XON/XOFF characters on input. *)
-    ; mutable c_ixoff : bool  (** Emit XON/XOFF chars to control input flow. *)
-    ; mutable c_opost : bool  (** Enable output processing. *)
-    ; mutable c_obaud : int  (** Output baud rate (0 means close connection).*)
-    ; mutable c_ibaud : int  (** Input baud rate. *)
-    ; mutable c_csize : int  (** Number of bits per character (5-8). *)
-    ; mutable c_cstopb : int  (** Number of stop bits (1-2). *)
-    ; mutable c_cread : bool  (** Reception is enabled. *)
-    ; mutable c_parenb : bool  (** Enable parity generation and detection. *)
-    ; mutable c_parodd : bool  (** Specify odd parity instead of even. *)
-    ; mutable c_hupcl : bool  (** Hang up on last close. *)
-    ; mutable c_clocal : bool  (** Ignore modem status lines. *)
-    ; mutable c_isig : bool  (** Generate signal on INTR, QUIT, SUSP. *)
+    { mutable c_ignbrk : bool (** Ignore the break condition. *)
+    ; mutable c_brkint : bool (** Signal interrupt on break condition. *)
+    ; mutable c_ignpar : bool (** Ignore characters with parity errors. *)
+    ; mutable c_parmrk : bool (** Mark parity errors. *)
+    ; mutable c_inpck : bool (** Enable parity check on input. *)
+    ; mutable c_istrip : bool (** Strip 8th bit on input characters. *)
+    ; mutable c_inlcr : bool (** Map NL to CR on input. *)
+    ; mutable c_igncr : bool (** Ignore CR on input. *)
+    ; mutable c_icrnl : bool (** Map CR to NL on input. *)
+    ; mutable c_ixon : bool (** Recognize XON/XOFF characters on input. *)
+    ; mutable c_ixoff : bool (** Emit XON/XOFF chars to control input flow. *)
+    ; mutable c_opost : bool (** Enable output processing. *)
+    ; mutable c_obaud : int (** Output baud rate (0 means close connection).*)
+    ; mutable c_ibaud : int (** Input baud rate. *)
+    ; mutable c_csize : int (** Number of bits per character (5-8). *)
+    ; mutable c_cstopb : int (** Number of stop bits (1-2). *)
+    ; mutable c_cread : bool (** Reception is enabled. *)
+    ; mutable c_parenb : bool (** Enable parity generation and detection. *)
+    ; mutable c_parodd : bool (** Specify odd parity instead of even. *)
+    ; mutable c_hupcl : bool (** Hang up on last close. *)
+    ; mutable c_clocal : bool (** Ignore modem status lines. *)
+    ; mutable c_isig : bool (** Generate signal on INTR, QUIT, SUSP. *)
     ; mutable c_icanon : bool
     (** Enable canonical processing
         (line buffering and editing) *)
-    ; mutable c_noflsh : bool  (** Disable flush after INTR, QUIT, SUSP. *)
-    ; mutable c_echo : bool  (** Echo input characters. *)
-    ; mutable c_echoe : bool  (** Echo ERASE (to erase previous character). *)
-    ; mutable c_echok : bool  (** Echo KILL (to erase the current line). *)
-    ; mutable c_echonl : bool  (** Echo NL even if c_echo is not set. *)
-    ; mutable c_vintr : char  (** Interrupt character (usually ctrl-C). *)
-    ; mutable c_vquit : char  (** Quit character (usually ctrl-\ ). *)
-    ; mutable c_verase : char  (** Erase character (usually DEL or ctrl-H). *)
-    ; mutable c_vkill : char  (** Kill line character (usually ctrl-U). *)
-    ; mutable c_veof : char  (** End-of-file character (usually ctrl-D). *)
-    ; mutable c_veol : char  (** Alternate end-of-line char. (usually none). *)
+    ; mutable c_noflsh : bool (** Disable flush after INTR, QUIT, SUSP. *)
+    ; mutable c_echo : bool (** Echo input characters. *)
+    ; mutable c_echoe : bool (** Echo ERASE (to erase previous character). *)
+    ; mutable c_echok : bool (** Echo KILL (to erase the current line). *)
+    ; mutable c_echonl : bool (** Echo NL even if c_echo is not set. *)
+    ; mutable c_vintr : char (** Interrupt character (usually ctrl-C). *)
+    ; mutable c_vquit : char (** Quit character (usually ctrl-\ ). *)
+    ; mutable c_verase : char (** Erase character (usually DEL or ctrl-H). *)
+    ; mutable c_vkill : char (** Kill line character (usually ctrl-U). *)
+    ; mutable c_veof : char (** End-of-file character (usually ctrl-D). *)
+    ; mutable c_veol : char (** Alternate end-of-line char. (usually none). *)
     ; mutable c_vmin : int
     (** Minimum number of characters to read
         before the read request is satisfied. *)
-    ; mutable c_vtime : int  (** Maximum read wait (in 0.1s units). *)
-    ; mutable c_vstart : char  (** Start character (usually ctrl-Q). *)
-    ; mutable c_vstop : char  (** Stop character (usually ctrl-S). *)
+    ; mutable c_vtime : int (** Maximum read wait (in 0.1s units). *)
+    ; mutable c_vstart : char (** Start character (usually ctrl-Q). *)
+    ; mutable c_vstop : char (** Stop character (usually ctrl-S). *)
     }
 
   type setattr_when = Caml.Unix.setattr_when =
@@ -816,9 +818,9 @@ val getifaddrs : unit -> Ifaddr.t list Deferred.t
     essentially a database elsewhere on the network (winbound user, or NIS). *)
 val getlogin : unit -> string Deferred.t
 
-val wordexp :
-  (?flags:[`No_cmd | `Show_err | `Undef] list -> string -> string array Deferred.t)
-    Or_error.t
+val wordexp
+  : (?flags:[ `No_cmd | `Show_err | `Undef ] list -> string -> string array Deferred.t)
+      Or_error.t
 
 module Private : sig
   (** [Wait] exposes some internals of the implementation of [wait] and [wait_untraced].

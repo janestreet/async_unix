@@ -17,8 +17,9 @@ module Level : sig
       never display messages at a lower log level. *)
   type t =
     [ `Debug
-    | `Info  (** default level *)
-    | `Error ]
+    | `Info (** default level *)
+    | `Error
+    ]
   [@@deriving bin_io, compare, sexp]
 
   include Stringable with type t := t
@@ -40,12 +41,12 @@ module Message : sig
     :  ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
-    -> [`String of string | `Sexp of Sexp.t]
+    -> [ `String of string | `Sexp of Sexp.t ]
     -> t
 
   val time : t -> Time.t
   val message : t -> string
-  val raw_message : t -> [`String of string | `Sexp of Sexp.t]
+  val raw_message : t -> [ `String of string | `Sexp of Sexp.t ]
   val level : t -> Level.t option
   val set_level : t -> Level.t option -> t
   val tags : t -> (string * string) list
@@ -116,11 +117,12 @@ module Rotation : sig
     -> ?size:Byte_units.t
     -> ?time:Time.Ofday.t
     -> ?zone:Time.Zone.t
-    -> keep:[`All | `Newer_than of Time.Span.t | `At_least of int]
+    -> keep:[ `All | `Newer_than of Time.Span.t | `At_least of int ]
     -> naming_scheme:[ `Numbered
                      | `Timestamped
                      | `Dated
-                     | `User_defined of (module Id_intf) ]
+                     | `User_defined of (module Id_intf)
+                     ]
     -> unit
     -> t
 
@@ -141,12 +143,14 @@ module Output : sig
     type machine_readable =
       [ `Sexp
       | `Sexp_hum
-      | `Bin_prot ]
+      | `Bin_prot
+      ]
     [@@deriving sexp]
 
     type t =
       [ machine_readable
-      | `Text ]
+      | `Text
+      ]
     [@@deriving sexp]
 
     module Stable : sig
@@ -157,6 +161,7 @@ module Output : sig
   end
 
   type t
+
 
   (** [create f] returns a [t], given a function that actually performs the final output
       work. It is the responsibility of the write function to contain all state, and to
@@ -319,7 +324,7 @@ module type Global_intf = sig
   val set_level : Level.t -> unit
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
-  val set_on_error : [`Raise | `Call of Error.t -> unit] -> unit
+  val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
@@ -422,10 +427,11 @@ val set_output : t -> Output.t list -> unit
 
 val get_output : t -> Output.t list
 
+
 (** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
     by providing [`Call f]. *)
-val set_on_error : t -> [`Raise | `Call of Error.t -> unit] -> unit
+val set_on_error : t -> [ `Raise | `Call of Error.t -> unit ] -> unit
 
 (** Any call that writes to a log after [close] is called will raise. *)
 val close : t -> unit Deferred.t
@@ -445,7 +451,7 @@ val rotate : t -> unit Deferred.t
 val create
   :  level:Level.t
   -> output:Output.t list
-  -> on_error:[`Raise | `Call of Error.t -> unit]
+  -> on_error:[ `Raise | `Call of Error.t -> unit ]
   -> t
 
 (** Printf-like logging for messages at each log level or raw (no level) messages. Raw
@@ -549,10 +555,10 @@ module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors
       encountered when opening or reading the file will be thrown as exceptions into the
       monitor current at the time [pipe] is called. *)
-  val pipe : [< Output.Format.machine_readable] -> string -> Message.t Pipe.Reader.t
+  val pipe : [< Output.Format.machine_readable ] -> string -> Message.t Pipe.Reader.t
 
   val pipe_of_reader
-    :  [< Output.Format.machine_readable]
+    :  [< Output.Format.machine_readable ]
     -> Reader.t
     -> Message.t Pipe.Reader.t
 
@@ -560,7 +566,7 @@ module Reader : sig
     (** [read_one format reader] reads a single log message from the reader, advancing the
         position of the reader to the next log entry. *)
     val read_one
-      :  [< Output.Format.machine_readable]
+      :  [< Output.Format.machine_readable ]
       -> Reader.t
       -> Message.t Reader.Read_result.t Deferred.t
   end

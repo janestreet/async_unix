@@ -3,5 +3,4 @@
 open! Core
 open! Import
 
-(** @open *)
-include Async_kernel.Clock_ns.Clock with module Time := Time
+include Async_kernel.Clock_ns.Clock with module Time := Time (** @open *)

@@ -31,7 +31,7 @@ val deferred : unit -> 'a Deferred.t * ('a -> unit)
 *)
 val run_in_async_with_optional_cycle
   :  ?wakeup_scheduler:bool (** default is [true] *)
-  -> (unit -> [`Run_a_cycle | `Do_not_run_a_cycle] * 'a)
+  -> (unit -> [ `Run_a_cycle | `Do_not_run_a_cycle ] * 'a)
   -> ('a, exn) Result.t
 
 (** [run_in_async f] acquires the Async lock and runs [f ()] while holding the lock. It

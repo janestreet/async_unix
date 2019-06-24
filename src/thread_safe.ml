@@ -10,7 +10,8 @@ let run_holding_async_lock
       t
       (f : unit -> a)
       ~(finish : (a, exn) Result.t -> b)
-  : b =
+  : b
+  =
   if debug then Debug.log "run_holding_async_lock" t [%sexp_of: t];
   if not (am_holding_lock t) then lock t;
   protect
@@ -69,13 +70,13 @@ let block_on_async t f =
     let scheduler_ran_a_job = Thread_safe_ivar.create () in
     upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
     ignore
-      ( Core.Thread.create
-          (fun () ->
-             Exn.handle_uncaught ~exit:true (fun () ->
-               lock t;
-               never_returns (be_the_scheduler t)))
-          ()
-        : Core.Thread.t );
+      (Core.Thread.create
+         (fun () ->
+            Exn.handle_uncaught ~exit:true (fun () ->
+              lock t;
+              never_returns (be_the_scheduler t)))
+         ()
+       : Core.Thread.t);
     (* Block until the scheduler has run the above job. *)
     Thread_safe_ivar.read scheduler_ran_a_job);
   let maybe_blocked =

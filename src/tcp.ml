@@ -123,7 +123,7 @@ let connect_sock
 ;;
 
 type 'a with_connect_options =
-  ?buffer_age_limit:[`At_most of Time.Span.t | `Unlimited]
+  ?buffer_age_limit:[ `At_most of Time.Span.t | `Unlimited ]
   -> ?interrupt:unit Deferred.t
   -> ?reader_buffer_size:int
   -> ?writer_buffer_size:int
@@ -256,7 +256,7 @@ end
 module Server = struct
   module Connection = struct
     type 'address t =
-      { client_socket : ([`Active], 'address) Socket.t
+      { client_socket : ([ `Active ], 'address) Socket.t
       ; client_address : 'address
       }
     [@@deriving fields, sexp_of]
@@ -272,11 +272,11 @@ module Server = struct
   end
 
   type ('address, 'listening_on) t =
-    { socket : ([`Passive], 'address) Socket.t
+    { socket : ([ `Passive ], 'address) Socket.t
     ; listening_on : 'listening_on
-    ; on_handler_error : [`Raise | `Ignore | `Call of 'address -> exn -> unit]
+    ; on_handler_error : [ `Raise | `Ignore | `Call of 'address -> exn -> unit ]
     ; handle_client :
-        'address -> ([`Active], 'address) Socket.t -> (unit, exn) Result.t Deferred.t
+        'address -> ([ `Active ], 'address) Socket.t -> (unit, exn) Result.t Deferred.t
     ; max_connections : int
     ; max_accepts_per_batch : int
     ; connections : 'address Connection.t Bag.t
@@ -292,8 +292,8 @@ module Server = struct
     ?max_connections:int
     -> ?max_accepts_per_batch:int
     -> ?backlog:int
-    -> ?socket:([`Unconnected], 'address) Socket.t
-    -> on_handler_error:[`Raise | `Ignore | `Call of 'address -> exn -> unit]
+    -> ?socket:([ `Unconnected ], 'address) Socket.t
+    -> on_handler_error:[ `Raise | `Ignore | `Call of 'address -> exn -> unit ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> 'callback
     -> ('address, 'listening_on) t Deferred.t
@@ -352,7 +352,7 @@ module Server = struct
      have an available slot (determined by [num_connections < max_connections]). *)
   let rec maybe_accept t =
     let available_slots = t.max_connections - num_connections t in
-    if not (is_closed t) && available_slots > 0 && not t.accept_is_pending
+    if (not (is_closed t)) && available_slots > 0 && not t.accept_is_pending
     then (
       t.accept_is_pending <- true;
       Socket.accept_at_most ~limit:(min t.max_accepts_per_batch available_slots) t.socket
@@ -365,7 +365,8 @@ module Server = struct
            before we got here.  In that case, we just close the clients. *)
         if is_closed t || t.drop_incoming_connections
         then
-          List.iter conns ~f:(fun (sock, _) -> don't_wait_for (Fd.close (Socket.fd sock)))
+          List.iter conns ~f:(fun (sock, _) ->
+            don't_wait_for (Fd.close (Socket.fd sock)))
         else (
           (* We first [handle_client] on all the connections, which increases
              [num_connections], and then call [maybe_accept] to try to accept more

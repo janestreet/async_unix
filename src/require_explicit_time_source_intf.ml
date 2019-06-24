@@ -16,13 +16,12 @@ module From_kernel = Async_kernel_require_explicit_time_source
 module type Require_explicit_time_source = sig
   (** We shadow [Time], [Time_ns], [Date], and [Scheduler] from [Async_kernel] because the
       local versions have a different interface.  *)
-  include
-    module type of struct
-      include From_kernel
-    end
-    with module Time_ns := From_kernel.Time_ns
-     and module Time := From_kernel.Time
-     and module Date := From_kernel.Date
+  include module type of struct
+    include From_kernel
+  end
+  with module Time_ns := From_kernel.Time_ns
+   and module Time := From_kernel.Time
+   and module Date := From_kernel.Date
 
   module Scheduler : sig
     include module type of struct
@@ -41,11 +40,10 @@ module type Require_explicit_time_source = sig
   end
 
   module Time : sig
-    include
-      module type of struct
-        include Time
-      end
-      with module Ofday := Time.Ofday
+    include module type of struct
+      include Time
+    end
+    with module Ofday := Time.Ofday
 
     module Ofday : sig
       include module type of struct
@@ -59,11 +57,10 @@ module type Require_explicit_time_source = sig
   end
 
   module Time_ns : sig
-    include
-      module type of struct
-        include Time_ns
-      end
-      with module Ofday := Time_ns.Ofday
+    include module type of struct
+      include Time_ns
+    end
+    with module Ofday := Time_ns.Ofday
 
     module Ofday : sig
       include module type of struct

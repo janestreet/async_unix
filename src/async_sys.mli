@@ -8,7 +8,7 @@ open! Import
 
 val argv : string array
 val executable_name : string
-val file_exists : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown] Deferred.t
+val file_exists : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val file_exists_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 
 (** [when_file_exists ?poll_delay file] returns a deferred that becomes determined when
@@ -26,9 +26,13 @@ val when_file_exists
     mtime.  To stop polling, close the pipe. *)
 val when_file_changes : ?poll_delay:Time.Span.t -> string -> Time.t Pipe.Reader.t
 
-val is_directory : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown] Deferred.t
+val is_directory
+  :  ?follow_symlinks:bool
+  -> string
+  -> [ `Yes | `No | `Unknown ] Deferred.t
+
 val is_directory_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
-val is_file : ?follow_symlinks:bool -> string -> [`Yes | `No | `Unknown] Deferred.t
+val is_file : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val is_file_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 val remove : string -> unit Deferred.t
 val rename : string -> string -> unit Deferred.t
@@ -49,5 +53,5 @@ val word_size : int
 val int_size : int
 val big_endian : bool
 val ocaml_version : string
-val execution_mode : unit -> [`Bytecode | `Native]
+val execution_mode : unit -> [ `Bytecode | `Native ]
 val c_int_size : unit -> int

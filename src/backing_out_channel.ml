@@ -48,7 +48,7 @@ let of_output_char output_char : t =
     ~sexp:(fun () -> [%sexp ()])
     ~output_chars:(fun buf ~len ->
       for i = 0 to len - 1 do
-        output_char (buf.{i})
+        output_char buf.{i}
       done)
 ;;
 

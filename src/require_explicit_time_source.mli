@@ -9,5 +9,4 @@
 
     {[include Require_explicit_time_source]} *)
 
-(** @open *)
-include Require_explicit_time_source_intf.Require_explicit_time_source
+include Require_explicit_time_source_intf.Require_explicit_time_source (** @open *)

@@ -121,7 +121,7 @@ end
 let pre_check _t = ()
 
 module Check_result = struct
-  type t = ([`Ok | `Timeout], exn) Result.t [@@deriving sexp_of]
+  type t = ([ `Ok | `Timeout ], exn) Result.t [@@deriving sexp_of]
 
   let ok = Ok `Ok
   let timeout = Ok `Timeout

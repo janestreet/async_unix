@@ -66,8 +66,10 @@ val stderr : t Lazy.t
 
 type buffer_age_limit =
   [ `At_most of Time.Span.t
-  | `Unlimited ]
+  | `Unlimited
+  ]
 [@@deriving bin_io, sexp]
+
 
 (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
     descriptor [fd] should not be in use for writing by anything else.
@@ -98,7 +100,7 @@ type buffer_age_limit =
     "\n"]) are still written verbatim (in Unix style). *)
 val create
   :  ?buf_len:int
-  -> ?syscall:[`Per_cycle | `Periodic of Time.Span.t]
+  -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?buffer_age_limit:buffer_age_limit
   -> ?raise_when_consumer_leaves:bool (** default is [true] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
@@ -128,7 +130,7 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 val open_file
   :  ?append:bool (** default is [false], meaning truncate instead *)
   -> ?buf_len:int
-  -> ?syscall:[`Per_cycle | `Periodic of Time.Span.t]
+  -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?perm:int (** default is [0o666] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
   -> string
@@ -245,7 +247,7 @@ val write_bytes : ?pos:int -> ?len:int -> t -> Bytes.t -> unit
 
 val write : ?pos:int -> ?len:int -> t -> string -> unit
 val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
-val write_iobuf : ?pos:int -> ?len:int -> t -> ([> read], _) Iobuf.t -> unit
+val write_iobuf : ?pos:int -> ?len:int -> t -> ([> read ], _) Iobuf.t -> unit
 val write_substring : t -> Substring.t -> unit
 val write_bigsubstring : t -> Bigsubstring.t -> unit
 val writef : t -> ('a, unit, string, unit) format4 -> 'a
@@ -326,7 +328,7 @@ val schedule_bigsubstring : t -> Bigsubstring.t -> unit
 (** [schedule_iobuf_peek] is like [schedule_bigstring], but for an iobuf.  It is not safe
     to change the iobuf until the writer has been successfully flushed or closed after
     this operation. *)
-val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read], _) Iobuf.t -> unit
+val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read ], _) Iobuf.t -> unit
 
 (** [schedule_iobuf_consume] is like [schedule_iobuf_peek], and additionally advances the
     iobuf beyond the portion that has been written.  Until the result is determined, it is
@@ -334,7 +336,7 @@ val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read], _) Iobuf.t -> 
 val schedule_iobuf_consume
   :  t
   -> ?len:int
-  -> ([> read], Iobuf.seek) Iobuf.t
+  -> ([> read ], Iobuf.seek) Iobuf.t
   -> unit Deferred.t
 
 module Destroy_or_keep : sig
@@ -594,7 +596,7 @@ val pipe : t -> string Pipe.Writer.t
 val of_pipe
   :  Info.t
   -> string Pipe.Writer.t
-  -> (t * [`Closed_and_flushed_downstream of unit Deferred.t]) Deferred.t
+  -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t
 
 (** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit with
     status 0 if any of the consumers of [writers] go away.  It also sets the buffer age to

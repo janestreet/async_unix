@@ -63,11 +63,11 @@ type t =
        t], and sends them to [monitor]. *)
     monitor : Monitor.t
   ; inner_monitor : Monitor.t
-  ; mutable background_writer_state : [`Running | `Not_running | `Stopped_permanently]
+  ; mutable background_writer_state : [ `Running | `Not_running | `Stopped_permanently ]
   ; background_writer_stopped : unit Ivar.t
   ; (* [syscall] determines the batching approach that the writer uses to batch data
        together and flush it using the underlying write syscall. *)
-    syscall : [`Per_cycle | `Periodic of Time.Span.t]
+    syscall : [ `Per_cycle | `Periodic of Time.Span.t ]
   ; (* Counts since the writer was created. *)
     mutable bytes_received : Int63.t
   ; mutable bytes_written : Int63.t
@@ -97,7 +97,7 @@ type t =
        we want to allow [write]s to happen while [`Closed_and_flushing], but not when
        [`Closed].  This is necessary to allow upstream producers to flush their data to
        the writer when it is closed. *)
-    mutable close_state : [`Open | `Closed_and_flushing | `Closed]
+    mutable close_state : [ `Open | `Closed_and_flushing | `Closed ]
   ; (* [close_finished] is filled when the close() system call on [fd] finishes. *)
     close_finished : unit Ivar.t
   ; (* [close_started] is filled when [close] is called. *)
@@ -182,25 +182,26 @@ let sexp_of_t_internals
     ; fd = (suppress_in_test fd : (Fd.t option[@sexp.option]))
     ; monitor = (monitor_name_in_test monitor : Sexp.t)
     ; inner_monitor = (monitor_name_in_test inner_monitor : Sexp.t)
-    ; background_writer_state : [`Running | `Not_running | `Stopped_permanently]
+    ; background_writer_state : [ `Running | `Not_running | `Stopped_permanently ]
     ; background_writer_stopped : unit Ivar.t
-    ; syscall : [`Per_cycle | `Periodic of Time.Span.t]
+    ; syscall : [ `Per_cycle | `Periodic of Time.Span.t ]
     ; bytes_received : Int63.t
     ; bytes_written : Int63.t
     ; scheduled_bytes : int
     ; scheduled_back : int
     ; back : int
-    ; close_state : [`Open | `Closed_and_flushing | `Closed]
+    ; close_state : [ `Open | `Closed_and_flushing | `Closed ]
     ; close_finished : unit Ivar.t
     ; close_started : unit Ivar.t
     ; num_producers_to_flush_at_close = (Bag.length producers_to_flush_at_close : int)
     ; flush_at_shutdown_elt =
-        ( suppress_in_test flush_at_shutdown_elt
-          : ((t[@sexp.opaque]) Bag.Elt.t option option[@sexp.option]) )
+        (suppress_in_test flush_at_shutdown_elt : ((t[@sexp.opaque]) Bag.Elt.t option
+                                                     option[@sexp.option]))
     ; check_buffer_age =
-        ( suppress_in_test check_buffer_age
-          : ((t[@sexp.opaque]) Check_buffer_age'.t Bag.Elt.t option option[@sexp.option])
-        )
+        (suppress_in_test check_buffer_age : ((t[@sexp.opaque]) Check_buffer_age'.t
+                                                Bag.Elt.t
+                                                option
+                                                option[@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
     ; open_flags =
@@ -299,7 +300,7 @@ module Check_buffer_age : sig
   type t = writer Check_buffer_age'.t Bag.Elt.t option
 
   val dummy : t
-  val create : writer -> maximum_age:[`At_most of Time.Span.t | `Unlimited] -> t
+  val create : writer -> maximum_age:[ `At_most of Time.Span.t | `Unlimited ] -> t
   val destroy : t -> unit
   val too_old : t -> unit Deferred.t
   val internal_check_now_for_unit_test : now:Time_ns.t -> unit
@@ -317,7 +318,7 @@ end = struct
         ~maximum_age:ignore
         ~too_old:
           (check (fun ivar ->
-             let imply a b = not a || b in
+             let imply a b = (not a) || b in
              assert (
                imply
                  Int63.O.(
@@ -410,8 +411,7 @@ end = struct
         Int63.O.(e.bytes_received_at_now_minus_maximum_age > bytes_written)
       in
       match Ivar.is_full e.too_old, too_old with
-      | true, true
-      | false, false -> ()
+      | true, true | false, false -> ()
       | true, false -> e.too_old <- Ivar.create ()
       | false, true ->
         Ivar.fill e.too_old ();
@@ -663,7 +663,8 @@ let die t sexp =
 
 type buffer_age_limit =
   [ `At_most of Time.Span.t
-  | `Unlimited ]
+  | `Unlimited
+  ]
 [@@deriving bin_io, sexp]
 
 let create
@@ -822,7 +823,7 @@ let mk_iovecs t =
     let i = ref 0 in
     Deque.iter t.scheduled ~f:(fun (iovec, _) ->
       if !i >= n_iovecs then r.return ();
-      if not !contains_mmapped_ref && Bigstring.is_mmapped iovec.buf
+      if (not !contains_mmapped_ref) && Bigstring.is_mmapped iovec.buf
       then contains_mmapped_ref := true;
       iovecs_len := !iovecs_len + iovec.len;
       iovecs.(!i) <- iovec;
@@ -878,7 +879,7 @@ let rec start_write t =
     | `Error exn -> die t [%message "" ~_:(exn : Exn.t)]
   in
   let should_write_in_thread =
-    not (Fd.supports_nonblock t.fd)
+    (not (Fd.supports_nonblock t.fd))
     (* Though the write will not block in this case, a memory-mapped bigstring in an
        I/O-vector may cause a page fault, which would cause the async scheduler thread
        to block.  So, we write in a separate thread, and the [Bigstring.writev] releases
@@ -1200,10 +1201,8 @@ let write_char t c =
   if is_stopped_permanently t
   then got_bytes t 1
   else (
-    match
-      (* Check for the common case that the char can simply be put in the buffer. *)
-      t.backing_out_channel
-    with
+    (* Check for the common case that the char can simply be put in the buffer. *)
+    match t.backing_out_channel with
     | Some backing_out_channel ->
       got_bytes t 1;
       Backing_out_channel.output_char backing_out_channel c;
@@ -1464,36 +1463,35 @@ let newline ?line_ending t =
 
 let stdout_and_stderr =
   lazy
-    (match
-       (* We [create] the writers inside [Monitor.main] so that it is their monitors'
-          parent. *)
-       Scheduler.within_v ~monitor:Monitor.main (fun () ->
-         let stdout = Fd.stdout () in
-         let stderr = Fd.stderr () in
-         let t = create stdout in
-         let dev_and_ino fd =
-           let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
-           stats.st_dev, stats.st_ino
-         in
-         match Ppx_inline_test_lib.Runtime.testing with
-         | `Testing `Am_test_runner ->
-           (* In tests, we use synchronous output to improve determinism, especially
-              when mixing libraries that use Core and Async printing. *)
-           set_backing_out_channel
-             t
-             (Backing_out_channel.of_out_channel Out_channel.stdout);
-           t, t
-         | `Testing `Am_child_of_test_runner
-         | `Not_testing ->
-           if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-           then
-             (* If stdout and stderr point to the same file, we must share a single writer
-                between them.  See the comment in writer.mli for details. *)
-             t, t
-           else t, create stderr)
-     with
-     | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
-     | Some v -> v)
+    ((* We [create] the writers inside [Monitor.main] so that it is their monitors'
+        parent. *)
+      match
+        Scheduler.within_v ~monitor:Monitor.main (fun () ->
+          let stdout = Fd.stdout () in
+          let stderr = Fd.stderr () in
+          let t = create stdout in
+          let dev_and_ino fd =
+            let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
+            stats.st_dev, stats.st_ino
+          in
+          match Ppx_inline_test_lib.Runtime.testing with
+          | `Testing `Am_test_runner ->
+            (* In tests, we use synchronous output to improve determinism, especially
+               when mixing libraries that use Core and Async printing. *)
+            set_backing_out_channel
+              t
+              (Backing_out_channel.of_out_channel Out_channel.stdout);
+            t, t
+          | `Testing `Am_child_of_test_runner | `Not_testing ->
+            if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+            then
+              (* If stdout and stderr point to the same file, we must share a single writer
+                 between them.  See the comment in writer.mli for details. *)
+              t, t
+            else t, create stderr)
+      with
+      | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
+      | Some v -> v)
 ;;
 
 let stdout = lazy (fst (Lazy.force stdout_and_stderr))
@@ -1504,12 +1502,10 @@ let use_synchronous_stdout_and_stderr () =
   let ts_and_channels =
     (stdout, Out_channel.stdout)
     ::
-    (match
-       (* We only set [stderr] if it is distinct from [stdout]. *)
-       phys_equal stdout stderr
-     with
-     | true -> []
-     | false -> [ stderr, Out_channel.stderr ])
+    ((* We only set [stderr] if it is distinct from [stdout]. *)
+      match phys_equal stdout stderr with
+      | true -> []
+      | false -> [ stderr, Out_channel.stderr ])
   in
   List.map ts_and_channels ~f:(fun (t, out_channel) ->
     set_synchronous_out_channel t out_channel)
@@ -1595,7 +1591,7 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
     (match%map Monitor.try_with (fun () -> Unix.unlink temp_file) with
      | Ok () -> fail exn [%sexp_of: exn]
      | Error exn2 ->
-       fail (exn, `Cleanup_failed exn2) [%sexp_of: exn * [`Cleanup_failed of exn]])
+       fail (exn, `Cleanup_failed exn2) [%sexp_of: exn * [ `Cleanup_failed of exn ]])
 ;;
 
 let save ?temp_file ?perm ?fsync file ~contents =
@@ -1648,7 +1644,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
   (* The only reason we can't use [Pipe.iter] is because it doesn't accept
      [?max_num_values_per_read]. *)
   let rec iter () =
-    if Ivar.is_full t.consumer_left || not (can_write t) || Deferred.is_determined stop
+    if Ivar.is_full t.consumer_left || (not (can_write t)) || Deferred.is_determined stop
     then
       (* The [choose] in [doit] will become determined and [doit] will do the right
          thing. *)

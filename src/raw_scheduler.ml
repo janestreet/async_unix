@@ -296,7 +296,8 @@ let try_create_timerfd () =
   | Ok create ->
     let clock = Timerfd.Clock.realtime in
     (try Some (create clock ~flags:Timerfd.Flags.(nonblock + cloexec)) with
-     | Unix.Unix_error (ENOSYS, _, _) -> (* Kernel too old. *)
+     | Unix.Unix_error (ENOSYS, _, _) ->
+       (* Kernel too old. *)
        None
      | Unix.Unix_error (EINVAL, _, _) ->
        (* Flags are only supported with Linux >= 2.6.27, try without them. *)
@@ -332,8 +333,8 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
           ~num_threads_created:(Thread_pool.num_threads thread_pool : int)
           ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
           ~last_thread_creation_failure:
-            ( Thread_pool.last_thread_creation_failure thread_pool
-              : (Sexp.t option[@sexp.option]) )]
+            (Thread_pool.last_thread_creation_failure thread_pool
+             : (Sexp.t option[@sexp.option]))]
     in
     if should_abort
     then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
@@ -451,8 +452,7 @@ let post_check_handle_fd t file_descr read_or_write value =
     request_stop_watching t fd read_or_write value)
   else (
     match t.timerfd with
-    | Some tfd
-      when File_descr.equal file_descr (tfd :> Unix.File_descr.t) ->
+    | Some tfd when File_descr.equal file_descr (tfd :> Unix.File_descr.t) ->
       (match read_or_write with
        | `Read ->
          (* We don't need to actually call [read] since we are using the
@@ -616,10 +616,10 @@ let thread_safe_reset () =
 let make_async_unusable () =
   reset_in_forked_process ();
   Kernel_scheduler.make_async_unusable ();
-  the_one_and_only_ref :=
-    Ready_to_initialize
-      (fun () ->
-         raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])
+  the_one_and_only_ref
+  := Ready_to_initialize
+       (fun () ->
+          raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])
 ;;
 
 let thread_safe_enqueue_external_job t f =
@@ -769,7 +769,7 @@ let check_file_descr_watcher t ~timeout span_or_unit =
     Debug.log
       "File_descr_watcher.thread_safe_check"
       (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
-      [%sexp_of: [`Never | `Immediately | `After of Time_ns.Span.t] * t];
+      [%sexp_of: [ `Never | `Immediately | `After of Time_ns.Span.t ] * t];
   let before = Tsc.now () in
   let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
   let after = Tsc.now () in
@@ -913,11 +913,12 @@ let add_finalizer_exn t x f =
 ;;
 
 let set_task_id () =
-  Async_kernel_config.task_id :=
-    fun () ->
-      let pid = Unix.getpid () in
-      let thread_id = Thread.id (Thread.self ()) in
-      [%sexp_of: [`pid of Pid.t] * [`thread_id of int]] (`pid pid, `thread_id thread_id)
+  Async_kernel_config.task_id
+  := fun () ->
+    let pid = Unix.getpid () in
+    let thread_id = Thread.id (Thread.self ()) in
+    [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]]
+      (`pid pid, `thread_id thread_id)
 ;;
 
 let go ?raise_unhandled_exn () =
@@ -962,9 +963,10 @@ let go_main
     Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
   in
   let max_num_threads = Option.map max_num_threads ~f:Max_num_threads.create_exn in
-  the_one_and_only_ref :=
-    Ready_to_initialize
-      (fun () -> create ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
+  the_one_and_only_ref
+  := Ready_to_initialize
+       (fun () ->
+          create ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
   Deferred.upon (return ()) main;
   go ?raise_unhandled_exn ()
 ;;

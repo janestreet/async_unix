@@ -25,7 +25,8 @@ open! Import
 module Read_result : sig
   type 'a t =
     [ `Ok of 'a
-    | `Eof ]
+    | `Eof
+    ]
   [@@deriving bin_io, sexp]
 
   include Monad.S with type 'a t := 'a t
@@ -66,6 +67,7 @@ val transfer : t -> string Pipe.Writer.t -> unit Deferred.t
     closed, [pipe] closes the reader, and then after the reader close is finished, closes
     the pipe. *)
 val pipe : t -> string Pipe.Reader.t
+
 
 (** [of_pipe info pipe_r] returns a reader [t] that receives all the data from [pipe_r].
     If [pipe_r] is closed, [t] will see an EOF (but will not be automatically closed).  If
@@ -154,7 +156,8 @@ type 'a read_one_chunk_at_a_time_result =
       and left data in the reader's buffer (i.e., [c < len]), and that the reader reached
       EOF without reading any more data into the buffer; hence the data in the buffer was
       never consumed (and never will be, since the reader is at EOF). *)
-  | `Eof_with_unconsumed_data of string ]
+  | `Eof_with_unconsumed_data of string
+  ]
 [@@deriving sexp_of]
 
 type 'a handle_chunk_result =
@@ -164,14 +167,15 @@ type 'a handle_chunk_result =
   | `Stop_consumed of 'a * int
   (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
       [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
-  | `Continue  (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
-  | `Consumed of int * [`Need of int | `Need_unknown]
+  | `Continue (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
+  | `Consumed of int * [ `Need of int | `Need_unknown ]
     (** [`Consumed (c, need)] means that [c] bytes were consumed and [need] says how many
         bytes are needed (including the data remaining in the buffer after the [c] were
         already consumed).  It is an error if [c < 0 || c > len].  For [`Need n], it is an
         error if [n < 0 || c + n <= len]. *)
   ]
 [@@deriving sexp_of]
+
 
 (** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer, and
     whenever bytes are available, applies [handle_chunk] to them.  It waits to read again
@@ -192,7 +196,8 @@ val read_one_chunk_at_a_time
     [Iobuf.Lo_bound] is considered consumed. *)
 type 'a handle_iobuf_result =
   [ `Stop of 'a
-  | `Continue ]
+  | `Continue
+  ]
 [@@deriving sexp_of]
 
 (** [read_one_iobuf_at_a_time] is like [read_one_chunk_at_a_time], except that the
@@ -217,17 +222,22 @@ val read_char : t -> char Read_result.t Deferred.t
     [pos], or runs out of input.  In the former case it returns [`Ok].  In the latter, it
     returns [`Eof n] where [n] is the number of bytes that were read before end of input,
     and [0 <= n < String.length ss]. *)
-val really_read : t -> ?pos:int -> ?len:int -> Bytes.t -> [`Ok | `Eof of int] Deferred.t
+val really_read
+  :  t
+  -> ?pos:int
+  -> ?len:int
+  -> Bytes.t
+  -> [ `Ok | `Eof of int ] Deferred.t
 
 val really_read_substring
   :  t
   -> Substring.t
-  -> [`Ok | `Eof of int  (** [0 <= i < Substring.length ss] *)] Deferred.t
+  -> [ `Ok | `Eof of int (** [0 <= i < Substring.length ss] *) ] Deferred.t
 
 val really_read_bigsubstring
   :  t
   -> Bigsubstring.t
-  -> [`Ok | `Eof of int  (** [0 <= i < Substring.length ss] *)] Deferred.t
+  -> [ `Ok | `Eof of int (** [0 <= i < Substring.length ss] *) ] Deferred.t
 
 (** [read_until t pred ~keep_delim] reads until it hits a delimiter [c] such that:
 
@@ -242,18 +252,18 @@ val really_read_bigsubstring
     and optionally including the delimiter as per [keep_delim]. *)
 val read_until
   :  t
-  -> [`Pred of char -> bool | `Char of char]
+  -> [ `Pred of char -> bool | `Char of char ]
   -> keep_delim:bool
-  -> [`Ok of string | `Eof_without_delim of string | `Eof] Deferred.t
+  -> [ `Ok of string | `Eof_without_delim of string | `Eof ] Deferred.t
 
 (** [read_until_max] is just like [read_until], except you have the option of specifying
     a maximum number of chars to read. *)
 val read_until_max
   :  t
-  -> [`Pred of char -> bool | `Char of char]
+  -> [ `Pred of char -> bool | `Char of char ]
   -> keep_delim:bool
   -> max:int
-  -> [`Ok of string | `Eof_without_delim of string | `Eof | `Max_exceeded of string]
+  -> [ `Ok of string | `Eof_without_delim of string | `Eof | `Max_exceeded of string ]
        Deferred.t
 
 (** [read_line t] reads up to and including the next newline ([\n]) character (or [\r\n])
@@ -261,6 +271,7 @@ val read_until_max
     the newline character.  If [read_line] encounters EOF before the newline char then
     everything read up to but not including EOF will be returned as a line. *)
 val read_line : t -> string Read_result.t Deferred.t
+
 
 (** [really_read_line ~wait_time t] reads up to and including the next newline ([\n])
     character and returns an optional, freshly-allocated string containing everything up
@@ -323,7 +334,7 @@ val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
     descriptor.  The [`Cur] mode is not exposed because seeking relative to the current
     position of the file descriptor is not the same as seeking relative to the current
     position of the reader. *)
-val lseek : t -> int64 -> mode:[< `Set | `End] -> int64 Deferred.t
+val lseek : t -> int64 -> mode:[< `Set | `End ] -> int64 Deferred.t
 
 (** [ltell t] returns the file position of [t] from the perspective of a consumer of [t].
     It uses [Unix.lseek] to find the file position of [t]'s underlying file descriptor,

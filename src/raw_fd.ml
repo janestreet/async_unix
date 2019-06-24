@@ -10,7 +10,7 @@ module Kind = struct
     | Char
     | Fifo
     | File
-    | Socket of [`Unconnected | `Bound | `Passive | `Active]
+    | Socket of [ `Unconnected | `Bound | `Passive | `Active ]
   [@@deriving sexp_of]
 end
 
@@ -36,8 +36,7 @@ module State = struct
 
   let transition_is_allowed t t' =
     match t, t' with
-    | Open _, Close_requested _
-    | Close_requested _, Closed -> true
+    | Open _, Close_requested _ | Close_requested _, Closed -> true
     | _ -> false
   ;;
 
@@ -51,7 +50,8 @@ type ready_to_result =
   [ `Ready
   | `Bad_fd
   | `Closed
-  | `Interrupted ]
+  | `Interrupted
+  ]
 [@@deriving sexp_of]
 
 module Watching = struct
@@ -74,7 +74,7 @@ module Watching = struct
   type t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
-    | Watch_repeatedly of Job.t * [`Bad_fd | `Closed | `Interrupted] Ivar.t
+    | Watch_repeatedly of Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
     | Stop_requested
   [@@deriving sexp_of]
 

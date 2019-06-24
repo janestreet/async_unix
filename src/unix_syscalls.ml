@@ -139,7 +139,8 @@ type open_flag =
   | `Noctty
   | `Dsync
   | `Sync
-  | `Rsync ]
+  | `Rsync
+  ]
 
 type file_perm = int [@@deriving sexp, bin_io, compare]
 
@@ -251,7 +252,8 @@ module File_kind = struct
       | `Block
       | `Link
       | `Fifo
-      | `Socket ]
+      | `Socket
+      ]
     [@@deriving compare, sexp, bin_io]
   end
 
@@ -621,7 +623,7 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [`Inet of Inet_addr.t * int] [@@deriving bin_io, compare]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare]
 
       let to_string_internal ~show_port_in_test (`Inet (a, p)) =
         sprintf
@@ -636,12 +638,12 @@ module Socket = struct
       let sexp_of_t t : Sexp.t = Atom (to_string t)
 
       module Blocking_sexp = struct
-        type t = [`Inet of Inet_addr.Blocking_sexp.t * int]
+        type t = [ `Inet of Inet_addr.Blocking_sexp.t * int ]
         [@@deriving bin_io, compare, sexp]
       end
 
       module Show_port_in_test = struct
-        type t = [`Inet of Inet_addr.t * int] [@@deriving sexp_of]
+        type t = [ `Inet of Inet_addr.t * int ] [@@deriving sexp_of]
 
         let to_string = to_string_internal ~show_port_in_test:true
       end
@@ -667,7 +669,7 @@ module Socket = struct
     end
 
     module Unix = struct
-      type t = [`Unix of string] [@@deriving bin_io, sexp, compare]
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
 
       let create s = `Unix s
       let to_string (`Unix s) = s
@@ -682,13 +684,15 @@ module Socket = struct
 
     type t =
       [ Inet.t
-      | Unix.t ]
+      | Unix.t
+      ]
     [@@deriving bin_io, sexp_of]
 
     module Blocking_sexp = struct
       type t =
         [ Inet.Blocking_sexp.t
-        | Unix.t ]
+        | Unix.t
+        ]
       [@@deriving bin_io, sexp]
     end
 
@@ -711,7 +715,7 @@ module Socket = struct
       ; address_of_sockaddr_exn : Unix.sockaddr -> 'address
       ; sexp_of_address : 'address -> Sexp.t
       }
-      constraint 'address = [< Address.t]
+      constraint 'address = [< Address.t ]
     [@@deriving fields]
 
     let sexp_of_t _ { address_of_sockaddr_exn = _; family; sexp_of_address = _ } =
@@ -760,7 +764,7 @@ module Socket = struct
     }
   [@@deriving sexp_of]
 
-  type (+'a, 'b) t = 'b t_ constraint 'a = [< `Unconnected | `Bound | `Passive | `Active]
+  type (+'a, 'b) t = 'b t_ constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
   [@@deriving sexp_of]
 
   let fd t = t.fd
@@ -791,7 +795,9 @@ module Socket = struct
     let to_string t = t.name
 
     let make getsockopt setsockopt name opt =
-      { name; get = (fun fd -> getsockopt fd opt); set = (fun fd a -> setsockopt fd opt a)
+      { name
+      ; get = (fun fd -> getsockopt fd opt)
+      ; set = (fun fd a -> setsockopt fd opt a)
       }
     ;;
 
@@ -850,7 +856,7 @@ module Socket = struct
         "socket"
         (`bound_on address)
         (let sexp_of_address = sexp_of_address t in
-         [%sexp_of: [`bound_on of address]])
+         [%sexp_of: [ `bound_on of address ]])
     in
     Fd.Private.replace t.fd (Socket `Bound) info
   ;;
@@ -890,10 +896,10 @@ module Socket = struct
   ;;
 
   let accept_nonblocking t =
+    (* We call [accept] with [~nonblocking:true] because there is no way to use
+       [select] to guarantee that an [accept] will not block (see Stevens' book on
+       Unix Network Programming, p422). *)
     match
-      (* We call [accept] with [~nonblocking:true] because there is no way to use
-         [select] to guarantee that an [accept] will not block (see Stevens' book on
-         Unix Network Programming, p422). *)
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->
         Unix.accept file_descr)
     with
@@ -909,7 +915,7 @@ module Socket = struct
              "socket"
              (`listening_on t, `client address)
              (let sexp_of_address = sexp_of_address t in
-              [%sexp_of: [`listening_on of (_, _) t] * [`client of address]]))
+              [%sexp_of: [ `listening_on of (_, _) t ] * [ `client of address ]]))
       in
       let s = { fd; type_ = t.type_ } in
       set_close_on_exec s.fd;
@@ -996,10 +1002,10 @@ module Socket = struct
       `Ok t
     in
     let fail_closed () = raise_s [%message "connect on closed fd" ~_:(t.fd : Fd.t)] in
+    (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
+       (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
+       or fails, [select] on the socket will return it in the writeable set. *)
     match
-      (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
-         (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
-         or fails, [select] on the socket will return it in the writeable set. *)
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->
         Unix.connect file_descr ~addr:sockaddr)
     with
@@ -1190,7 +1196,8 @@ module Terminal_io = struct
   include Unix.Terminal_io
 
   let tcgetattr fd =
-    Fd.syscall_in_thread_exn fd ~name:"tcgetattr" (fun file_descr -> tcgetattr file_descr)
+    Fd.syscall_in_thread_exn fd ~name:"tcgetattr" (fun file_descr ->
+      tcgetattr file_descr)
   ;;
 
   let tcsetattr t fd ~mode =

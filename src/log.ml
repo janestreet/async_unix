@@ -21,7 +21,8 @@ module Stable = struct
       type t =
         [ `Debug
         | `Info
-        | `Error ]
+        | `Error
+        ]
       [@@deriving bin_io, sexp]
 
       let%expect_test "bin_digest Level.V1" =
@@ -37,12 +38,14 @@ module Stable = struct
         type machine_readable =
           [ `Sexp
           | `Sexp_hum
-          | `Bin_prot ]
+          | `Bin_prot
+          ]
         [@@deriving sexp]
 
         type t =
           [ machine_readable
-          | `Text ]
+          | `Text
+          ]
         [@@deriving sexp]
       end
     end
@@ -52,7 +55,8 @@ module Stable = struct
     module V1 = struct
       type t =
         [ `Sexp of Sexp.V1.t
-        | `String of string ]
+        | `String of string
+        ]
       [@@deriving bin_io, sexp]
 
       let%expect_test "bin_digest Sexp_or_string.V1" =
@@ -73,13 +77,14 @@ module Stable = struct
         [ `Numbered
         | `Timestamped
         | `Dated
-        | `User_defined of (module Rotation_id_intf) ]
+        | `User_defined of (module Rotation_id_intf)
+        ]
 
       type t =
         { messages : int option
         ; size : Byte_units.V1.t option
         ; time : Time.Ofday.V1.t option
-        ; keep : [`All | `Newer_than of Time.Span.V3.t | `At_least of int]
+        ; keep : [ `All | `Newer_than of Time.Span.V3.t | `At_least of int ]
         ; naming_scheme : naming_scheme
         ; zone : Time.Zone.V1.t
         }
@@ -157,8 +162,7 @@ module Stable = struct
       [@@deriving bin_io, sexp]
     end
 
-    module Make_versioned_serializable (T : Versioned_serializable) :
-    sig
+    module Make_versioned_serializable (T : Versioned_serializable) : sig
       type t [@@deriving bin_io, sexp]
     end
     with type t = T.t = struct
@@ -183,9 +187,10 @@ module Stable = struct
         t_of_versioned_serializable versioned_t
       ;;
 
-      include Binable.Of_binable.V1 (struct
-          type t = versioned_serializable [@@deriving bin_io]
-        end)
+      include Binable.Of_binable.V1
+          (struct
+            type t = versioned_serializable [@@deriving bin_io]
+          end)
           (struct
             type t = T.t
 
@@ -230,9 +235,10 @@ module Stable = struct
         }
       ;;
 
-      include Binable.Of_binable.V1 (struct
-          type t = v0_t [@@deriving bin_io]
-        end)
+      include Binable.Of_binable.V1
+          (struct
+            type t = v0_t [@@deriving bin_io]
+          end)
           (struct
             let to_binable = v2_to_v0
             let of_binable = v0_to_v2
@@ -258,7 +264,8 @@ module Level = struct
   type t =
     [ `Debug
     | `Info
-    | `Error ]
+    | `Error
+    ]
   [@@deriving bin_io, compare, sexp]
 
   let to_string = function
@@ -386,7 +393,7 @@ module Message : sig
   val level : t -> Level.t option
   val set_level : t -> Level.t option -> t
   val message : t -> string
-  val raw_message : t -> [`String of string | `Sexp of Sexp.t]
+  val raw_message : t -> [ `String of string | `Sexp of Sexp.t ]
   val tags : t -> (string * string) list
   val add_tags : t -> (string * string) list -> t
   val to_write_only_text : ?zone:Time.Zone.t -> t -> string
@@ -489,12 +496,14 @@ module Output : sig
     type machine_readable =
       [ `Sexp
       | `Sexp_hum
-      | `Bin_prot ]
+      | `Bin_prot
+      ]
     [@@deriving sexp]
 
     type t =
       [ machine_readable
-      | `Text ]
+      | `Text
+      ]
     [@@deriving sexp]
 
     module Stable : sig
@@ -542,12 +551,14 @@ end = struct
     type machine_readable =
       [ `Sexp
       | `Sexp_hum
-      | `Bin_prot ]
+      | `Bin_prot
+      ]
     [@@deriving sexp]
 
     type t =
       [ machine_readable
-      | `Text ]
+      | `Text
+      ]
     [@@deriving sexp]
 
     module Stable = Stable.Output.Format
@@ -616,7 +627,12 @@ end = struct
     let rotate () = iter_combine_exns (fun t -> t.rotate ()) in
     let close () = iter_combine_exns (fun t -> t.close ()) in
     let flush () = iter_combine_exns (fun t -> t.flush ()) in
-    { write; rotate; close; flush; heap_block = Definitely_a_heap_block.the_one_and_only }
+    { write
+    ; rotate
+    ; close
+    ; flush
+    ; heap_block = Definitely_a_heap_block.the_one_and_only
+    }
   ;;
 
   let filter_to_level t ~level =
@@ -679,7 +695,8 @@ end = struct
       let w = open_writer ~filename ~perm in
       create
         ~close:(fun () -> if Lazy.is_val w then force w >>= Writer.close else return ())
-        ~flush:(fun () -> if Lazy.is_val w then force w >>= Writer.flushed else return ())
+        ~flush:(fun () ->
+          if Lazy.is_val w then force w >>= Writer.flushed else return ())
         (fun msgs ->
            let%map (_ : Int63.t) = write' (force w) format msgs in
            ())
@@ -1002,7 +1019,7 @@ end
 
 type t =
   { updates : Update.t Pipe.Writer.t
-  ; mutable on_error : [`Raise | `Call of Error.t -> unit]
+  ; mutable on_error : [ `Raise | `Call of Error.t -> unit ]
   ; mutable current_level : Level.t
   ; mutable output_is_disabled : bool
   ; mutable current_output : Output.t list
@@ -1186,7 +1203,7 @@ let set_level t level = t.current_level <- level
 (* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
 let would_log t msg_level =
-  not t.output_is_disabled
+  (not t.output_is_disabled)
   && Level.as_or_more_verbose_than ~log_level:(level t) ~msg_level
 ;;
 
@@ -1215,8 +1232,7 @@ let add_uuid_to_tags tags =
   let uuid =
     match Ppx_inline_test_lib.Runtime.testing with
     | `Testing `Am_test_runner -> Uuid.Stable.V1.for_testing
-    | `Testing `Am_child_of_test_runner
-    | `Not_testing -> Uuid_unix.create ()
+    | `Testing `Am_child_of_test_runner | `Not_testing -> Uuid_unix.create ()
   in
   ("Log.surround_id", Uuid.to_string uuid) :: tags
 ;;
@@ -1323,7 +1339,7 @@ module type Global_intf = sig
   val set_level : Level.t -> unit
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
-  val set_on_error : [`Raise | `Call of Error.t -> unit] -> unit
+  val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 

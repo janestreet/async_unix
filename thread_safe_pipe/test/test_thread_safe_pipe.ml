@@ -28,8 +28,8 @@ let%expect_test "Thread_safe_pipe2" =
   In_thread.run (fun () -> Thread_safe_pipe.create ())
   >>= fun (pipe_reader, pipe_writer) ->
   assert (
+    (* [write] raises if we're in Async. *)
     try
-      (* [write] raises if we're in Async. *)
       Thread_safe_pipe.write pipe_writer 13 ~if_closed:Raise;
       false
     with

@@ -117,7 +117,7 @@ val make_async_unusable : unit -> unit
     raised by [poll] will be sent asynchronously to that monitor.  If [poll] raises, it
     will still be run on subsequent iterations of the busy loop. *)
 val add_busy_poller
-  :  (unit -> [`Continue_polling | `Stop_polling of 'a])
+  :  (unit -> [ `Continue_polling | `Stop_polling of 'a ])
   -> 'a Deferred.t
 [@@deprecated "[since 2018-11] use [set_on_start_of_cycle]"]
 

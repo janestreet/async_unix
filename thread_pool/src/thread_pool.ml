@@ -97,13 +97,11 @@ module Internal = struct
   module Helper_thread = struct
     type 'thread t =
       { in_pool : Pool_id.t
-      ; mutable state : [`In_use | `Finishing | `Finished]
-      ; thread :
-          'thread
+      ; mutable state : [ `In_use | `Finishing | `Finished ]
+      ; thread : 'thread
       (* [default_name] will be used as the name of work run by the helper thread,
          unless that work is added with an overriding name. *)
-      ; default_name :
-          string
+      ; default_name : string
       (* [default_priority] will be used as the priority of work run by the helper
          thread, unless that work is added with an overriding priority. *)
       ; default_priority : Priority.t
@@ -115,27 +113,23 @@ module Internal = struct
     type t =
       { (* [name] is the name of the thread that the OS knows, i.e. the argument supplied
            to the most recent call to [set_thread_name] by the thread. *)
-        mutable name :
-          string
+        mutable name : string
       (* [thread_id] is the OCaml thread id of the OCaml thread that this corresponds
          to.  It is an option only because we create this object before creating the
          thread.  We set it to [Some] as soon as we create the thread, and then never
          change it. *)
-      ; mutable thread_id :
-          Thread_id.t option
+      ; mutable thread_id : Thread_id.t option
       (* [priority] is the priority of the thread that the OS knows, i.e. the argument
          supplied in the most recent call to [setpriority] by the thread. *)
-      ; mutable priority :
-          Priority.t
+      ; mutable priority : Priority.t
       (* A thread can be "available", meaning that it isn't working on anything, or
          doing work added to the thread pool, or serving as a helper thread.  *)
       ; mutable state :
-          [`Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t]
+          [ `Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t ]
       (* [unfinished_work] is the amount of work remaining for this thread to do.  It
          includes all the work in [work_queue], plus perhaps an additional work that is
          running. *)
-      ; mutable unfinished_work :
-          int
+      ; mutable unfinished_work : int
       (* [work_queue] is where this thread pulls work from.  Each thread has its own
          queue.  If a thread is working for the general pool, then its work queue has at
          most one element.  If a thread is a helper thread, then the work queue has all
@@ -230,47 +224,38 @@ module Internal = struct
     (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
         [finished_with], it transitions to [`Finishing].  When the last work is done, it
         transitions to [`Finished] and fills [finished]. *)
-    ; mutable state : [`In_use | `Finishing | `Finished]
-    ; finished :
-        unit Thread_safe_ivar.t
+    ; mutable state : [ `In_use | `Finishing | `Finished ]
+    ; finished : unit Thread_safe_ivar.t
     (* [mutex] is used to protect all access to [t] and its substructures, since the
        threads actually doing the work need to access[t]. *)
     ; mutex : Mutex.t
     (** [default_priority] is the priority that will be used for work unless that work is
         added with an overriding priority.  It is set to whatever the priority is when the
         thread pool is created. *)
-    ; default_priority :
-        Priority.t
+    ; default_priority : Priority.t
     (* [max_num_threads] is the maximum number of threads that the thread pool is allowed
        to create. *)
-    ; max_num_threads :
-        int (* [cpu_affinity] is the desired CPU affinity for threads in this pool. *)
-    ; cpu_affinity :
-        Cpu_affinity.t
+    ; max_num_threads : int
+    (* [cpu_affinity] is the desired CPU affinity for threads in this pool. *)
+    ; cpu_affinity : Cpu_affinity.t
     (* [num_threads] is the number of threads that have been created by the pool.  The
        thread pool guarantees that [num_threads <= max_num_threads]. *)
-    ; mutable num_threads :
-        int
+    ; mutable num_threads : int
     (* [thread_creation_failure_lockout] is the amount of time that must pass after a
        thread-creation failure before the thread pool will make another attempt to create
        a thread. *)
-    ; mutable thread_creation_failure_lockout :
-        Time_ns.Span.t
+    ; mutable thread_creation_failure_lockout : Time_ns.Span.t
     (* [last_thread_creation_failure] has information about the last time that
        [Core.Thread.create] raised. *)
-    ; mutable last_thread_creation_failure :
-        Thread_creation_failure.t option
+    ; mutable last_thread_creation_failure : Thread_creation_failure.t option
     (* [thread_by_id] holds all the threads that have been created by the pool. *)
-    ; mutable thread_by_id :
-        Thread.t Thread_id.Table.t
+    ; mutable thread_by_id : Thread.t Thread_id.Table.t
     (* [available_threads] holds all threads that have [state = `Available].  It is used
        as a stack so that the most recently used available thread is used next, on the
        theory that this is better for locality. *)
-    ; mutable available_threads :
-        Thread.t list
+    ; mutable available_threads : Thread.t list
     (* [work_queue] holds work to be done for which no thread is available. *)
-    ; work_queue :
-        Work.t Queue.t
+    ; work_queue : Work.t Queue.t
     (* [unfinished_work] holds the amount of work that has been submitted to the pool but
        not yet been completed. *)
     ; mutable unfinished_work : int
