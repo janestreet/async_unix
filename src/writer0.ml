@@ -491,7 +491,7 @@ let flushed t =
     then return ()
     else if Ivar.is_full t.close_finished
     then Deferred.never ()
-    else Deferred.ignore (flushed_time t)
+    else Deferred.ignore_m (flushed_time t)
 ;;
 
 let set_backing_out_channel t backing_out_channel =
@@ -1680,7 +1680,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
     | `Writer_closed | `Consumer_left -> Pipe.close_read pipe_r
   in
   with_flushed_at_close t ~f:doit ~flushed:(fun () ->
-    Deferred.ignore (Pipe.upstream_flushed pipe_r))
+    Deferred.ignore_m (Pipe.upstream_flushed pipe_r))
 ;;
 
 let transfer ?stop ?max_num_values_per_read t pipe_r write_f =
