@@ -189,7 +189,10 @@ type 'a handle_chunk_result =
     may read from [t] after [read_one_chunk_at_a_time] returns. *)
 val read_one_chunk_at_a_time
   :  t
-  -> handle_chunk:(Bigstring.t -> pos:int -> len:int -> 'a handle_chunk_result Deferred.t)
+  -> handle_chunk:(Bigstring.t
+                   -> pos:int
+                   -> len:int
+                   -> 'a handle_chunk_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [`Stop a] or [`Continue] respects the usual [Iobuf] semantics where data up to the
