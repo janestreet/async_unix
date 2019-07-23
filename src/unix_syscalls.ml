@@ -758,17 +758,50 @@ module Socket = struct
     let unix_dgram = { family = Family.unix; socket_type = SOCK_DGRAM }
   end
 
-  type 'b t_ =
-    { type_ : 'b Type.t
+  module For_info = struct
+    type 'addr t =
+      { mutable connected_to : 'addr option
+      ; mutable bound_on : 'addr option
+      ; mutable listening : bool
+      }
+
+    let create () = { connected_to = None; bound_on = None; listening = false }
+
+    let info { connected_to; bound_on; listening } (socket_type : _ Type.t) =
+      let socket_type =
+        let default = [%sexp (socket_type : _ Type.t)] in
+        match
+          List.find_map [ Type.tcp, "tcp"; Type.udp, "udp" ] ~f:(fun (s, str) ->
+            if Sexp.( = ) [%sexp (s : _ Type.t)] default then Some str else None)
+        with
+        | None -> default
+        | Some str -> [%sexp (str : string)]
+      in
+      let bound_on, listening_on =
+        if listening then None, bound_on else bound_on, None
+      in
+      Info.create_s
+        [%sexp
+          { connected_to : ([< Address.t ] option[@sexp.option])
+          ; type_ = (socket_type : Sexp.t)
+          ; bound_on : ([< Address.t ] option[@sexp.option])
+          ; listening_on : ([< Address.t ] option[@sexp.option])
+          }]
+    ;;
+  end
+
+  type 'addr t_ =
+    { type_ : 'addr Type.t
     ; fd : Fd.t
+    ; for_info : 'addr For_info.t option
     }
-  [@@deriving sexp_of]
 
-  type (+'a, 'b) t = 'b t_ constraint 'a = [< `Unconnected | `Bound | `Passive | `Active ]
-  [@@deriving sexp_of]
+  type (+'state, 'addr) t = 'addr t_
+    constraint 'state = [< `Unconnected | `Bound | `Passive | `Active ]
 
+  let sexp_of_t _ _ t = Fd.sexp_of_t t.fd
   let fd t = t.fd
-  let of_fd fd type_ = { type_; fd }
+  let of_fd fd type_ = { type_; fd; for_info = None }
   let sexp_of_address t = Type.sexp_of_address t.type_
 
   let create (type_ : _ Type.t) =
@@ -782,7 +815,7 @@ module Socket = struct
         file_descr
         (Info.create "socket" type_ [%sexp_of: _ Type.t])
     in
-    { type_; fd }
+    { type_; fd; for_info = Some (For_info.create ()) }
   ;;
 
   module Opt = struct
@@ -852,11 +885,17 @@ module Socket = struct
 
   let mark_bound t address =
     let info =
-      Info.create
-        "socket"
-        (`bound_on address)
-        (let sexp_of_address = sexp_of_address t in
-         [%sexp_of: [ `bound_on of address ]])
+      match t.for_info with
+      | Some i ->
+        i.bound_on <- Some address;
+        `Set (For_info.info i t.type_)
+      | None ->
+        `Extend
+          (Info.create
+             "socket"
+             (`bound_on address)
+             (let sexp_of_address = sexp_of_address t in
+              [%sexp_of: [ `bound_on of address ]]))
     in
     Fd.Private.replace t.fd (Socket `Bound) info
   ;;
@@ -885,7 +924,14 @@ module Socket = struct
   let listen ?(backlog = 64) t =
     let fd = t.fd in
     Fd.syscall_exn fd (fun file_descr -> Unix.listen file_descr ~backlog);
-    Fd.Private.replace fd (Socket `Passive) (Info.of_string "listening");
+    let info =
+      match t.for_info with
+      | Some i ->
+        i.listening <- true;
+        `Set (For_info.info i t.type_)
+      | None -> `Extend (Info.of_string "listening")
+    in
+    Fd.Private.replace fd (Socket `Passive) info;
     t
   ;;
 
@@ -917,7 +963,7 @@ module Socket = struct
              (let sexp_of_address = sexp_of_address t in
               [%sexp_of: [ `listening_on of (_, _) t ] * [ `client of address ]]))
       in
-      let s = { fd; type_ = t.type_ } in
+      let s = { fd; type_ = t.type_; for_info = None } in
       set_close_on_exec s.fd;
       turn_off_nagle sockaddr s;
       `Ok (s, address)
@@ -996,8 +1042,15 @@ module Socket = struct
     let sockaddr = Address.to_sockaddr address in
     turn_off_nagle sockaddr t;
     let success () =
-      let sexp_of_address = sexp_of_address t in
-      let info = Info.create "connected to" address [%sexp_of: address] in
+      let info =
+        match t.for_info with
+        | Some i ->
+          i.connected_to <- Some address;
+          `Set (For_info.info i t.type_)
+        | None ->
+          let sexp_of_address = sexp_of_address t in
+          `Extend (Info.create "connected to" address [%sexp_of: address])
+      in
       Fd.Private.replace t.fd (Fd.Kind.Socket `Active) info;
       `Ok t
     in

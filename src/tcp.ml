@@ -26,14 +26,18 @@ module Where_to_connect = struct
     | Some inet_addr -> Socket.Address.Inet.create ~port inet_addr
   ;;
 
-  let of_host_and_port ?bind_to_address ?bind_to_port { Host_and_port.host; port } =
+  let of_host_and_port
+        ?bind_to_address
+        ?bind_to_port
+        ({ Host_and_port.host; port } as hp)
+    =
     { socket_type = Socket.Type.tcp
     ; remote_address =
         (fun () ->
            Unix.Inet_addr.of_string_or_getbyname host
            >>| fun inet_addr -> Socket.Address.Inet.create inet_addr ~port)
     ; local_address = Some (create_local_address ~bind_to_address ~bind_to_port)
-    ; info = [%sexp_of: string * int] (host, port)
+    ; info = [%sexp (hp : Host_and_port.t)]
     }
   ;;
 
@@ -61,12 +65,6 @@ module Where_to_connect = struct
     }
   ;;
 end
-
-let create_socket socket_type =
-  let s = Socket.create socket_type in
-  Unix.set_close_on_exec (Unix.Socket.fd s);
-  s
-;;
 
 let close_sock_on_error s f =
   try_with ~name:"Tcp.close_sock_on_error" f
@@ -105,7 +103,7 @@ let connect_sock
     let s =
       match socket with
       | Some s -> s
-      | None -> create_socket where_to_connect.socket_type
+      | None -> Socket.create where_to_connect.socket_type
     in
     close_sock_on_error s (fun () ->
       match where_to_connect.local_address with
@@ -118,8 +116,8 @@ let connect_sock
       don't_wait_for (Unix.close (Socket.fd s));
       let address = Socket.Address.to_string address in
       if Option.is_some (Deferred.peek timeout)
-      then failwiths "connection attempt timeout" address [%sexp_of: string]
-      else failwiths "connection attempt aborted" address [%sexp_of: string])
+      then raise_s [%sexp "connection attempt timeout", (address : string)]
+      else raise_s [%sexp "connection attempt aborted", (address : string)])
 ;;
 
 type 'a with_connect_options =
@@ -417,7 +415,7 @@ module Server = struct
     let socket, should_set_reuseaddr =
       match socket with
       | Some socket -> socket, false
-      | None -> create_socket where_to_listen.socket_type, true
+      | None -> Socket.create where_to_listen.socket_type, true
     in
     close_sock_on_error socket (fun () ->
       Socket.bind ~reuseaddr:should_set_reuseaddr socket where_to_listen.address

@@ -313,9 +313,12 @@ module Private = struct
     else (
       t.kind <- kind;
       t.info
-      <- Info.create
-           "replaced"
-           (info, `previously_was t.info)
-           [%sexp_of: Info.t * [ `previously_was of Info.t ]])
+      <- (match info with
+        | `Set i -> i
+        | `Extend i ->
+          Info.create
+            "replaced"
+            (i, `previously_was t.info)
+            [%sexp_of: Info.t * [ `previously_was of Info.t ]]))
   ;;
 end
