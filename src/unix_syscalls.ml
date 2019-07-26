@@ -756,6 +756,7 @@ module Socket = struct
     let udp = { family = Family.inet; socket_type = SOCK_DGRAM }
     let unix = { family = Family.unix; socket_type = SOCK_STREAM }
     let unix_dgram = { family = Family.unix; socket_type = SOCK_DGRAM }
+    let phys_same (t1 : _ t) (t2 : _ t) = phys_same t1 t2
   end
 
   module For_info = struct
@@ -763,19 +764,18 @@ module Socket = struct
       { mutable connected_to : 'addr option
       ; mutable bound_on : 'addr option
       ; mutable listening : bool
+      ; type_ : 'addr Type.t
       }
 
-    let create () = { connected_to = None; bound_on = None; listening = false }
+    let create type_ = { connected_to = None; bound_on = None; listening = false; type_ }
 
-    let info { connected_to; bound_on; listening } (socket_type : _ Type.t) =
-      let socket_type =
-        let default = [%sexp (socket_type : _ Type.t)] in
-        match
-          List.find_map [ Type.tcp, "tcp"; Type.udp, "udp" ] ~f:(fun (s, str) ->
-            if Sexp.( = ) [%sexp (s : _ Type.t)] default then Some str else None)
-        with
-        | None -> default
-        | Some str -> [%sexp (str : string)]
+    let info { connected_to; bound_on; listening; type_ } =
+      let type_ =
+        if Type.phys_same type_ Type.tcp
+        then [%sexp "tcp"]
+        else if Type.phys_same type_ Type.udp
+        then [%sexp "udp"]
+        else [%sexp (type_ : _ Type.t)]
       in
       let bound_on, listening_on =
         if listening then None, bound_on else bound_on, None
@@ -783,7 +783,7 @@ module Socket = struct
       Info.create_s
         [%sexp
           { connected_to : ([< Address.t ] option[@sexp.option])
-          ; type_ = (socket_type : Sexp.t)
+          ; type_ : Sexp.t
           ; bound_on : ([< Address.t ] option[@sexp.option])
           ; listening_on : ([< Address.t ] option[@sexp.option])
           }]
@@ -815,7 +815,7 @@ module Socket = struct
         file_descr
         (Info.create "socket" type_ [%sexp_of: _ Type.t])
     in
-    { type_; fd; for_info = Some (For_info.create ()) }
+    { type_; fd; for_info = Some (For_info.create type_) }
   ;;
 
   module Opt = struct
@@ -888,7 +888,7 @@ module Socket = struct
       match t.for_info with
       | Some i ->
         i.bound_on <- Some address;
-        `Set (For_info.info i t.type_)
+        `Set (For_info.info i)
       | None ->
         `Extend
           (Info.create
@@ -928,7 +928,7 @@ module Socket = struct
       match t.for_info with
       | Some i ->
         i.listening <- true;
-        `Set (For_info.info i t.type_)
+        `Set (For_info.info i)
       | None -> `Extend (Info.of_string "listening")
     in
     Fd.Private.replace fd (Socket `Passive) info;
@@ -1046,7 +1046,7 @@ module Socket = struct
         match t.for_info with
         | Some i ->
           i.connected_to <- Some address;
-          `Set (For_info.info i t.type_)
+          `Set (For_info.info i)
         | None ->
           let sexp_of_address = sexp_of_address t in
           `Extend (Info.create "connected to" address [%sexp_of: address])
