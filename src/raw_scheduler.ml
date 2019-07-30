@@ -432,14 +432,14 @@ let request_stop_watching t fd read_or_write value =
        if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t)
 ;;
 
-let[@inline never] post_check_got_timerfd file_descr =
+let[@cold] post_check_got_timerfd file_descr =
   raise_s
     [%message
       "File_descr_watcher returned the timerfd as ready to be written to"
         (file_descr : File_descr.t)]
 ;;
 
-let[@inline never] post_check_invalid_fd file_descr =
+let[@cold] post_check_invalid_fd file_descr =
   raise_s
     [%message
       "File_descr_watcher returned unknown file descr" (file_descr : File_descr.t)]
@@ -637,7 +637,7 @@ let have_lock_do_cycle t =
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
 ;;
 
-let[@inline never] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
+let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   Debug.log
     "File_descr_watcher.set"
@@ -645,7 +645,7 @@ let[@inline never] log_sync_changed_fds_to_file_descr_watcher t file_descr desir
     [%sexp_of: File_descr.t * bool Read_write.t * F.t]
 ;;
 
-let[@inline never] sync_changed_fd_failed t fd desired exn =
+let[@cold] sync_changed_fd_failed t fd desired exn =
   raise_s
     [%message
       "sync_changed_fds_to_file_descr_watcher unable to set fd"
