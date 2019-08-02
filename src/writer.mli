@@ -678,6 +678,6 @@ module Private : sig
   val set_bytes_written : t -> Int63.t -> unit
 
   module Check_buffer_age : sig
-    val internal_check_now_for_unit_test : now:Time_ns.t -> unit
+    val internal_check_now_for_unit_test : check_invariants:bool -> now:Time_ns.t -> unit
   end
 end

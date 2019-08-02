@@ -303,7 +303,7 @@ module Check_buffer_age : sig
   val create : writer -> maximum_age:[ `At_most of Time.Span.t | `Unlimited ] -> t
   val destroy : t -> unit
   val too_old : t -> unit Deferred.t
-  val internal_check_now_for_unit_test : now:Time_ns.t -> unit
+  val internal_check_now_for_unit_test : check_invariants:bool -> now:Time_ns.t -> unit
 end = struct
   open Check_buffer_age'
 
@@ -422,15 +422,19 @@ end = struct
       if not (Bag.is_empty active_checks)
       then (
         now := now';
-        Bag.iter active_checks ~f:process_active_check;
+        (* We want [check] to not spuriously allocate, so we use [Bag.unchecked_iter],
+           rather than [Bag.iter], which allocates.  Also, [Bag.unchecked_iter] is
+           nonsensical if [f] modifies the bag; so [process_active_check] does not modify
+           [active_checks]. *)
+        Bag.unchecked_iter active_checks ~f:process_active_check;
         if not (List.is_empty !became_too_old)
         then (
           List.iter !became_too_old ~f:send_too_old_writer_error;
           became_too_old := []))
   ;;
 
-  let internal_check_now_for_unit_test ~now =
-    Bag.iter active_checks ~f:elt_invariant;
+  let internal_check_now_for_unit_test ~check_invariants ~now =
+    if check_invariants then Bag.iter active_checks ~f:elt_invariant;
     check ~now
   ;;
 
