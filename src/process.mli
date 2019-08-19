@@ -59,7 +59,11 @@ type 'a create =
 val create : t Or_error.t create
 val create_exn : t create
 
-(** [wait t = Unix.waitpid (pid t)] *)
+(** [wait t = Unix.waitpid (pid t)].  [wait]'s result becomes determined when the child
+    process terminates, via exit or signal.  [wait] does not touch [stdin], [stdout] or
+    [stderr].  The caller should ensure that [stdout] and [stderr] are being drained in
+    the background to avoid the child process blocking on a write due to pushback.  See
+    [collect_output_and_wait] for a higher-level alternative that handles this. *)
 val wait : t -> Unix.Exit_or_signal.t Deferred.t
 
 module Output : sig
@@ -81,8 +85,9 @@ end
     produced on [t]'s [stdout] and [stderr], continuing to collect output until [t]
     terminates and the pipes for [stdout] and [stderr] are closed.  Usually when [t]
     terminates, the pipes are closed; however, [t] could fork other processes which
-    survive after [t] terminates and in turn keep the pipes open -- [wait] will not become
-    determined until both pipes are closed in all descendant processes. *)
+    survive after [t] terminates and in turn keep the pipes open --
+    [collect_output_and_wait] will not become determined until both pipes are closed in
+    all descendant processes. *)
 val collect_output_and_wait : t -> Output.t Deferred.t
 
 (** [run] [create]s a process, feeds it [stdin] if provided, and [wait]s for it to

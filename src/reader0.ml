@@ -1003,13 +1003,15 @@ module Internal = struct
 
   let transfer t pipe_w =
     Deferred.create (fun finished ->
+      don't_wait_for
+        (let%map () = Pipe.closed pipe_w in
+         Ivar.fill_if_empty finished ());
       let rec loop () =
         with_nonempty_buffer' t (function
-          | `Eof -> Ivar.fill finished ()
+          | `Eof -> Ivar.fill_if_empty finished ()
           | `Ok ->
-            if Pipe.is_closed pipe_w
-            then Ivar.fill finished ()
-            else (
+            if not (Pipe.is_closed pipe_w)
+            then (
               let pos = t.pos in
               let len = t.available in
               consume t len;

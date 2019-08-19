@@ -19,7 +19,9 @@ let of_pipe info pipe_w =
     let%bind () = Reader.transfer reader pipe_w in
     if raise_when_consumer_leaves writer && not (is_closed writer)
     then
-      Monitor.send_exn (monitor writer) (Unix.Unix_error (EPIPE, "Writer.of_pipe", ""));
+      Monitor.send_exn
+        (monitor writer)
+        (Unix.Unix_error (EPIPE, "Writer.of_pipe", Sexp.to_string (Info.sexp_of_t info)));
     let%map (), () = Deferred.both (Reader.close reader) (close writer) in
     if not (Pipe.is_closed pipe_w) then Pipe.close pipe_w
   in

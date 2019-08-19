@@ -7,6 +7,11 @@ open! Core
 open! Import
 
 val argv : string array
+[@@deprecated
+  "[since 2019-08] Use [Sys.get_argv] instead, which has the correct behavior when \
+   [caml_sys_modify_argv] is called."]
+
+val get_argv : unit -> string array
 val executable_name : string
 val file_exists : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val file_exists_exn : ?follow_symlinks:bool -> string -> bool Deferred.t

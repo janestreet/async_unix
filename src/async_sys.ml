@@ -2,7 +2,8 @@ open Core
 open Import
 module Unix = Unix_syscalls
 
-let argv = Sys.argv
+let argv = (Sys.argv [@warning "-3"])
+let get_argv = Sys.get_argv
 let executable_name = Sys.executable_name
 let wrap1 f x1 = In_thread.run (fun () -> f x1)
 let wrap2 f x1 x2 = In_thread.run (fun () -> f x1 x2)
