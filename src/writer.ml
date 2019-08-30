@@ -2,10 +2,10 @@ open Core
 open Import
 include Writer0
 
-let of_pipe info pipe_w =
+let of_pipe ?time_source info pipe_w =
   let%map `Reader reader_fd, `Writer writer_fd = Unix.pipe info in
   let reader = Reader.create reader_fd in
-  let writer = create writer_fd in
+  let writer = create ?time_source writer_fd in
   if Debug.writer
   then
     Debug.log

@@ -1,5 +1,6 @@
 open Core
 open Import
+open Require_explicit_time_source
 module Core_unix = Core.Unix
 module Unix = Unix_syscalls
 module IOVec = Core.Unix.IOVec
@@ -32,6 +33,15 @@ module Check_buffer_age' = struct
     ; (* The buffer-age check is responsible for filling in [too_old] if it detects an age
          violation. *)
       mutable too_old : unit Ivar.t
+    ; (* The buffer-age checks are stored in one of these data structures per time source,
+         and we keep a reference to our parent one in this [t] so we can easily remove
+         ourselves from it when closing the writer. *)
+      for_this_time_source : 'a per_time_source
+    }
+
+  and 'a per_time_source =
+    { active_checks : ('a t[@sexp.opaque]) Bag.t
+    ; closed : unit Ivar.t
     }
   [@@deriving fields, sexp_of]
 end
@@ -87,6 +97,7 @@ type t =
     mutable buf : Bigstring.t
   ; mutable scheduled_back : int
   ; mutable back : int
+  ; time_source : Time_source.t
   ; flushes : (Time_ns.t Ivar.t * Int63.t) Queue.t
   ; (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
        [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
@@ -154,6 +165,7 @@ let sexp_of_t_internals
       ; buf = _
       ; scheduled_back
       ; back
+      ; time_source
       ; flushes = _
       ; close_state
       ; close_finished
@@ -174,6 +186,9 @@ let sexp_of_t_internals
     then [%sexp (Monitor.name monitor : Info.t)]
     else [%sexp (monitor : Monitor.t)]
   in
+  let time_source =
+    if phys_equal time_source (Time_source.wall_clock ()) then None else Some time_source
+  in
   (* [open_flags] are non-deterministic across CentOS versions and have been suppressed in
      tests.  Linux kernels (CentOS 6) expose O_CLOEXEC via fcntl(fd, F_GETFL), but newer
      (CentOS 7) ones don't *)
@@ -190,6 +205,7 @@ let sexp_of_t_internals
     ; scheduled_bytes : int
     ; scheduled_back : int
     ; back : int
+    ; time_source : (Time_source.t option[@sexp.option])
     ; close_state : [ `Open | `Closed_and_flushing | `Closed ]
     ; close_finished : unit Ivar.t
     ; close_started : unit Ivar.t
@@ -263,6 +279,7 @@ let invariant t : unit =
         (check (fun scheduled_back ->
            assert (0 <= scheduled_back && scheduled_back <= t.back)))
       ~back:(check (fun back -> assert (back <= Bigstring.length t.buf)))
+      ~time_source:ignore
       ~flushes:ignore
       ~close_state:ignore
       ~close_finished:
@@ -303,7 +320,11 @@ module Check_buffer_age : sig
   val create : writer -> maximum_age:[ `At_most of Time.Span.t | `Unlimited ] -> t
   val destroy : t -> unit
   val too_old : t -> unit Deferred.t
-  val internal_check_now_for_unit_test : check_invariants:bool -> now:Time_ns.t -> unit
+
+  module Internal_for_unit_test : sig
+    val check_now : check_invariants:bool -> time_source:Time_source.t -> unit
+    val num_active_checks_for : Time_source.t -> int option
+  end
 end = struct
   open Check_buffer_age'
 
@@ -349,11 +370,11 @@ end = struct
                    (Time_ns.diff (List.last_exn times) (List.hd_exn times))
                    t.maximum_age)))
         ~bytes_received_at_now_minus_maximum_age:ignore
-        ~bytes_seen:ignore)
+        ~bytes_seen:ignore
+        ~for_this_time_source:ignore)
   ;;
 
   let dummy = None
-  let active_checks = Bag.create ()
 
   (* [sync] prunes history by removing all the entries from [*_received_queue]s that
      correspond to bytes already written or times older than [now - time_received]. *)
@@ -375,29 +396,12 @@ end = struct
         sync e ~now))
   ;;
 
-  let send_too_old_writer_error e =
-    let { maximum_age; writer; _ } = e in
-    let beginning_of_buffer =
-      Bigstring.to_string
-        writer.buf
-        ~pos:0
-        ~len:(Int.min 1024 (Bigstring.length writer.buf))
-    in
-    Monitor.send_exn
-      e.writer.monitor
-      (Exn.create_s
-         [%message
-           "writer buffer has data older than"
-             (maximum_age : Time_ns.Span.t)
-             (beginning_of_buffer : string)
-             (writer : writer)])
-  ;;
+  module Per_time_source = struct
+    type t = writer Check_buffer_age'.per_time_source
 
-  let check =
-    let became_too_old = ref [] in
-    let now = ref Time_ns.epoch in
     let process_active_check e =
-      sync e ~now:!now;
+      let now = Time_source.now e.writer.time_source in
+      sync e ~now;
       let bytes_received = e.writer.bytes_received in
       let bytes_written = e.writer.bytes_written in
       if Int63.O.(bytes_received > e.bytes_seen)
@@ -406,7 +410,7 @@ end = struct
         if Int63.O.(bytes_received > bytes_written)
         then (
           Queue.enqueue e.bytes_received_queue e.writer.bytes_received;
-          Queue.enqueue e.times_received_queue !now));
+          Queue.enqueue e.times_received_queue now));
       let too_old =
         Int63.O.(e.bytes_received_at_now_minus_maximum_age > bytes_written)
       in
@@ -415,41 +419,78 @@ end = struct
       | true, false -> e.too_old <- Ivar.create ()
       | false, true ->
         Ivar.fill e.too_old ();
-        became_too_old := e :: !became_too_old
-    in
-    fun ~now:now' ->
-      assert (List.is_empty !became_too_old);
-      if not (Bag.is_empty active_checks)
-      then (
-        now := now';
-        (* We want [check] to not spuriously allocate, so we use [Bag.unchecked_iter],
-           rather than [Bag.iter], which allocates.  Also, [Bag.unchecked_iter] is
-           nonsensical if [f] modifies the bag; so [process_active_check] does not modify
-           [active_checks]. *)
-        Bag.unchecked_iter active_checks ~f:process_active_check;
-        if not (List.is_empty !became_too_old)
-        then (
-          List.iter !became_too_old ~f:send_too_old_writer_error;
-          became_too_old := []))
+        let writer = e.writer in
+        (* [Monitor.send_exn] enqueues jobs but does not run user code, and so cannot
+           modify [e]. *)
+        Monitor.send_exn
+          e.writer.monitor
+          (Exn.create_s
+             [%message
+               "writer buffer has data older than"
+                 ~maximum_age:(e.maximum_age : Time_ns.Span.t)
+                 ~beginning_of_buffer:
+                   (Bigstring.to_string
+                      writer.buf
+                      ~pos:0
+                      ~len:(Int.min 1024 (Bigstring.length writer.buf))
+                    : string)
+                 (writer : writer)])
+    ;;
+
+    let create () = { active_checks = Bag.create (); closed = Ivar.create () }
+    let check t = Bag.iter t.active_checks ~f:process_active_check
+
+    let internal_check_now_for_unit_test t ~check_invariants =
+      if check_invariants then Bag.iter t.active_checks ~f:elt_invariant;
+      check t
+    ;;
+  end
+
+  module Time_source_key = Hashable.Make_plain (struct
+      type t = Time_source.t [@@deriving sexp_of]
+
+      let hash_fold_t state t = Time_source.Id.hash_fold_t state (Time_source.id t)
+      let hash t = Time_source.Id.hash (Time_source.id t)
+      let compare t1 t2 = Time_source.Id.compare (Time_source.id t1) (Time_source.id t2)
+    end)
+
+  (* [by_time_source] holds the set of [Per_time_source.t]'s with nonempty [active_checks]. *)
+  let by_time_source : Per_time_source.t Time_source_key.Table.t =
+    Time_source_key.Table.create ()
   ;;
 
-  let internal_check_now_for_unit_test ~check_invariants ~now =
-    if check_invariants then Bag.iter active_checks ~f:elt_invariant;
-    check ~now
-  ;;
+  module Internal_for_unit_test = struct
+    let num_active_checks_for time_source =
+      Option.map (Hashtbl.find by_time_source time_source) ~f:(fun pt ->
+        Bag.length pt.active_checks)
+    ;;
 
-  let () =
-    every Time_ns.Span.second ~continue_on_error:false (fun () ->
-      check ~now:Kernel_scheduler.(cycle_start (t ())))
-  ;;
+    let check_now ~check_invariants ~time_source =
+      Per_time_source.internal_check_now_for_unit_test
+        (Hashtbl.find_exn by_time_source time_source)
+        ~check_invariants
+    ;;
+  end
 
   let create writer ~maximum_age =
     match maximum_age with
     | `Unlimited -> None
     | `At_most maximum_age ->
+      let time_source = writer.time_source in
+      let for_this_time_source =
+        Hashtbl.find_or_add by_time_source time_source ~default:(fun () ->
+          let pt = Per_time_source.create () in
+          Time_source.every
+            time_source
+            Time_ns.Span.second
+            ~stop:(Ivar.read pt.closed)
+            ~continue_on_error:false
+            (fun () -> Per_time_source.check pt);
+          pt)
+      in
       Some
         (Bag.add
-           active_checks
+           for_this_time_source.active_checks
            { writer
            ; bytes_received_queue = Queue.create ()
            ; times_received_queue = Queue.create ()
@@ -457,13 +498,21 @@ end = struct
            ; bytes_seen = Int63.zero
            ; bytes_received_at_now_minus_maximum_age = Int63.zero
            ; too_old = Ivar.create ()
+           ; for_this_time_source
            })
   ;;
 
   let destroy t =
     match t with
     | None -> ()
-    | Some elt -> Bag.remove active_checks elt
+    | Some elt ->
+      let t = Bag.Elt.value elt in
+      let per_time_source = t.for_this_time_source in
+      Bag.remove per_time_source.active_checks elt;
+      if Bag.is_empty per_time_source.active_checks
+      then (
+        Hashtbl.remove by_time_source t.writer.time_source;
+        Ivar.fill_if_empty per_time_source.closed ())
   ;;
 
   let too_old t =
@@ -475,7 +524,7 @@ end
 
 let flushed_time_ns t =
   if Int63.O.(t.bytes_written = t.bytes_received)
-  then return (Time_ns.now ())
+  then return (Time_source.now t.time_source)
   else if Ivar.is_full t.close_finished
   then Deferred.never ()
   else Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received))
@@ -591,7 +640,8 @@ let final_flush ?force t =
          [after (sec 5.)]  makes sense. *)
       (match Fd.kind t.fd with
        | File -> Deferred.never ()
-       | Char | Fifo | Socket _ -> Clock.after (sec 5.))
+       | Char | Fifo | Socket _ ->
+         Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
   in
   Deferred.any_unit
     [ (* If the consumer leaves, there's no more writing we can do. *)
@@ -630,10 +680,10 @@ let () =
       ~f:(fun t -> Deferred.any_unit [ final_flush t; close_finished t ]))
 ;;
 
-let fill_flushes { bytes_written; flushes; _ } =
+let fill_flushes { bytes_written; flushes; time_source; _ } =
   if not (Queue.is_empty flushes)
   then (
-    let now = Time_ns.now () in
+    let now = Time_source.now time_source in
     let rec loop () =
       match Queue.peek flushes with
       | None -> ()
@@ -677,8 +727,14 @@ let create
       ?buffer_age_limit
       ?(raise_when_consumer_leaves = true)
       ?(line_ending = Line_ending.Unix)
+      ?time_source
       fd
   =
+  let time_source =
+    match time_source with
+    | Some x -> Time_source.read_only x
+    | None -> Time_source.wall_clock ()
+  in
   let buffer_age_limit =
     match buffer_age_limit with
     | Some z -> z
@@ -719,6 +775,7 @@ let create
     ; scheduled_bytes = 0
     ; bytes_received = Int63.zero
     ; bytes_written = Int63.zero
+    ; time_source
     ; flushes = Queue.create ()
     ; background_writer_state = `Not_running
     ; background_writer_stopped = Ivar.create ()
@@ -765,12 +822,20 @@ let ensure_can_write t =
   if not (can_write t) then raise_s [%message "attempt to use closed writer" ~_:(t : t)]
 ;;
 
-let open_file ?(append = false) ?buf_len ?syscall ?(perm = 0o666) ?line_ending file =
+let open_file
+      ?(append = false)
+      ?buf_len
+      ?syscall
+      ?(perm = 0o666)
+      ?line_ending
+      ?time_source
+      file
+  =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm >>| create ?buf_len ?syscall ?line_ending
+  Unix.openfile file ~mode ~perm >>| create ?buf_len ?syscall ?line_ending ?time_source
 ;;
 
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
@@ -782,8 +847,8 @@ let with_writer_exclusive t f =
     Unix.unlockf t.fd)
 ;;
 
-let with_file ?perm ?append ?(exclusive = false) ?line_ending file ~f =
-  let%bind t = open_file ?perm ?append ?line_ending file in
+let with_file ?perm ?append ?(exclusive = false) ?line_ending ?time_source file ~f =
+  let%bind t = open_file ?perm ?append ?line_ending ?time_source file in
   with_close t ~f:(fun () ->
     if exclusive then with_writer_exclusive t (fun () -> f t) else f t)
 ;;
@@ -954,7 +1019,9 @@ and write_finished t bytes_written =
   else (
     match t.syscall with
     | `Per_cycle -> write_when_ready t
-    | `Periodic span -> Clock.after span >>> fun _ -> start_write t)
+    | `Periodic span ->
+      Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
+      >>> fun _ -> start_write t)
 ;;
 
 let maybe_start_writer t =
@@ -1559,14 +1626,14 @@ let apply_umask perm =
   perm land lnot umask
 ;;
 
-let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) file ~f =
+let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source file ~f =
   let%bind current_file_permissions =
     match%map Monitor.try_with (fun () -> Unix.stat file) with
     | Ok stats -> Some stats.perm
     | Error _ -> None
   in
   let%bind temp_file, fd = Unix.mkstemp (Option.value temp_file ~default:file) in
-  let t = create fd in
+  let t = create ?time_source fd in
   let%bind result =
     with_close t ~f:(fun () ->
       let%bind result = f t in

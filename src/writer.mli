@@ -97,13 +97,19 @@ type buffer_age_limit =
     If [line_ending = Unix] then end of line is ["\n"]; if [line_ending = Dos] then end of
     line is ["\r\n"].  Note that [line_ending = Dos] is not equivalent to opening the file
     in text mode because any "\n" characters being printed by other means (e.g., [write
-    "\n"]) are still written verbatim (in Unix style). *)
+    "\n"]) are still written verbatim (in Unix style).
+
+    [time_source] is useful in tests to trigger [buffer_age_limit]-related conditions, or
+    simply to have the result of (for example) [flushed_time_ns] agree with your test's
+    synthetic time.  It is also used to schedule the [`Periodic] syscalls. *)
 val create
   :  ?buf_len:int
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?buffer_age_limit:buffer_age_limit
   -> ?raise_when_consumer_leaves:bool (** default is [true] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
+  -> ?time_source:[> read ] Time_source.T1.t
+  (** default is [Time_source.wall_clock ()] *)
   -> Fd.t
   -> t
 
@@ -133,6 +139,8 @@ val open_file
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?perm:int (** default is [0o666] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
+  -> ?time_source:[> read ] Time_source.T1.t
+  (** default is [Time_source.wall_clock ()] *)
   -> string
   -> t Deferred.t
 
@@ -148,6 +156,8 @@ val with_file
   -> ?append:bool (** default is [false], meaning truncate instead *)
   -> ?exclusive:bool (** default is [false] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
+  -> ?time_source:[> read ] Time_source.T1.t
+  (** default is [Time_source.wall_clock ()] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -490,6 +500,8 @@ val with_file_atomic
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?time_source:[> read ] Time_source.T1.t
+  (** default is [Time_source.wall_clock ()] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -594,7 +606,8 @@ val pipe : t -> string Pipe.Writer.t
     [of_pipe] is implemented by attaching [t] to the write-end of a Unix pipe, and
     shuttling bytes from the read-end of the Unix pipe to [pipe_w]. *)
 val of_pipe
-  :  Info.t
+  :  ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
+  -> Info.t
   -> string Pipe.Writer.t
   -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t
 
@@ -678,6 +691,9 @@ module Private : sig
   val set_bytes_written : t -> Int63.t -> unit
 
   module Check_buffer_age : sig
-    val internal_check_now_for_unit_test : check_invariants:bool -> now:Time_ns.t -> unit
+    module Internal_for_unit_test : sig
+      val check_now : check_invariants:bool -> time_source:Time_source.t -> unit
+      val num_active_checks_for : Time_source.t -> int option
+    end
   end
 end
