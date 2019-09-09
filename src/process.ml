@@ -209,6 +209,7 @@ type 'a run =
   ?accept_nonzero_exit:int list
   -> ?argv0:string
   -> ?env:env
+  -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
   -> prog:string
@@ -216,14 +217,47 @@ type 'a run =
   -> unit
   -> 'a Deferred.t
 
-let run ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () =
-  match%bind create ?argv0 ?env ?stdin ?working_dir ~prog ~args () with
+let run
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  =
+  match%bind create ?argv0 ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () with
   | Error _ as e -> return e
   | Ok t -> collect_stdout_and_wait ?accept_nonzero_exit t
 ;;
 
-let map_run run f ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () =
-  let%map a = run ?accept_nonzero_exit ?argv0 ?env ?stdin ?working_dir ~prog ~args () in
+let map_run
+      run
+      f
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  =
+  let%map a =
+    run
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  in
   f a
 ;;
 
@@ -235,13 +269,25 @@ let run_expect_no_output
       ?accept_nonzero_exit
       ?argv0
       ?env
+      ?prog_search_path
       ?stdin
       ?working_dir
       ~prog
       ~args
       ()
   =
-  match%map run ?accept_nonzero_exit ?argv0 ?env ?working_dir ?stdin ~prog ~args () with
+  match%map
+    run
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  with
   | Error _ as err -> err
   | Ok "" -> Ok ()
   | Ok non_empty_output ->

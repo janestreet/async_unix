@@ -113,6 +113,7 @@ type 'a run =
   ?accept_nonzero_exit:int list (** default is [] *)
   -> ?argv0:string
   -> ?env:env (** default is [`Extend []] *)
+  -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
   -> prog:string

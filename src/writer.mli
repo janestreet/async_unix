@@ -629,6 +629,11 @@ val behave_nicely_in_pipeline
     output with the same interleaving.  [set_synchronous_out_channel] is idempotent. *)
 val set_synchronous_out_channel : t -> Out_channel.t -> unit Deferred.t
 
+(** [using_synchronous_backing_out_channel t = true] if writes to [t] are being done
+    synchronously, e.g., due to [set_synchronous_out_channel],
+    [set_synchronous_backing_out_channel], [use_synchronous_stdout_and_stderr]. *)
+val using_synchronous_backing_out_channel : t -> bool
+
 (** [clear_synchronous_out_channel t] restores [t] to its normal state, with the
     background writer asynchronously feeding data to the OS.
     [clear_synchronous_out_channel] is idempotent. *)

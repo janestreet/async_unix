@@ -568,6 +568,8 @@ let set_synchronous_out_channel t out_channel =
   set_synchronous_backing_out_channel t (Backing_out_channel.of_out_channel out_channel)
 ;;
 
+let using_synchronous_backing_out_channel t = Option.is_some t.backing_out_channel
+
 let clear_synchronous_out_channel t =
   if is_some t.backing_out_channel
   then (
