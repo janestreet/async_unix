@@ -1547,15 +1547,15 @@ let stdout_and_stderr =
             let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
             stats.st_dev, stats.st_ino
           in
-          match Ppx_inline_test_lib.Runtime.testing with
-          | `Testing `Am_test_runner ->
+          match am_test_runner with
+          | true ->
             (* In tests, we use synchronous output to improve determinism, especially
                when mixing libraries that use Core and Async printing. *)
             set_backing_out_channel
               t
               (Backing_out_channel.of_out_channel Out_channel.stdout);
             t, t
-          | `Testing `Am_child_of_test_runner | `Not_testing ->
+          | false ->
             if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
             then
               (* If stdout and stderr point to the same file, we must share a single writer

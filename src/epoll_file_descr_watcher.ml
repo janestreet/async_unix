@@ -121,7 +121,7 @@ end
 let pre_check _t = ()
 
 module Check_result = struct
-  type t = ([ `Ok | `Timeout ], exn) Result.t [@@deriving sexp_of]
+  type t = ([ `Ok | `Timeout ], exn * Backtrace.t) Result.t [@@deriving sexp_of]
 
   let ok = Ok `Ok
   let timeout = Ok `Timeout
@@ -129,24 +129,26 @@ end
 
 let epoll_wait (type a) (epoll : Epoll.t) (timeout : a Timeout.t) (span_or_unit : a) =
   match timeout with
-  | Timeout.Never -> Epoll.wait epoll ~timeout:`Never
-  | Timeout.Immediately -> Epoll.wait epoll ~timeout:`Immediately
-  | Timeout.After -> Epoll.wait_timeout_after epoll span_or_unit
+  | Never -> Epoll.wait epoll ~timeout:`Never
+  | Immediately -> Epoll.wait epoll ~timeout:`Immediately
+  | After -> Epoll.wait_timeout_after epoll span_or_unit
 ;;
 
 let thread_safe_check t () timeout span_or_unit =
   match epoll_wait t.epoll timeout span_or_unit with
   | `Ok -> Check_result.ok
   | `Timeout -> Check_result.timeout
-  | exception e -> Error e
+  | exception e -> Error (e, Backtrace.Exn.most_recent ())
 ;;
 
 let post_check t check_result =
   try
     match check_result with
     (* We think 514 should be treated like EINTR. *)
-    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _)) -> ()
-    | Error exn -> raise_s [%message "epoll raised unexpected exn" (exn : exn)]
+    | Error (Unix.Unix_error ((EINTR | EUNKNOWNERR 514), _, _), _) -> ()
+    | Error (exn, backtrace) ->
+      raise_s
+        [%message "epoll raised unexpected exn" (exn : exn) (backtrace : Backtrace.t)]
     | Ok `Timeout -> ()
     | Ok `Ok ->
       Epoll.iter_ready t.epoll ~f:t.handle_fd_write_ready;
@@ -154,10 +156,12 @@ let post_check t check_result =
       Epoll.Expert.clear_ready t.epoll
   with
   | exn ->
+    let backtrace = Backtrace.Exn.most_recent () in
     raise_s
       [%message
         "Epoll.post_check bug"
           (exn : exn)
+          (backtrace : Backtrace.t)
           (check_result : Check_result.t)
           ~epoll_file_descr_watcher:(t : t)]
 ;;

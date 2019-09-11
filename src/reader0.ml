@@ -777,9 +777,9 @@ module Internal = struct
           (match Or_error.try_with (fun () -> parse_fun ~pos:0 ~len:1 space) with
            | Error _ as e -> k e
            | Ok (Sexp.Done (sexp, parse_pos)) -> k (Ok (`Ok (sexp, parse_pos)))
-           | Ok (Sexp.Cont (Parsing_toplevel_whitespace, _)) -> k (Ok `Eof)
+           | Ok (Cont (Parsing_toplevel_whitespace, _)) -> k (Ok `Eof)
            | Ok
-               (Sexp.Cont
+               (Cont
                   ( ( Parsing_atom
                     | Parsing_list
                     | Parsing_nested_whitespace

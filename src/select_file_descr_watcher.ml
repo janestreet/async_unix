@@ -82,11 +82,11 @@ end
 let thread_safe_check (type a) (_ : t) (pre : Pre.t) (timeout : a Timeout.t) (span : a) =
   let timeout =
     match timeout with
-    | Timeout.Never -> `Never
-    | Timeout.Immediately -> `Immediately
+    | Never -> `Never
+    | Immediately -> `Immediately
     (* Wait no longer than one second, which avoids any weirdness due to feeding large
        timeouts to select. *)
-    | Timeout.After -> `After (Time_ns.Span.min span Time_ns.Span.second)
+    | After -> `After (Time_ns.Span.min span Time_ns.Span.second)
   in
   { Check_result.pre
   ; select_result =
