@@ -85,7 +85,10 @@ type t =
     mutable have_lock_do_cycle : (unit -> unit) option (* configuration*)
   ; mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t
   ; mutable min_inter_cycle_timeout : Min_inter_cycle_timeout.t
-  ; initialized_at : Backtrace.t
+  ; (* [initialized_at] is the call stack from when the scheduler was initialized.  It's
+       generally more confusing than useful if it's shown on crash, so we omit it from the
+       sexp. *)
+    initialized_at : (Backtrace.t[@sexp.opaque])
   }
 [@@deriving fields, sexp_of]
 

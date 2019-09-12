@@ -623,7 +623,7 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash]
 
       let to_string_internal ~show_port_in_test (`Inet (a, p)) =
         sprintf
@@ -639,7 +639,7 @@ module Socket = struct
 
       module Blocking_sexp = struct
         type t = [ `Inet of Inet_addr.Blocking_sexp.t * int ]
-        [@@deriving bin_io, compare, sexp]
+        [@@deriving bin_io, compare, hash, sexp]
       end
 
       module Show_port_in_test = struct
@@ -669,7 +669,7 @@ module Socket = struct
     end
 
     module Unix = struct
-      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
+      type t = [ `Unix of string ] [@@deriving bin_io, compare, hash, sexp]
 
       let create s = `Unix s
       let to_string (`Unix s) = s
@@ -693,7 +693,7 @@ module Socket = struct
         [ Inet.Blocking_sexp.t
         | Unix.t
         ]
-      [@@deriving bin_io, sexp]
+      [@@deriving bin_io, hash, sexp]
     end
 
     let t_of_sexp = Blocking_sexp.t_of_sexp

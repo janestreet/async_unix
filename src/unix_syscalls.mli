@@ -319,7 +319,7 @@ module Socket : sig
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, sexp_of]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash, sexp_of]
 
       val t_of_sexp : Sexp.t -> t
       [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
@@ -329,7 +329,7 @@ module Socket : sig
 
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig
-        type nonrec t = t [@@deriving bin_io, compare, sexp_poly]
+        type nonrec t = t [@@deriving bin_io, compare, hash, sexp_poly]
       end
 
       (** [Show_port_in_test] renders the port as an integer, even in tests, unlike the
@@ -361,7 +361,7 @@ module Socket : sig
 
     (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
     module Blocking_sexp : sig
-      type nonrec t = t [@@deriving bin_io, sexp]
+      type nonrec t = t [@@deriving bin_io, hash, sexp]
     end
 
     val to_string : [< t ] -> string
