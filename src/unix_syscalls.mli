@@ -517,7 +517,12 @@ module Socket : sig
     -> 'addr
     -> unit
 
-  val mcast_leave : ?ifname:string -> ('a, 'addr) t -> 'addr -> unit
+  val mcast_leave
+    :  ?ifname:string
+    -> ?source:Inet_addr.t
+    -> ('a, 'addr) t
+    -> 'addr
+    -> unit
 
   (** [bind_to_interface_exn t (`Interface_name "eth0")] restricts messages from being
       received or sent on interfaces other than [eth0].  See

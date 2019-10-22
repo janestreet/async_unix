@@ -878,9 +878,9 @@ module Socket = struct
       Unix.mcast_join ?ifname ?source file_descr (Address.to_sockaddr address))
   ;;
 
-  let mcast_leave ?ifname t address =
+  let mcast_leave ?ifname ?source t address =
     Fd.with_file_descr_exn t.fd (fun file_descr ->
-      Unix.mcast_leave ?ifname file_descr (Address.to_sockaddr address))
+      Unix.mcast_leave ?ifname ?source file_descr (Address.to_sockaddr address))
   ;;
 
   let mark_bound t address =
