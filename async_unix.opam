@@ -15,7 +15,7 @@ depends: [
   "core"
   "core_kernel"
   "ppx_jane"
-  "dune"         {build & >= "1.5.1"}
+  "dune"         {>= "1.5.1"}
 ]
 synopsis: "Monadic concurrency library"
 description: "
