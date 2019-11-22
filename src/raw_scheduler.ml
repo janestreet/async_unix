@@ -1008,6 +1008,7 @@ let start_busy_poller_thread_if_not_running t =
     let kernel_scheduler = t.kernel_scheduler in
     let _thread : Thread.t =
       Thread.create
+        ~on_uncaught_exn:`Print_to_stderr
         (fun () ->
            let rec loop () =
              lock t;

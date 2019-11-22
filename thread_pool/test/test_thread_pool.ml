@@ -75,6 +75,7 @@ let%test_module _ =
           let worker_threads_should_continue = Thread_safe_ivar.create () in
           let (_ : Core.Thread.t) =
             Core.Thread.create
+              ~on_uncaught_exn:`Print_to_stderr
               (fun () ->
                  let start = Time_ns.now () in
                  let rec loop () =
