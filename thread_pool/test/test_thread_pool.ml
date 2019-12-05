@@ -58,7 +58,10 @@ let%test_module _ =
     (* Check that the expected concurrency is used. *)
     let%expect_test _ =
       List.iter [ 1; 2; 5; 10; 100; 1000 ] ~f:(fun num_jobs ->
-        List.iter [ 1; 2; 5; 10; 100 ] ~f:(fun max_num_threads ->
+        List.iter ([ 1; 2; 5; 10 ]
+                   @ if Sys.word_size = 32
+                   then [] (* not enough address space when the stack limit is high *)
+                   else [ 100 ]) ~f:(fun max_num_threads ->
           if debug
           then
             eprintf

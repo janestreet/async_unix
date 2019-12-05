@@ -187,7 +187,7 @@ module Stable = struct
         t_of_versioned_serializable versioned_t
       ;;
 
-      include Binable.Of_binable.V1
+      include Binable.Of_binable.V1 [@alert "-legacy"]
           (struct
             type t = versioned_serializable [@@deriving bin_io]
           end)
@@ -235,7 +235,7 @@ module Stable = struct
         }
       ;;
 
-      include Binable.Of_binable.V1
+      include Binable.Of_binable.V1 [@alert "-legacy"]
           (struct
             type t = v0_t [@@deriving bin_io]
           end)
