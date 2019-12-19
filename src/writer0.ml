@@ -1597,12 +1597,12 @@ let%expect_test "stdout and stderr are always the same in tests" =
   let saved_stderr = U.dup U.stderr in
   (* Make sure fd 1 and 2 have different inodes at the point that we force them. *)
   let pipe_r, pipe_w = U.pipe () in
-  U.dup2 ~src:pipe_w ~dst:U.stderr;
+  U.dup2 ~src:pipe_w ~dst:U.stderr ();
   U.close pipe_r;
   U.close pipe_w;
   let stdout = Lazy.force stdout in
   let stderr = Lazy.force stderr in
-  U.dup2 ~src:saved_stderr ~dst:U.stderr;
+  U.dup2 ~src:saved_stderr ~dst:U.stderr ();
   U.close saved_stderr;
   print_s [%message (phys_equal stdout stderr : bool)];
   [%expect {| ("phys_equal stdout stderr" true) |}]

@@ -321,12 +321,6 @@ module Socket : sig
     module Inet : sig
       type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash, sexp_of]
 
-      val t_of_sexp : Sexp.t -> t
-      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
-
-      val __t_of_sexp__ : Sexp.t -> t
-      [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
-
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig
         type nonrec t = t [@@deriving bin_io, compare, hash, sexp_poly]
@@ -355,9 +349,6 @@ module Socket : sig
       | Unix.t
       ]
     [@@deriving bin_io, sexp_of]
-
-    val t_of_sexp : Sexp.t -> t
-    [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
     (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
     module Blocking_sexp : sig
@@ -570,9 +561,6 @@ type sockaddr = Unix.sockaddr =
   | ADDR_INET of Inet_addr.t * int
 [@@deriving bin_io, compare, sexp_of]
 
-val sockaddr_of_sexp : Sexp.t -> sockaddr
-[@@deprecated "[since 2015-10] Replace [sockaddr] by [sockaddr_blocking_sexp]"]
-
 (** [sockaddr_blocking_sexp] is like [sockaddr], with [of_sexp] that performs DNS lookup
     to resolve [Inet_addr.t]. *)
 type sockaddr_blocking_sexp = sockaddr [@@deriving bin_io, sexp]
@@ -586,9 +574,6 @@ module Addr_info : sig
     ; ai_canonname : string
     }
   [@@deriving bin_io, sexp_of]
-
-  val t_of_sexp : Sexp.t -> t
-  [@@deprecated "[since 2015-10] Replace [t] by [Blocking_sexp.t]"]
 
   (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
   module Blocking_sexp : sig

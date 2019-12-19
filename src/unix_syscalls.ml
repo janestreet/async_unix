@@ -412,11 +412,7 @@ let closedir handle =
 
 let pipe info =
   let%map reader, writer =
-    In_thread.syscall_exn ~name:"pipe" (fun () ->
-      let r, w = Unix.pipe () in
-      Unix.set_close_on_exec r;
-      Unix.set_close_on_exec w;
-      r, w)
+    In_thread.syscall_exn ~name:"pipe" (fun () -> Unix.pipe ~close_on_exec:true ())
   in
   let create file_descr kind = Fd.create Fifo file_descr (Info.tag info ~tag:kind) in
   `Reader (create reader "reader"), `Writer (create writer "writer")
@@ -648,8 +644,6 @@ module Socket = struct
         let to_string = to_string_internal ~show_port_in_test:true
       end
 
-      let t_of_sexp = Blocking_sexp.t_of_sexp
-      let __t_of_sexp__ = Blocking_sexp.__t_of_sexp__
       let addr (`Inet (a, _)) = a
       let port (`Inet (_, p)) = p
 
@@ -695,8 +689,6 @@ module Socket = struct
         ]
       [@@deriving bin_io, hash, sexp]
     end
-
-    let t_of_sexp = Blocking_sexp.t_of_sexp
 
     let to_sockaddr = function
       | #Inet.t as t -> Inet.to_sockaddr t
@@ -806,9 +798,13 @@ module Socket = struct
 
   let create (type_ : _ Type.t) =
     let file_descr =
-      Unix.socket ~domain:type_.family.family ~kind:type_.socket_type ~protocol:0
+      Unix.socket
+        ~domain:type_.family.family
+        ~kind:type_.socket_type
+        ~protocol:0
+        ~close_on_exec:true
+        ()
     in
-    Unix.set_close_on_exec file_descr;
     let fd =
       Fd.create
         (Socket `Unconnected)
@@ -947,11 +943,10 @@ module Socket = struct
        Unix Network Programming, p422). *)
     match
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->
-        Unix.accept file_descr)
+        Unix.accept file_descr ~close_on_exec:true)
     with
     | `Already_closed -> `Socket_closed
     | `Ok (file_descr, sockaddr) ->
-      Unix.set_close_on_exec file_descr;
       let address = Family.address_of_sockaddr_exn t.type_.family sockaddr in
       let fd =
         Fd.create
@@ -964,7 +959,6 @@ module Socket = struct
               [%sexp_of: [ `listening_on of (_, _) t ] * [ `client of address ]]))
       in
       let s = { fd; type_ = t.type_; for_info = None } in
-      set_close_on_exec s.fd;
       turn_off_nagle sockaddr s;
       `Ok (s, address)
     | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
@@ -1118,11 +1112,10 @@ module Socket = struct
 end
 
 let socketpair () =
-  let s1, s2 = Unix.socketpair ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 in
-  let make_fd s =
-    Unix.set_close_on_exec s;
-    Fd.create (Fd.Kind.Socket `Active) s (Info.of_string "<socketpair>")
+  let s1, s2 =
+    Unix.socketpair ~domain:PF_UNIX ~kind:SOCK_STREAM ~protocol:0 ~close_on_exec:true ()
   in
+  let make_fd s = Fd.create (Fd.Kind.Socket `Active) s (Info.of_string "<socketpair>") in
   make_fd s1, make_fd s2
 ;;
 
@@ -1178,8 +1171,6 @@ type sockaddr_blocking_sexp = Unix.sockaddr =
   | ADDR_INET of Inet_addr.Blocking_sexp.t * int
 [@@deriving bin_io, sexp]
 
-let sockaddr_of_sexp = sockaddr_blocking_sexp_of_sexp
-
 module Addr_info = struct
   type t = Unix.addr_info =
     { ai_family : socket_domain
@@ -1200,8 +1191,6 @@ module Addr_info = struct
       }
     [@@deriving bin_io, sexp]
   end
-
-  let t_of_sexp = Blocking_sexp.t_of_sexp
 
   type getaddrinfo_option = Unix.getaddrinfo_option =
     | AI_FAMILY of socket_domain
