@@ -8,78 +8,6 @@ module Exit_or_signal_or_stop = Unix.Exit_or_signal_or_stop
 module Syscall_result = Unix.Syscall_result
 module Error = Unix.Error
 
-type error = Unix.Error.t =
-  | E2BIG
-  | EACCES
-  | EAGAIN
-  | EBADF
-  | EBUSY
-  | ECHILD
-  | EDEADLK
-  | EDOM
-  | EEXIST
-  | EFAULT
-  | EFBIG
-  | EINTR
-  | EINVAL
-  | EIO
-  | EISDIR
-  | EMFILE
-  | EMLINK
-  | ENAMETOOLONG
-  | ENFILE
-  | ENODEV
-  | ENOENT
-  | ENOEXEC
-  | ENOLCK
-  | ENOMEM
-  | ENOSPC
-  | ENOSYS
-  | ENOTDIR
-  | ENOTEMPTY
-  | ENOTTY
-  | ENXIO
-  | EPERM
-  | EPIPE
-  | ERANGE
-  | EROFS
-  | ESPIPE
-  | ESRCH
-  | EXDEV
-  | EWOULDBLOCK
-  | EINPROGRESS
-  | EALREADY
-  | ENOTSOCK
-  | EDESTADDRREQ
-  | EMSGSIZE
-  | EPROTOTYPE
-  | ENOPROTOOPT
-  | EPROTONOSUPPORT
-  | ESOCKTNOSUPPORT
-  | EOPNOTSUPP
-  | EPFNOSUPPORT
-  | EAFNOSUPPORT
-  | EADDRINUSE
-  | EADDRNOTAVAIL
-  | ENETDOWN
-  | ENETUNREACH
-  | ENETRESET
-  | ECONNABORTED
-  | ECONNRESET
-  | ENOBUFS
-  | EISCONN
-  | ENOTCONN
-  | ESHUTDOWN
-  | ETOOMANYREFS
-  | ETIMEDOUT
-  | ECONNREFUSED
-  | EHOSTDOWN
-  | EHOSTUNREACH
-  | ELOOP
-  | EOVERFLOW
-  | EUNKNOWNERR of int
-[@@deriving sexp]
-
 exception Unix_error = Unix.Unix_error
 
 include Fd.Close
@@ -396,10 +324,6 @@ let opendir dirname =
 
 let readdir_opt handle =
   In_thread.syscall_exn ~name:"readdir" (fun () -> Unix.readdir_opt handle)
-;;
-
-let readdir handle =
-  In_thread.syscall_exn ~name:"readdir" (fun () -> (Unix.readdir handle [@warning "-3"]))
 ;;
 
 let rewinddir handle =

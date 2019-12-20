@@ -188,9 +188,6 @@ val opendir : string -> dir_handle Deferred.t
     no more directory members to return. *)
 val readdir_opt : dir_handle -> string option Deferred.t
 
-val readdir : dir_handle -> string Deferred.t
-[@@deprecated "[since 2016-08] use readdir_opt instead"]
-
 val rewinddir : dir_handle -> unit Deferred.t
 val closedir : dir_handle -> unit Deferred.t
 
@@ -625,84 +622,6 @@ val getegid : unit -> int
 val setuid : int -> unit
 
 module Error = Unix.Error
-
-type error = Unix.Error.t =
-  | E2BIG
-  | EACCES
-  | EAGAIN
-  | EBADF
-  | EBUSY
-  | ECHILD
-  | EDEADLK
-  | EDOM
-  | EEXIST
-  | EFAULT
-  | EFBIG
-  | EINTR
-  | EINVAL
-  | EIO
-  | EISDIR
-  | EMFILE
-  | EMLINK
-  | ENAMETOOLONG
-  | ENFILE
-  | ENODEV
-  | ENOENT
-  | ENOEXEC
-  | ENOLCK
-  | ENOMEM
-  | ENOSPC
-  | ENOSYS
-  | ENOTDIR
-  | ENOTEMPTY
-  | ENOTTY
-  | ENXIO
-  | EPERM
-  | EPIPE
-  | ERANGE
-  | EROFS
-  | ESPIPE
-  | ESRCH
-  | EXDEV
-  | EWOULDBLOCK
-  | EINPROGRESS
-  | EALREADY
-  | ENOTSOCK
-  | EDESTADDRREQ
-  | EMSGSIZE
-  | EPROTOTYPE
-  | ENOPROTOOPT
-  | EPROTONOSUPPORT
-  | ESOCKTNOSUPPORT
-  | EOPNOTSUPP
-  | EPFNOSUPPORT
-  | EAFNOSUPPORT
-  | EADDRINUSE
-  | EADDRNOTAVAIL
-  | ENETDOWN
-  | ENETUNREACH
-  | ENETRESET
-  | ECONNABORTED
-  | ECONNRESET
-  | ENOBUFS
-  | EISCONN
-  | ENOTCONN
-  | ESHUTDOWN
-  | ETOOMANYREFS
-  | ETIMEDOUT
-  | ECONNREFUSED
-  | EHOSTDOWN
-  | EHOSTUNREACH
-  | ELOOP
-  | EOVERFLOW
-  | EUNKNOWNERR of int
-[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
-
-val sexp_of_error : Error.t -> Sexp.t
-[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
-
-val error_of_sexp : Sexp.t -> Error.t
-[@@deprecated "[since 2016-10] use [Unix.Error.t] instead"]
 
 exception Unix_error of Error.t * string * string
 
