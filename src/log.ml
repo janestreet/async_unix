@@ -2,7 +2,10 @@
 module type Rotation_id_intf = sig
   type t
 
-  val create : Core.Time.Zone.t -> t
+  val create
+    :  ?time_source:Async_kernel.Synchronous_time_source.t
+    -> Core.Time.Zone.t
+    -> t
 
   (* For any rotation scheme that renames logs on rotation, this defines how to do
      the renaming. *)
@@ -377,6 +380,13 @@ module Sexp_or_string = struct
   include Stable.V1
 end
 
+let now ~time_source =
+  match time_source with
+  | Some time_source ->
+    Synchronous_time_source.now time_source |> Time_ns.to_time_float_round_nearest
+  | None -> Time.now ()
+;;
+
 module Message : sig
   type t [@@deriving bin_io, sexp]
 
@@ -385,6 +395,7 @@ module Message : sig
   val create
     :  ?level:Level.t
     -> ?time:Time.t
+    -> ?time_source:Synchronous_time_source.t
     -> ?tags:(string * string) list
     -> Sexp_or_string.t
     -> t
@@ -444,8 +455,15 @@ end = struct
     | _ -> failwithf !"Log.Message.t_of_sexp: malformed sexp: %{Sexp}" sexp ()
   ;;
 
-  let create ?level ?(time = Time.now ()) ?(tags = []) message =
-    { time; level; message; tags }
+  let create_raw ?level ~time ?(tags = []) message = { time; level; message; tags }
+
+  let create ?level ?time ?time_source ?tags message =
+    let time =
+      match time with
+      | Some time -> time
+      | None -> now ~time_source
+    in
+    create_raw ?level ~time ?tags message
   ;;
 
   let time t = t.time
@@ -532,6 +550,7 @@ module Output : sig
 
   val rotating_file
     :  ?perm:Unix.file_perm
+    -> ?time_source:Synchronous_time_source.t
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -539,6 +558,7 @@ module Output : sig
 
   val rotating_file_with_tail
     :  ?perm:Unix.file_perm
+    -> ?time_source:Synchronous_time_source.t
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -720,6 +740,7 @@ end = struct
   module Rotating_file : sig
     val create
       :  ?perm:Unix.file_perm
+      -> ?time_source:Synchronous_time_source.t
       -> Format.t
       -> basename:string
       -> Rotation.t
@@ -760,7 +781,10 @@ end = struct
          | `Newer_than span ->
            current_log_files ~dirname ~basename
            >>= fun files ->
-           let cutoff = Time.sub (Time.now ()) span in
+           (* This will be compared to the mtime of the file, so we should always use
+              Time.now (wall-clock time) instead a different time source. *)
+           let now = Time.now () in
+           let cutoff = Time.sub now span in
            Deferred.List.filter files ~f:(fun (_, filename) ->
              Deferred.Or_error.try_with (fun () -> Unix.stat filename)
              >>| function
@@ -803,7 +827,7 @@ end = struct
         else return ()
       ;;
 
-      let rotate t =
+      let rotate t ~time_source =
         let basename, dirname = t.basename, t.dirname in
         close_writer t
         >>= fun () ->
@@ -822,24 +846,27 @@ end = struct
         maybe_delete_old_logs ~dirname ~basename t.rotation.keep
         >>| fun () ->
         let filename =
-          make_filename ~dirname ~basename (Id.create (Rotation.zone t.rotation))
+          make_filename
+            ~dirname
+            ~basename
+            (Id.create ?time_source (Rotation.zone t.rotation))
         in
         t.last_size <- 0;
         t.last_messages <- 0;
-        t.last_time <- Time.now ();
+        t.last_time <- now ~time_source;
         t.filename <- filename;
         t.writer <- open_writer ~filename ~perm:t.perm
       ;;
 
-      let write t msgs =
-        let current_time = Time.now () in
+      let write t ~time_source msgs =
+        let current_time = now ~time_source in
         (if Rotation.should_rotate
               t.rotation
               ~last_messages:t.last_messages
               ~last_size:(Byte_units.of_bytes_int t.last_size)
               ~last_time:t.last_time
               ~current_time
-         then rotate t
+         then rotate ~time_source t
          else return ())
         >>= fun () ->
         write' (Lazy.force t.writer) t.format msgs
@@ -849,7 +876,7 @@ end = struct
         t.last_time <- current_time
       ;;
 
-      let create ?perm format ~basename rotation =
+      let create ?perm ?time_source format ~basename rotation =
         let basename, dirname =
           (* make dirname absolute, because cwd may change *)
           match Filename.is_absolute basename with
@@ -861,7 +888,10 @@ end = struct
           dirname
           >>| fun dirname ->
           let filename =
-            make_filename ~dirname ~basename (Id.create (Rotation.zone rotation))
+            make_filename
+              ~dirname
+              ~basename
+              (Id.create ?time_source (Rotation.zone rotation))
           in
           { basename
           ; dirname
@@ -871,7 +901,7 @@ end = struct
           ; filename
           ; last_size = 0
           ; last_messages = 0
-          ; last_time = Time.now ()
+          ; last_time = now ~time_source
           ; log_files
           ; perm
           }
@@ -888,15 +918,15 @@ end = struct
         ( create
             ~close
             ~flush
-            ~rotate:(fun () -> t_deferred >>= rotate)
+            ~rotate:(fun () -> t_deferred >>= rotate ~time_source)
             (fun msgs ->
                t_deferred
                >>= fun t ->
                if not !first_rotate_scheduled
                then (
                  first_rotate_scheduled := true;
-                 rotate t >>= fun () -> write t msgs)
-               else write t msgs)
+                 rotate t ~time_source >>= fun () -> write t ~time_source msgs)
+               else write t ~time_source msgs)
         , log_files )
       ;;
     end
@@ -904,7 +934,7 @@ end = struct
     module Numbered = Make (struct
         type t = int
 
-        let create = const 0
+        let create ?time_source:_ _ = 0
         let rotate_one = ( + ) 1
 
         let to_string_opt = function
@@ -925,7 +955,7 @@ end = struct
     module Timestamped = Make (struct
         type t = Time.t
 
-        let create _zone = Time.now ()
+        let create ?time_source _zone = now ~time_source
         let rotate_one = ident
 
         let to_string_opt ts =
@@ -945,7 +975,7 @@ end = struct
     module Dated = Make (struct
         type t = Date.t
 
-        let create zone = Date.today ~zone
+        let create ?time_source zone = Date.of_time (now ~time_source) ~zone
         let rotate_one = ident
         let to_string_opt date = Some (Date.to_string date)
         let cmp_newest_first = Date.descending
@@ -956,20 +986,20 @@ end = struct
         ;;
       end)
 
-    let create ?perm format ~basename (rotation : Rotation.t) =
+    let create ?perm ?time_source format ~basename (rotation : Rotation.t) =
       match rotation.naming_scheme with
-      | `Numbered -> Numbered.create format ~basename rotation ?perm
-      | `Timestamped -> Timestamped.create format ~basename rotation ?perm
-      | `Dated -> Dated.create format ~basename rotation ?perm
+      | `Numbered -> Numbered.create format ~basename rotation ?perm ?time_source
+      | `Timestamped -> Timestamped.create format ~basename rotation ?perm ?time_source
+      | `Dated -> Dated.create format ~basename rotation ?perm ?time_source
       | `User_defined id ->
         let module Id = (val id : Rotation.Id_intf) in
         let module User_defined = Make (Id) in
-        User_defined.create format ~basename rotation ?perm
+        User_defined.create format ~basename rotation ?perm ?time_source
     ;;
   end
 
-  let rotating_file ?perm format ~basename rotation =
-    fst (Rotating_file.create format ~basename rotation ?perm)
+  let rotating_file ?perm ?time_source format ~basename rotation =
+    fst (Rotating_file.create format ~basename rotation ?perm ?time_source)
   ;;
 
   let rotating_file_with_tail = Rotating_file.create
@@ -1023,6 +1053,7 @@ type t =
   ; mutable current_level : Level.t
   ; mutable output_is_disabled : bool
   ; mutable current_output : Output.t list
+  ; mutable current_time_source : Synchronous_time_source.t
   }
 
 let equal t1 t2 = Pipe.equal t1.updates t2.updates
@@ -1174,14 +1205,20 @@ let process_log_redirecting_all_errors t r output =
      | `Call f -> f (Error.of_exn e))
 ;;
 
-let create ~level ~output ~on_error : t =
+let create ~level ~output ~on_error ?time_source () : t =
   let r, w = Pipe.create () in
+  let time_source =
+    match time_source with
+    | Some time_source -> time_source
+    | None -> Synchronous_time_source.wall_clock ()
+  in
   let t =
     { updates = w
     ; on_error
     ; current_level = level
     ; output_is_disabled = List.is_empty output
     ; current_output = output
+    ; current_time_source = time_source
     }
   in
   Flush_at_exit_or_gc.add_log t;
@@ -1199,6 +1236,8 @@ let get_output t = t.current_output
 let set_on_error t handler = t.on_error <- handler
 let level t = t.current_level
 let set_level t level = t.current_level <- level
+let get_time_source t = t.current_time_source
+let set_time_source t time_source = t.current_time_source <- time_source
 
 (* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
@@ -1209,21 +1248,27 @@ let would_log t msg_level =
 
 let message t msg = if would_log t (Message.level msg) then push_update t (Msg msg)
 
+let create_message t ?level ?time ?tags msg =
+  let time_source = get_time_source t in
+  Message.create ?level ?time ~time_source ?tags msg
+;;
+
 let sexp ?level ?time ?tags t sexp =
   if would_log t level
-  then push_update t (Msg (Message.create ?level ?time ?tags (`Sexp sexp)))
+  then push_update t (Msg (create_message t ?level ?time ?tags (`Sexp sexp)))
 ;;
 
 let string ?level ?time ?tags t s =
   if would_log t level
-  then push_update t (Msg (Message.create ?level ?time ?tags (`String s)))
+  then push_update t (Msg (create_message t ?level ?time ?tags (`String s)))
 ;;
 
 let printf ?level ?time ?tags t fmt =
   if would_log t level
   then
     ksprintf
-      (fun msg -> push_update t (Msg (Message.create ?level ?time ?tags (`String msg))))
+      (fun msg ->
+         push_update t (Msg (create_message t ?level ?time ?tags (`String msg))))
       fmt
   else ifprintf () fmt
 ;;
@@ -1324,6 +1369,7 @@ let%bench_module "unused log messages" =
         ~level:`Info
         ~output:[ Output.file `Text ~filename:"/dev/null" ]
         ~on_error:`Raise
+        ()
     ;;
 
     let%bench "unused printf" = debug log "blah"
@@ -1340,6 +1386,7 @@ module type Global_intf = sig
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
+  val set_time_source : Synchronous_time_source.t -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
@@ -1428,7 +1475,8 @@ module Make_global () : Global_intf = struct
       (create
          ~level:`Info
          ~output:[ Output.stderr () ]
-         ~on_error:(`Call send_errors_to_top_level_monitor))
+         ~on_error:(`Call send_errors_to_top_level_monitor)
+         ())
   ;;
 
   let level () = level (Lazy.force log)
@@ -1436,6 +1484,7 @@ module Make_global () : Global_intf = struct
   let set_output output = set_output (Lazy.force log) output
   let get_output () = get_output (Lazy.force log)
   let set_on_error handler = set_on_error (Lazy.force log) handler
+  let set_time_source time_source = set_time_source (Lazy.force log) time_source
   let would_log level = would_log (Lazy.force log) level
   let raw ?time ?tags k = raw ?time ?tags (Lazy.force log) k
   let info ?time ?tags k = info ?time ?tags (Lazy.force log) k
@@ -1485,6 +1534,7 @@ module Blocking : sig
   val level : unit -> Level.t
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
+  val set_time_source : Synchronous_time_source.t -> unit
   val raw_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val info_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val error_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
@@ -1547,9 +1597,11 @@ end = struct
 
   let level : Level.t ref = ref `Info
   let write = ref Output.stderr
+  let time_source = ref (Synchronous_time_source.wall_clock ())
   let set_level l = level := l
   let level () = !level
   let set_output output = write := output
+  let set_time_source ts = time_source := ts
 
   let write msg =
     if Scheduler.is_running ()
@@ -1563,18 +1615,23 @@ end = struct
     Level.as_or_more_verbose_than ~log_level:(level ()) ~msg_level
   ;;
 
+  let create_message ?level ?time ?tags msg =
+    let time_source = !time_source in
+    Message.create ?level ?time ~time_source ?tags msg
+  ;;
+
   let gen ?level:msg_level ?time ?tags k =
     ksprintf
       (fun msg ->
          if would_log msg_level
          then (
            let msg = `String msg in
-           write (Message.create ?level:msg_level ?time ?tags msg)))
+           write (create_message ?level:msg_level ?time ?tags msg)))
       k
   ;;
 
   let string ?level ?time ?tags s =
-    if would_log level then write (Message.create ?level ?time ?tags (`String s))
+    if would_log level then write (create_message ?level ?time ?tags (`String s))
   ;;
 
   let raw ?time ?tags k = gen ?time ?tags k
@@ -1583,7 +1640,7 @@ end = struct
   let error ?time ?tags k = gen ~level:`Error ?time ?tags k
 
   let sexp ?level ?time ?tags sexp =
-    if would_log level then write (Message.create ?level ?time ?tags (`Sexp sexp))
+    if would_log level then write (create_message ?level ?time ?tags (`Sexp sexp))
   ;;
 
   let raw_s ?time ?tags the_sexp = sexp ?time ?tags the_sexp
@@ -1667,7 +1724,7 @@ module For_testing = struct
 
   let create ~map_output level =
     let output = [ create_output ~map_output ] in
-    create ~output ~level ~on_error:`Raise
+    create ~output ~level ~on_error:`Raise ()
   ;;
 end
 

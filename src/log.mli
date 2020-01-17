@@ -40,6 +40,8 @@ module Message : sig
   val create
     :  ?level:Level.t
     -> ?time:Time.t
+    -> ?time_source:Synchronous_time_source.t
+    (** [time_source] is used to provide a default time, if none is specified *)
     -> ?tags:(string * string) list
     -> [ `String of string | `Sexp of Sexp.t ]
     -> t
@@ -100,7 +102,7 @@ module Rotation : sig
   module type Id_intf = sig
     type t
 
-    val create : Time.Zone.t -> t
+    val create : ?time_source:Synchronous_time_source.t -> Time.Zone.t -> t
 
     (** For any rotation scheme that renames logs on rotation, this defines how to do
         the renaming. *)
@@ -210,6 +212,7 @@ module Output : sig
 
   val rotating_file
     :  ?perm:Unix.file_perm
+    -> ?time_source:Synchronous_time_source.t
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -219,6 +222,7 @@ module Output : sig
       put on the tail *)
   val rotating_file_with_tail
     :  ?perm:Unix.file_perm
+    -> ?time_source:Synchronous_time_source.t
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -262,6 +266,7 @@ module Blocking : sig
   val level : unit -> Level.t
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
+  val set_time_source : Synchronous_time_source.t -> unit
 
   val raw
     :  ?time:Time.t
@@ -325,6 +330,7 @@ module type Global_intf = sig
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
+  val set_time_source : Synchronous_time_source.t -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
@@ -427,6 +433,12 @@ val set_output : t -> Output.t list -> unit
 
 val get_output : t -> Output.t list
 
+(** Changes the time source of the log, which controls the default timestamp on
+    messages. *)
+val get_time_source : t -> Synchronous_time_source.t
+
+val set_time_source : t -> Synchronous_time_source.t -> unit
+
 
 (** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
@@ -446,12 +458,14 @@ val flushed : t -> unit Deferred.t
 (** Informs the current [Output]s to rotate if possible. *)
 val rotate : t -> unit Deferred.t
 
-(** Creates a new log.  See [set_level], [set_on_error] and [set_output] for
-    more. *)
+(** Creates a new log.  See [set_level], [set_on_error], [set_output], and
+    [set_time_source] for more. *)
 val create
   :  level:Level.t
   -> output:Output.t list
   -> on_error:[ `Raise | `Call of Error.t -> unit ]
+  -> ?time_source:Synchronous_time_source.t
+  -> unit
   -> t
 
 (** Printf-like logging for messages at each log level or raw (no level) messages. Raw
