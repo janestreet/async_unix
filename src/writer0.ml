@@ -1046,7 +1046,8 @@ let maybe_start_writer t =
         in
         if not can_write_fd
         then
-          raise_s
+          die
+            t
             [%message
               "not allowed to write due to file-descriptor flags"
                 (open_flags : open_flags)];
@@ -1249,16 +1250,12 @@ let writef t = ksprintf (fun s -> write t s)
 
 let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
   try write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length with
-  | exn ->
-    stop_permanently t;
-    raise_s [%message "Writer.write_gen: error writing value" (exn : exn)]
+  | exn -> die t [%message "Writer.write_gen: error writing value" (exn : exn)]
 ;;
 
 let write_gen_whole t src ~blit_to_bigstring ~length =
   try write_gen_whole_unchecked t src ~blit_to_bigstring ~length with
-  | exn ->
-    stop_permanently t;
-    raise_s [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
+  | exn -> die t [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
 ;;
 
 let to_formatter t =
