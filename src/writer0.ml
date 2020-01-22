@@ -523,28 +523,32 @@ end = struct
 end
 
 let flushed_time_ns t =
-  if Int63.O.(t.bytes_written = t.bytes_received)
-  then return (Time_source.now t.time_source)
-  else if Ivar.is_full t.close_finished
-  then Deferred.never ()
-  else Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received))
+  match t.backing_out_channel with
+  | Some backing_out_channel ->
+    Backing_out_channel.flush backing_out_channel;
+    return (Time_source.now t.time_source)
+  | None ->
+    if Int63.O.(t.bytes_written = t.bytes_received)
+    then return (Time_source.now t.time_source)
+    else if Ivar.is_full t.close_finished
+    then Deferred.never ()
+    else Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received))
 ;;
 
 let flushed_time t =
   Deferred.map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
 ;;
 
+let eager_map t ~f =
+  if Deferred.is_determined t
+  then return (f (Deferred.value_exn t))
+  else Deferred.map t ~f
+;;
+
 let flushed t =
-  match t.backing_out_channel with
-  | Some backing_out_channel ->
-    Backing_out_channel.flush backing_out_channel;
-    return ()
-  | None ->
-    if Int63.O.(t.bytes_written = t.bytes_received)
-    then return ()
-    else if Ivar.is_full t.close_finished
-    then Deferred.never ()
-    else Deferred.ignore_m (flushed_time t)
+  (* even though we don't promise any eagerness, there are tests in the tree
+     that depend on it *)
+  eager_map (flushed_time_ns t) ~f:(ignore : Time_ns.t -> unit)
 ;;
 
 let set_backing_out_channel t backing_out_channel =
