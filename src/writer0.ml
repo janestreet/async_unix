@@ -9,6 +9,20 @@ module Id = Unique_id.Int63 ()
 let io_stats = Io_stats.create ()
 let debug = Debug.writer
 
+module Time_ns_suppress_sexp_in_test = struct
+  type t = Time_ns.t
+
+  let sexp_of_t t = if am_running_inline_test then Sexp.List [] else Time_ns.sexp_of_t t
+end
+
+module Flush_result = struct
+  type t =
+    | Error
+    | Consumer_left
+    | Flushed of Time_ns_suppress_sexp_in_test.t
+  [@@deriving sexp_of]
+end
+
 module Line_ending = struct
   type t =
     | Dos
@@ -65,6 +79,15 @@ module Scheduled = struct
   let length (t : t) = Deque.fold t ~init:0 ~f:(fun n (iovec, _) -> n + iovec.len)
 end
 
+module Stop_reason = struct
+  type t =
+    | Error
+    | (* [Consumer_left] is only reported when [raise_when_consumer_leaves = false],
+         otherwise an [Error] is reported. *)
+      Consumer_left
+  [@@deriving sexp_of]
+end
+
 type t =
   { id : Id.t
   ; mutable fd : Fd.t
@@ -73,7 +96,8 @@ type t =
        t], and sends them to [monitor]. *)
     monitor : Monitor.t
   ; inner_monitor : Monitor.t
-  ; mutable background_writer_state : [ `Running | `Not_running | `Stopped_permanently ]
+  ; mutable background_writer_state :
+      [ `Running | `Not_running | `Stopped_permanently of Stop_reason.t ]
   ; background_writer_stopped : unit Ivar.t
   ; (* [syscall] determines the batching approach that the writer uses to batch data
        together and flush it using the underlying write syscall. *)
@@ -98,7 +122,7 @@ type t =
   ; mutable scheduled_back : int
   ; mutable back : int
   ; time_source : Time_source.t
-  ; flushes : (Time_ns.t Ivar.t * Int63.t) Queue.t
+  ; flushes : (Flush_result.t Ivar.t * Int63.t) Queue.t
   ; (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
        [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
        [`Closed_and_flushing].  Once the writer is flushed and we're actually going to
@@ -197,7 +221,10 @@ let sexp_of_t_internals
     ; fd = (suppress_in_test fd : (Fd.t option[@sexp.option]))
     ; monitor = (monitor_name_in_test monitor : Sexp.t)
     ; inner_monitor = (monitor_name_in_test inner_monitor : Sexp.t)
-    ; background_writer_state : [ `Running | `Not_running | `Stopped_permanently ]
+    ; background_writer_state : [ `Running
+                                | `Not_running
+                                | `Stopped_permanently of Stop_reason.t
+                                ]
     ; background_writer_stopped : unit Ivar.t
     ; syscall : [ `Per_cycle | `Periodic of Time.Span.t ]
     ; bytes_received : Int63.t
@@ -234,7 +261,7 @@ let bytes_to_write t = t.scheduled_bytes + t.back - t.scheduled_back
 
 let is_stopped_permanently t =
   match t.background_writer_state with
-  | `Stopped_permanently -> true
+  | `Stopped_permanently _ -> true
   | `Running | `Not_running -> false
 ;;
 
@@ -249,7 +276,7 @@ let invariant t : unit =
       ~buf:ignore
       ~background_writer_state:
         (check (function
-           | `Stopped_permanently ->
+           | `Stopped_permanently _ ->
              assert (bytes_to_write t = 0);
              assert (Ivar.is_full t.background_writer_stopped)
            | `Running | `Not_running ->
@@ -522,21 +549,24 @@ end = struct
   ;;
 end
 
-let flushed_time_ns t =
+let flushed_or_failed_with_result t =
   match t.backing_out_channel with
   | Some backing_out_channel ->
     Backing_out_channel.flush backing_out_channel;
-    return (Time_source.now t.time_source)
+    return (Flush_result.Flushed (Time_source.now t.time_source))
   | None ->
     if Int63.O.(t.bytes_written = t.bytes_received)
-    then return (Time_source.now t.time_source)
-    else if Ivar.is_full t.close_finished
-    then Deferred.never ()
-    else Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received))
-;;
-
-let flushed_time t =
-  Deferred.map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
+    then return (Flush_result.Flushed (Time_source.now t.time_source))
+    else (
+      match t.background_writer_state with
+      | `Stopped_permanently Error -> return Flush_result.Error
+      | `Stopped_permanently Consumer_left -> return Flush_result.Consumer_left
+      | `Running | `Not_running ->
+        if Ivar.is_full t.close_finished
+        then
+          Deferred.return Flush_result.Error
+        else
+          Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received)))
 ;;
 
 let eager_map t ~f =
@@ -544,6 +574,20 @@ let eager_map t ~f =
   then return (f (Deferred.value_exn t))
   else Deferred.map t ~f
 ;;
+
+let eager_bind t ~f =
+  if Deferred.is_determined t then f (Deferred.value_exn t) else Deferred.bind t ~f
+;;
+
+let flushed_or_failed_unit t = eager_map (flushed_or_failed_with_result t) ~f:ignore
+
+let flushed_time_ns t =
+  eager_bind (flushed_or_failed_with_result t) ~f:(function
+    | Flushed t -> Deferred.return t
+    | Error | Consumer_left -> Deferred.never ())
+;;
+
+let flushed_time t = eager_map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
 
 let flushed t =
   (* even though we don't promise any eagerness, there are tests in the tree
@@ -696,28 +740,34 @@ let fill_flushes { bytes_written; flushes; time_source; _ } =
       | Some (ivar, z) ->
         if Int63.(z <= bytes_written)
         then (
-          Ivar.fill ivar now;
-          ignore (Queue.dequeue flushes : (Time_ns.t Ivar.t * Int63.t) option);
+          Ivar.fill ivar (Flush_result.Flushed now);
+          ignore (Queue.dequeue flushes : (Flush_result.t Ivar.t * Int63.t) option);
           loop ())
     in
     loop ())
 ;;
 
-let stop_permanently t =
-  t.background_writer_state <- `Stopped_permanently;
+let stop_permanently t (outcome : Stop_reason.t) =
+  t.background_writer_state <- `Stopped_permanently outcome;
   Deque.clear t.scheduled;
   t.scheduled_bytes <- 0;
   t.buf <- Bigstring.create 0;
   t.scheduled_back <- 0;
   t.back <- 0;
   Ivar.fill_if_empty t.background_writer_stopped ();
+  Queue.iter t.flushes ~f:(fun (ivar, _) ->
+    Ivar.fill
+      ivar
+      (match outcome with
+       | Error -> Flush_result.Error
+       | Consumer_left -> Flush_result.Consumer_left));
   Queue.clear t.flushes
 ;;
 
 let stopped_permanently t = Ivar.read t.background_writer_stopped
 
 let die t sexp =
-  stop_permanently t;
+  stop_permanently t Error;
   raise_s sexp
 ;;
 
@@ -949,8 +999,11 @@ let rec start_write t =
          permanently, and so will never reach here again. *)
       assert (Ivar.is_empty t.consumer_left);
       Ivar.fill t.consumer_left ();
-      stop_permanently t;
-      if t.raise_when_consumer_leaves then raise exn
+      if t.raise_when_consumer_leaves
+      then (
+        stop_permanently t Error;
+        raise exn)
+      else stop_permanently t Consumer_left
     | `Error exn -> die t [%message "" ~_:(exn : Exn.t)]
   in
   let should_write_in_thread =
@@ -1032,7 +1085,7 @@ and write_finished t bytes_written =
 
 let maybe_start_writer t =
   match t.background_writer_state with
-  | `Stopped_permanently | `Running -> ()
+  | `Stopped_permanently _ | `Running -> ()
   | `Not_running ->
     if bytes_to_write t > 0
     then (

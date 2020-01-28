@@ -372,6 +372,41 @@ val schedule_iovec
     operation. *)
 val schedule_iovecs : t -> Bigstring.t Unix.IOVec.t Queue.t -> unit
 
+module Flush_result : sig
+  type t =
+    | Error
+    (** [Error] is accompanied by a detailed error being sent to the writer's monitor. *)
+    | Consumer_left
+    (** [Consumer_left] is returned when the consumer leaves (see {!consumer_left}) and
+        {!raise_when_consumer_leaves} is set to [false]. If that flag is set to [true],
+        then you get an [Error] instead. *)
+    | Flushed of Time_ns.t
+    (** The time just after the [write()] system call returned or
+        the time [flushed_*] was called if all the writes were already flushed by then. *)
+  [@@deriving sexp_of]
+end
+
+(** [flushed_or_failed_with_result t] returns a deferred that will become determined when
+    all prior writes complete (i.e. the [write()] system call returns), or when any of
+    them fail.
+
+    Handling the [Error] case can be tricky due to the following race: the result gets
+    determined concurrently with the exception propagation through the writer's monitor.
+    The caller needs to make sure that the program behavior does not depend on which
+    signal propagates first.
+*)
+val flushed_or_failed_with_result : t -> Flush_result.t Deferred.t
+
+(** [flushed_or_failed_unit t] returns a deferred that will become
+    determined when all prior writes complete, or when any of them fail.
+
+    Unlike {!flushed_or_failed_with_result}, its return value gives you no indication of
+    which happened. In the [Error] case, the result will be determined in parallel with
+    the error propagating to the writer's monitor. The caller should robustly handle
+    either side winning that race.
+*)
+val flushed_or_failed_unit : t -> unit Deferred.t
+
 (** [flushed t] returns a deferred that will become determined when all prior writes
     complete (i.e. the [write()] system call returns).  If a prior write fails, then the
     deferred will never become determined.
