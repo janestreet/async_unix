@@ -635,6 +635,7 @@ end = struct
     let iter_combine_exns =
       (* No need for the Monitor overhead in the case of a single t *)
       match ts with
+      | [] -> fun (_ : t -> unit Deferred.t) -> Deferred.unit
       | [ single_t ] -> fun f -> f single_t
       | ts ->
         fun f ->
@@ -1054,6 +1055,7 @@ type t =
   ; mutable output_is_disabled : bool
   ; mutable current_output : Output.t list
   ; mutable current_time_source : Synchronous_time_source.t
+  ; mutable transform : (Message.t -> Message.t) option
   }
 
 let equal t1 t2 = Pipe.equal t1.updates t2.updates
@@ -1205,7 +1207,7 @@ let process_log_redirecting_all_errors t r output =
      | `Call f -> f (Error.of_exn e))
 ;;
 
-let create ~level ~output ~on_error ?time_source () : t =
+let create ~level ~output ~on_error ?time_source ?transform () : t =
   let r, w = Pipe.create () in
   let time_source =
     match time_source with
@@ -1219,6 +1221,7 @@ let create ~level ~output ~on_error ?time_source () : t =
     ; output_is_disabled = List.is_empty output
     ; current_output = output
     ; current_time_source = time_source
+    ; transform
     }
   in
   Flush_at_exit_or_gc.add_log t;
@@ -1238,15 +1241,32 @@ let level t = t.current_level
 let set_level t level = t.current_level <- level
 let get_time_source t = t.current_time_source
 let set_time_source t time_source = t.current_time_source <- time_source
+let get_transform t = t.transform
+let set_transform t f = t.transform <- f
 
 (* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
 let would_log t msg_level =
-  (not t.output_is_disabled)
+  let output_or_transform_is_enabled =
+    (not t.output_is_disabled) || Option.is_some t.transform
+  in
+  output_or_transform_is_enabled
   && Level.as_or_more_verbose_than ~log_level:(level t) ~msg_level
 ;;
 
-let message t msg = if would_log t (Message.level msg) then push_update t (Msg msg)
+let push_message t msg =
+  (* We want to call [transform], even if we don't end up pushing the message to an
+     output.  This allows for someone to listen to all messages that would theoretically
+     be logged by this log (respecting level), and then maybe log them somewhere else. *)
+  let msg =
+    match t.transform with
+    | None -> msg
+    | Some f -> f msg
+  in
+  if not t.output_is_disabled then push_update t (Msg msg)
+;;
+
+let message t msg = if would_log t (Message.level msg) then push_message t msg
 
 let create_message t ?level ?time ?tags msg =
   let time_source = get_time_source t in
@@ -1255,20 +1275,19 @@ let create_message t ?level ?time ?tags msg =
 
 let sexp ?level ?time ?tags t sexp =
   if would_log t level
-  then push_update t (Msg (create_message t ?level ?time ?tags (`Sexp sexp)))
+  then push_message t (create_message t ?level ?time ?tags (`Sexp sexp))
 ;;
 
 let string ?level ?time ?tags t s =
   if would_log t level
-  then push_update t (Msg (create_message t ?level ?time ?tags (`String s)))
+  then push_message t (create_message t ?level ?time ?tags (`String s))
 ;;
 
 let printf ?level ?time ?tags t fmt =
   if would_log t level
   then
     ksprintf
-      (fun msg ->
-         push_update t (Msg (create_message t ?level ?time ?tags (`String msg))))
+      (fun msg -> push_message t (create_message t ?level ?time ?tags (`String msg)))
       fmt
   else ifprintf () fmt
 ;;
@@ -1386,7 +1405,10 @@ module type Global_intf = sig
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
+  val get_time_source : unit -> Synchronous_time_source.t
   val set_time_source : Synchronous_time_source.t -> unit
+  val get_transform : unit -> (Message.t -> Message.t) option
+  val set_transform : (Message.t -> Message.t) option -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
@@ -1484,7 +1506,10 @@ module Make_global () : Global_intf = struct
   let set_output output = set_output (Lazy.force log) output
   let get_output () = get_output (Lazy.force log)
   let set_on_error handler = set_on_error (Lazy.force log) handler
+  let get_time_source () = get_time_source (Lazy.force log)
   let set_time_source time_source = set_time_source (Lazy.force log) time_source
+  let get_transform () = get_transform (Lazy.force log)
+  let set_transform transform = set_transform (Lazy.force log) transform
   let would_log level = would_log (Lazy.force log) level
   let raw ?time ?tags k = raw ?time ?tags (Lazy.force log) k
   let info ?time ?tags k = info ?time ?tags (Lazy.force log) k
@@ -1535,6 +1560,7 @@ module Blocking : sig
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
   val set_time_source : Synchronous_time_source.t -> unit
+  val set_transform : (Message.t -> Message.t) option -> unit
   val raw_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val info_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val error_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
@@ -1598,14 +1624,21 @@ end = struct
   let level : Level.t ref = ref `Info
   let write = ref Output.stderr
   let time_source = ref (Synchronous_time_source.wall_clock ())
+  let transform = ref None
   let set_level l = level := l
   let level () = !level
   let set_output output = write := output
   let set_time_source ts = time_source := ts
+  let set_transform f = transform := f
 
   let write msg =
     if Scheduler.is_running ()
     then failwith "Log.Global.Blocking function called after scheduler started";
+    let msg =
+      match !transform with
+      | None -> msg
+      | Some f -> f msg
+    in
     !write msg
   ;;
 

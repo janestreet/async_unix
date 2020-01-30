@@ -115,21 +115,33 @@ let fsync fd = Fd.syscall_in_thread_exn fd ~name:"fsync" Unix.fsync
 let fdatasync fd = Fd.syscall_in_thread_exn fd ~name:"fdatasync" Unix.fdatasync
 let sync () = In_thread.syscall_exn ~name:"sync" Unix.sync
 
-let lockf ?(len = 0L) fd read_or_write =
+module Lock_mode = struct
+  type t =
+    | Shared
+    | Exclusive
+  [@@deriving sexp_of]
+
+  let flock_command : t -> _ = function
+    | Shared -> Unix.Flock_command.lock_shared
+    | Exclusive -> Unix.Flock_command.lock_exclusive
+  ;;
+end
+
+let lockf ?(len = 0L) fd (lock_mode : Lock_mode.t) =
   let mode : Unix.lock_command =
-    match read_or_write with
-    | `Read -> F_RLOCK
-    | `Write -> F_LOCK
+    match lock_mode with
+    | Shared -> F_RLOCK
+    | Exclusive -> F_LOCK
   in
   Fd.syscall_in_thread_exn fd ~name:"lockf" (fun file_descr ->
     Unix.lockf file_descr ~mode ~len)
 ;;
 
-let try_lockf ?(len = 0L) fd read_or_write =
+let try_lockf ?(len = 0L) fd (lock_mode : Lock_mode.t) =
   let mode : Unix.lock_command =
-    match read_or_write with
-    | `Read -> F_TRLOCK
-    | `Write -> F_TLOCK
+    match lock_mode with
+    | Shared -> F_TRLOCK
+    | Exclusive -> F_TLOCK
   in
   Fd.syscall_exn fd (fun file_descr ->
     try
@@ -152,21 +164,68 @@ let unlockf ?(len = 0L) fd =
   Fd.syscall_exn fd (fun file_descr -> Unix.lockf file_descr ~mode:F_ULOCK ~len)
 ;;
 
-let with_file ?exclusive ?perm file ~mode ~f =
+let flock fd lock_mode =
+  let mode = Lock_mode.flock_command lock_mode in
+  Fd.syscall_in_thread_exn fd ~name:"flock" (fun file_descr ->
+    Unix.flock_blocking file_descr mode)
+;;
+
+let try_flock fd lock_mode =
+  let mode = Lock_mode.flock_command lock_mode in
+  Fd.syscall_exn fd (fun file_descr -> Unix.flock file_descr mode)
+;;
+
+let funlock fd =
+  Fd.syscall_exn fd (fun file_descr ->
+    ignore (Unix.flock file_descr Unix.Flock_command.unlock : bool))
+;;
+
+module Lock_mechanism = struct
+  module T = struct
+    type t =
+      | Lockf
+      | Flock
+    [@@deriving compare, enumerate, sexp, variants]
+  end
+
+  let lock (t : T.t) =
+    match t with
+    | Lockf -> lockf ?len:None
+    | Flock -> flock
+  ;;
+
+  include T
+  include Sexpable.To_stringable (T)
+
+  let arg_type = Command.Param.Arg_type.Export.sexp_conv T.t_of_sexp
+end
+
+module Lock = struct
+  type t =
+    { mode : Lock_mode.t
+    ; mechanism : Lock_mechanism.t
+    }
+  [@@deriving sexp_of]
+end
+
+let with_file ?lock ?perm file ~mode ~f =
+  (* Here we rely on closing the fd to release the lock if appropriate. In the case of
+     flock, this will release the lock only if no other fds are pointing to the same file
+     description in the kernel. This will only happen if [f] dups or otherwise copies the
+     fd.
+
+     The question of what happens when this function is called with a file such as
+     [/dev/fd*] is left as an exercise to the caller. *)
   let doit f =
     let%bind fd = openfile file ~mode ?perm in
     Fd.with_close fd ~f
   in
-  match exclusive with
+  match lock with
   | None -> doit f
-  | Some read_or_write ->
+  | Some { Lock.mode; mechanism } ->
     doit (fun fd ->
-      let%bind () = lockf fd read_or_write in
-      Monitor.protect
-        (fun () -> f fd)
-        ~finally:(fun () ->
-          unlockf fd;
-          return ()))
+      let%bind () = Lock_mechanism.lock mechanism fd mode in
+      f fd)
 ;;
 
 (* file status *)

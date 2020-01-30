@@ -56,12 +56,44 @@ type file_perm = int
 
 val openfile : ?perm:file_perm -> string -> mode:open_flag list -> Fd.t Deferred.t
 
-(** [with_file file ~mode ~perm ~f ?exclusive] opens [file], and applies [f] to the
+module Lock_mode : sig
+  type t =
+    | Shared (** Does not exclude other Shared locks, only other Exclusive locks *)
+    | Exclusive (** Excludes other Shared and Exclusive locks *)
+  [@@deriving sexp_of]
+end
+
+module Lock_mechanism : sig
+  type t =
+    | Lockf
+    (** Lockf refers to the ocaml [lockf] function, which, despite the name, does not call
+        the UNIX lockf() system call, but rather calls fcntl() with F_SETLKW. *)
+    | Flock
+  [@@deriving compare, enumerate, sexp]
+
+  include Stringable.S with type t := t
+
+  val arg_type : t Command.Arg_type.t
+end
+
+module Lock : sig
+  type t =
+    { mode : Lock_mode.t
+    ; mechanism : Lock_mechanism.t
+    }
+  [@@deriving sexp_of]
+end
+
+(** [with_file file ~mode ~perm ~f] opens [file], and applies [f] to the
     resulting file descriptor.  When the result of [f] becomes determined, it closes the
-    descriptor and returns the result of [f].  If [exclusive] is supplied, then the file
-    descriptor is locked before calling [f] and unlocked after calling [f]. *)
+    descriptor and returns the result of [f].
+
+    If [lock] is supplied, then the file descriptor is locked before calling [f] with
+    the specified [lock_mechanism]. Note that it is not unlocked before close, which might
+    be significant if this file descriptior is held elsewhere (e.g., by fork() or
+    dup()). *)
 val with_file
-  :  ?exclusive:[ `Read | `Write ]
+  :  ?lock:Lock.t (** default is no lock *)
   -> ?perm:file_perm
   -> string
   -> mode:open_flag list
@@ -85,26 +117,49 @@ val fsync : Fd.t -> unit Deferred.t
 val fdatasync : Fd.t -> unit Deferred.t
 val sync : unit -> unit Deferred.t
 
-(** [lockf fd read_or_write ?len] exclusively locks for reading/writing the section of the
-    open file [fd] specified by the current file position and [len] (see man lockf).  It
-    returns when the lock has been acquired.  It raises if [fd] is closed. *)
-val lockf : ?len:Int64.t -> Fd.t -> [ `Read | `Write ] -> unit Deferred.t
+(** [lockf fd lock_mode ?len] locks the section of the open file [fd] specified by the
+    current file position and [len] (see man lockf).  It returns when the lock has been
+    acquired.  It raises if [fd] is closed.
 
-(** [try_lockf fd read_or_write ?len] attempts to exclusively lock for reading/writing the
-    section of the open file [fd] specified by the current file position and [len] (see
-    man lockf).  It returns [true] if it acquired the lock.  It raises if [fd] is
-    closed. *)
-val try_lockf : ?len:Int64.t -> Fd.t -> [ `Read | `Write ] -> bool
+    Note that, despite the name, this function does not call the UNIX lockf() system call;
+    rather it calls fcntl() with F_SETLKW *)
+val lockf : ?len:Int64.t -> Fd.t -> Lock_mode.t -> unit Deferred.t
 
-(** [lockf_is_locked fd ?len] checks the lock on section of the open file [fd] specified
-    by the current file position and [len] (see [man lockf]).  If the section is unlocked
-    or locked by this process, it returns true, else it returns false.  It raises if [fd]
-    is closed. *)
+(** [try_lockf fd lock_mode ?len] attempts to lock the section of the open file
+    [fd] specified by the current file position and [len] (see man lockf).  It returns
+    [true] if it acquired the lock.  It raises if [fd] is closed.
+
+    Note that, despite the name, this function does not call the UNIX lockf() system call;
+    rather it calls fcntl() with F_SETLK *)
+val try_lockf : ?len:Int64.t -> Fd.t -> Lock_mode.t -> bool
+
+(** [test_lockf fd ?len] checks the lock on section of the open file [fd] specified by the
+    current file position and [len].  If the section is unlocked or locked by this
+    process, it returns true, else it returns false.  It raises if [fd] is closed.
+
+    Note that, despite the name, this function does not call the UNIX lockf() system call;
+    rather it calls fcntl() with F_GETLK *)
 val test_lockf : ?len:Int64.t -> Fd.t -> bool
 
 (** [unlockf fd ?len] unlocks the section of the open file [fd] specified by the current
-    file position and [len] (see [man lockf]).  It raises if [fd] is closed. *)
+    file position and [len].  It raises if [fd] is closed.
+
+    Note that, despite the name, this function does not call the UNIX lockf() system call;
+    rather it calls fcntl() with F_UNLCK *)
 val unlockf : ?len:Int64.t -> Fd.t -> unit
+
+(** [flock fd lock_mode] locks the open file [fd] (see man 2 flock).  It returns when the
+    lock has been acquired.  It raises if [fd] is closed. *)
+val flock : Fd.t -> Lock_mode.t -> unit Deferred.t
+
+(** [try_flock fd lock_mode] attempts to lock the open file [fd] (see man 2 flock).  It
+    returns [true] if it acquired the lock or [false] if a conflicting lock was already
+    present.  It raises if [fd] is closed. *)
+val try_flock : Fd.t -> Lock_mode.t -> bool
+
+(** [funlock fd] unlocks the open file [fd] (see [man 2 flock]).  It raises if [fd] is
+    closed. *)
+val funlock : Fd.t -> unit
 
 module File_kind : sig
   type t =

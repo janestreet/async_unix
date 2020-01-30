@@ -897,7 +897,7 @@ let open_file
 let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
 
 let with_writer_exclusive t f =
-  let%bind () = Unix.lockf t.fd `Write in
+  let%bind () = Unix.lockf t.fd Exclusive in
   Monitor.protect f ~finally:(fun () ->
     let%map () = flushed t in
     Unix.unlockf t.fd)

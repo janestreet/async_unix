@@ -267,6 +267,7 @@ module Blocking : sig
   val set_level : Level.t -> unit
   val set_output : Output.t -> unit
   val set_time_source : Synchronous_time_source.t -> unit
+  val set_transform : (Message.t -> Message.t) option -> unit
 
   val raw
     :  ?time:Time.t
@@ -330,7 +331,10 @@ module type Global_intf = sig
   val set_output : Output.t list -> unit
   val get_output : unit -> Output.t list
   val set_on_error : [ `Raise | `Call of Error.t -> unit ] -> unit
+  val get_time_source : unit -> Synchronous_time_source.t
   val set_time_source : Synchronous_time_source.t -> unit
+  val get_transform : unit -> (Message.t -> Message.t) option
+  val set_transform : (Message.t -> Message.t) option -> unit
   val would_log : Level.t option -> bool
   val set_level_via_param : unit -> unit Command.Param.t
 
@@ -439,6 +443,17 @@ val get_time_source : t -> Synchronous_time_source.t
 
 val set_time_source : t -> Synchronous_time_source.t -> unit
 
+(** Changes the [transform] function within log.  This allows you to *synchronously*
+    change things about the message at the time that they were written.
+
+    The transform function *will not* be called if the initial message is of a level that
+    would not currently be logged.
+
+    The transform function *will* be called if even if there are no log outputs. *)
+val get_transform : t -> (Message.t -> Message.t) option
+
+val set_transform : t -> (Message.t -> Message.t) option -> unit
+
 
 (** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
@@ -458,13 +473,14 @@ val flushed : t -> unit Deferred.t
 (** Informs the current [Output]s to rotate if possible. *)
 val rotate : t -> unit Deferred.t
 
-(** Creates a new log.  See [set_level], [set_on_error], [set_output], and
-    [set_time_source] for more. *)
+(** Creates a new log.  See [set_level], [set_on_error], [set_output],
+    [set_time_source], and [set_transform] for more. *)
 val create
   :  level:Level.t
   -> output:Output.t list
   -> on_error:[ `Raise | `Call of Error.t -> unit ]
   -> ?time_source:Synchronous_time_source.t
+  -> ?transform:(Message.t -> Message.t)
   -> unit
   -> t
 
@@ -559,7 +575,10 @@ val surroundf
   -> 'a
 
 (** [would_log] returns true if a message at the given log level would be logged if sent
-    immediately. *)
+    immediately.
+
+    This will return [false] if there are no outputs for the log, unless there is
+    a [transform] set. *)
 val would_log
   :  t
   -> Level.t option

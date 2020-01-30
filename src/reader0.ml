@@ -208,7 +208,7 @@ module Internal = struct
   let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
 
   let with_reader_exclusive t f =
-    let%bind () = Unix.lockf t.fd `Read in
+    let%bind () = Unix.lockf t.fd Shared in
     Monitor.protect f ~finally:(fun () ->
       if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
       return ())
