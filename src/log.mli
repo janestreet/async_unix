@@ -5,8 +5,7 @@
     result of organic design (i.e., older versions of this interface did the same thing).
 
     A (limited) [Blocking] module is supplied to accommodate the portion of a program that
-    runs outside of Async.
-*)
+    runs outside of Async. *)
 
 open! Core
 open! Import
@@ -95,8 +94,7 @@ module Rotation : sig
         startup (i.e., is the symlink pointing me at the right log file?).
       - Atomicity is hard.
       - Symlinks encourage tailing, which is a bad way to communicate information.
-      - They complicate archiving processes (the symlink must be skipped).
-  *)
+      - They complicate archiving processes (the symlink must be skipped). *)
   type t [@@deriving sexp_of]
 
   module type Id_intf = sig
@@ -249,8 +247,8 @@ module Blocking : sig
       functions after the scheduler has started will raise an exception.  They otherwise
       behave similarly to the logging functions in the Async world.
 
-      There are more detailed comments for the API below near the non-blocking signatures.
-  *)
+      There are more detailed comments for the API below near the non-blocking
+      signatures. *)
 
   module Output : sig
     type t
