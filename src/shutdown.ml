@@ -113,10 +113,14 @@ let don't_finish_before =
     check ();
     Ivar.read proceed_with_shutdown);
   fun d ->
-    incr num_waiting;
-    upon d (fun () ->
-      decr num_waiting;
-      match shutting_down () with
-      | `No -> ()
-      | `Yes _ -> check ())
+    match shutting_down () with
+    | `Yes _ ->
+      ()
+    | `No ->
+      incr num_waiting;
+      upon d (fun () ->
+        decr num_waiting;
+        match shutting_down () with
+        | `No -> ()
+        | `Yes _ -> check ())
 ;;
