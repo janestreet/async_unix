@@ -903,8 +903,17 @@ let with_writer_exclusive t f =
     Unix.unlockf t.fd)
 ;;
 
-let with_file ?perm ?append ?(exclusive = false) ?line_ending ?time_source file ~f =
-  let%bind t = open_file ?perm ?append ?line_ending ?time_source file in
+let with_file
+      ?perm
+      ?append
+      ?syscall
+      ?(exclusive = false)
+      ?line_ending
+      ?time_source
+      file
+      ~f
+  =
+  let%bind t = open_file ?perm ?append ?syscall ?line_ending ?time_source file in
   with_close t ~f:(fun () ->
     if exclusive then with_writer_exclusive t (fun () -> f t) else f t)
 ;;

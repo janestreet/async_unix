@@ -154,6 +154,7 @@ val open_file
 val with_file
   :  ?perm:int (** default is [0o666] *)
   -> ?append:bool (** default is [false], meaning truncate instead *)
+  -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?exclusive:bool (** default is [false] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
   -> ?time_source:[> read ] Time_source.T1.t
