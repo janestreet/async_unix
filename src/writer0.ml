@@ -1112,6 +1112,9 @@ let maybe_start_writer t =
         in
         if not can_write_fd
         then
+          (* The reason we produce a custom error message in this case is that
+             Linux conflates this case with "not a valid file descriptor" (EBADF), which
+             normally indicates a serious bug in file descriptor handling. *)
           die
             t
             [%message
