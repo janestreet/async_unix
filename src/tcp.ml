@@ -313,7 +313,8 @@ module Server = struct
         ~drop_incoming_connections:ignore
         ~close_finished_and_handlers_determined:ignore
     with
-    | exn -> failwiths "invariant failed" (exn, t) [%sexp_of: exn * (_, _) t]
+    | exn ->
+      failwiths ~here:[%here] "invariant failed" (exn, t) [%sexp_of: exn * (_, _) t]
   ;;
 
   let fd t = Socket.fd t.socket
@@ -422,6 +423,7 @@ module Server = struct
       if max_connections <= 0
       then
         failwiths
+          ~here:[%here]
           "Tcp.Server.creater got negative [max_connections]"
           max_connections
           sexp_of_int;
