@@ -1705,6 +1705,10 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
   let%bind result =
     with_close t ~f:(fun () ->
       let%bind result = f t in
+      if is_closed t
+      then
+        raise_s
+          [%message "Writer.with_file_atomic: writer closed by [f]" ~_:(file : string)];
       let new_permissions =
         match current_file_permissions with
         | None ->

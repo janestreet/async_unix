@@ -526,6 +526,9 @@ val bytes_received : t -> Int63.t
     so if [file] does not exist, we will apply the umask to [perm].  If [file] does exist,
     [perm] will default to the file's current permissions rather than 0o666.
 
+    If [f] closes the writer passed to it, [with_file_atomic] raises and does not create
+    [file].
+
     [save] is a special case of [with_file_atomic] that atomically writes the given
     string to the specified file.
 
