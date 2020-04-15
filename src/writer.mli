@@ -508,6 +508,7 @@ val bytes_written : t -> Int63.t
     as the writer is running, [bytes_received = bytes_written + bytes_to_write]. *)
 val bytes_received : t -> Int63.t
 
+
 (** [with_file_atomic ?temp_file ?perm ?fsync file ~f] creates a writer to a temp file,
     feeds that writer to [f], and when the result of [f] becomes determined, atomically
     moves (using [Unix.rename]) the temp file to [file].  If [file] currently exists, it
@@ -522,19 +523,18 @@ val bytes_received : t -> Int63.t
     not the default.  Think carefully about the event of machine crashes and whether you
     may need this option!
 
-    We intend for [with_file_atomic] to preserve the behavior of the [open] system call,
-    so if [file] does not exist, we will apply the umask to [perm].  If [file] does exist,
-    [perm] will default to the file's current permissions rather than 0o666.
+    We intend for [with_file_atomic] to mimic the behavior of the [open] system call, so
+    if [file] does not exist, we will apply the current umask to [perm] (the effective
+    permissions become [perm land lnot umask], see [man 2 open]). However, if [file] does
+    exist and [perm] is specified, we do something different from [open] system call: we
+    override the permission with [perm], ignoring the umask.  This means that if you
+    create and then immediately overwrite the file with [with_file_atomic ~perm], then the
+    umask will be honored the first time and ignored the second time. If [perm] is not
+    specified, then any existing file permissions are preserved.
 
     If [f] closes the writer passed to it, [with_file_atomic] raises and does not create
     [file].
-
-    [save] is a special case of [with_file_atomic] that atomically writes the given
-    string to the specified file.
-
-    [save_sexp] is a special case of [with_file_atomic] that atomically writes the
-    given sexp to the specified file. *)
-
+*)
 val with_file_atomic
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
@@ -545,6 +545,8 @@ val with_file_atomic
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
 
+(** [save] is a special case of [with_file_atomic] that atomically writes the given
+    string to the specified file. *)
 val save
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
@@ -563,7 +565,10 @@ val save_lines
   -> string list
   -> unit Deferred.t
 
-(** [save_sexp t sexp] writes [sexp] to [t], followed by a newline.  To read a file
+(** [save_sexp] is a special case of [with_file_atomic] that atomically writes the
+    given sexp to the specified file.
+
+    [save_sexp t sexp] writes [sexp] to [t], followed by a newline.  To read a file
     produced using [save_sexp], one would typically use [Reader.load_sexp], which deals
     with the additional whitespace and works nicely with converting the sexp to a
     value. *)
@@ -588,7 +593,8 @@ val save_sexps
   -> Sexp.t list
   -> unit Deferred.t
 
-(** [save_bin_prot t bin_writer 'a] writes ['a] to [t] using its bin_writer, in the
+(** [save_bin_prot t bin_writer 'a] is a special case of [with_file_atomic] that writes
+    ['a] to [t] using its bin_writer, in the
     size-prefixed format, like [write_bin_prot].  To read a file produced using
     [save_bin_prot], one would typically use [Reader.load_bin_prot]. *)
 val save_bin_prot
