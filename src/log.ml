@@ -295,15 +295,12 @@ module Level = struct
 
   (* Ordering of log levels in terms of verbosity. *)
   let as_or_more_verbose_than ~log_level ~msg_level =
-    match msg_level with
-    | None -> true
-    | Some msg_level ->
-      (match log_level, msg_level with
-       | `Error, `Error -> true
-       | `Error, (`Debug | `Info) -> false
-       | `Info, (`Info | `Error) -> true
-       | `Info, `Debug -> false
-       | `Debug, _ -> true)
+    match log_level, msg_level with
+    | `Error, Some `Error -> true
+    | `Error, (None | Some (`Debug | `Info)) -> false
+    | `Info, (None | Some (`Info | `Error)) -> true
+    | `Info, Some `Debug -> false
+    | `Debug, _ -> true
   ;;
 
   module Stable = Stable.Level

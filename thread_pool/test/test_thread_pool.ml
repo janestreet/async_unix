@@ -1,5 +1,5 @@
 open! Core
-open! Expect_test_helpers_kernel
+open! Expect_test_helpers_core
 open! Thread_pool
 open! Thread_pool.Private
 module Debug = Async_kernel.Async_kernel_private.Debug

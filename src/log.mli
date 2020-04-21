@@ -13,7 +13,9 @@ open! Import
 module Level : sig
   (** Describes both the level of a log and the level of a message sent to a log.  There
       is an ordering to levels (`Debug < `Info < `Error), and a log set to a level will
-      never display messages at a lower log level. *)
+      never display messages at a lower log level.
+
+      Messages without a level are treated as `Info. *)
   type t =
     [ `Debug
     | `Info (** default level *)
