@@ -1688,19 +1688,30 @@ let behave_nicely_in_pipeline ?writers () =
        Shutdown.shutdown 0))
 ;;
 
-let apply_umask perm =
-  let umask = Core_unix.umask 0 in
-  ignore (Core_unix.umask umask : int);
-  perm land lnot umask
-;;
-
 let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source file ~f =
   let%bind current_file_permissions =
     match%map Monitor.try_with (fun () -> Unix.stat file) with
     | Ok stats -> Some stats.perm
     | Error _ -> None
   in
-  let%bind temp_file, fd = Unix.mkstemp (Option.value temp_file ~default:file) in
+  let initial_permissions =
+    match perm with
+    | Some p -> p
+    | None ->
+      (match current_file_permissions with
+       | None -> 0o666
+       | Some p -> p)
+  in
+  let%bind temp_file, fd =
+    let temp_file = Option.value temp_file ~default:file in
+    let%map temp_file, fd =
+      let dir = Filename.dirname temp_file in
+      let prefix = Filename.basename temp_file in
+      In_thread.run (fun () ->
+        Core.Filename.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
+    in
+    temp_file, Fd.create File fd (Info.of_string temp_file)
+  in
   let t = create ?time_source fd in
   let%bind result =
     with_close t ~f:(fun () ->
@@ -1709,17 +1720,18 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
       then
         raise_s
           [%message "Writer.with_file_atomic: writer closed by [f]" ~_:(file : string)];
-      let new_permissions =
+      let%bind () =
         match current_file_permissions with
         | None ->
-          (* We are creating a new file; apply the umask. *)
-          apply_umask (Option.value perm ~default:0o666)
-        | Some p ->
-          (* We are overwriting an existing file; use the requested permissions, or
-             whatever the file had already if nothing was supplied. *)
-          Option.value perm ~default:p
+          (* We don't need to change the permissions here.
+             The [initial_permissions] (with umask applied by the OS) should be good. *)
+          return ()
+        | Some _ ->
+          (* We are overwriting permissions here to undo the umask that was applied
+             by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
+             behavior. *)
+          Unix.fchmod fd ~perm:initial_permissions
       in
-      let%bind () = Unix.fchmod fd ~perm:new_permissions in
       let%map () = if do_fsync then fsync t else return () in
       result)
   in
