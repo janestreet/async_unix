@@ -1471,11 +1471,11 @@ let schedule_bigsubstring t bigsubstring =
 ;;
 
 let schedule_iobuf_peek t ?pos ?len iobuf =
-  schedule_iovec t (Iobuf.Expert.to_iovec_shared ?pos ?len iobuf)
+  schedule_iovec t (Iobuf_unix.Expert.to_iovec_shared ?pos ?len iobuf)
 ;;
 
 let schedule_iobuf_consume t ?len iobuf =
-  let iovec = Iobuf.Expert.to_iovec_shared ?len iobuf in
+  let iovec = Iobuf_unix.Expert.to_iovec_shared ?len iobuf in
   let len = iovec.len in
   schedule_iovec t iovec;
   let%map _ = flushed_time t in
