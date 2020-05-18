@@ -256,7 +256,7 @@ module Internal = struct
           | `Already_closed -> eof ()
           | `Error exn ->
             (match exn with
-             | Bigstring.IOError (0, End_of_file)
+             | Bigstring_unix.IOError (0, End_of_file)
              | Unix.Unix_error
                  ( ( ECONNRESET
                    | EHOSTUNREACH
@@ -297,7 +297,7 @@ module Internal = struct
            | `Yes -> t.close_may_destroy_buf <- `Not_now
            | `Not_now | `Not_ever -> ());
           Fd.syscall_in_thread t.fd ~name:"read" (fun file_descr ->
-            let res = Bigstring.read file_descr buf ~pos ~len in
+            let res = Bigstring_unix.read file_descr buf ~pos ~len in
             res, Time.now ())
           >>> fun res ->
           (match t.close_may_destroy_buf with
@@ -330,7 +330,7 @@ module Internal = struct
                    (Fd.syscall t.fd ~nonblocking:true (fun file_descr ->
                       let res =
                         Unix.Syscall_result.Int.ok_or_unix_error_exn
-                          (Bigstring.read_assume_fd_is_nonblocking
+                          (Bigstring_unix.read_assume_fd_is_nonblocking
                              file_descr
                              buf
                              ~pos

@@ -1027,12 +1027,12 @@ let rec start_write t =
   if should_write_in_thread
   then
     Fd.syscall_in_thread t.fd ~name:"writev" (fun file_descr ->
-      Bigstring.writev file_descr iovecs)
+      Bigstring_unix.writev file_descr iovecs)
     >>> handle_write_result
   else
     handle_write_result
       (Fd.syscall t.fd ~nonblocking:true (fun file_descr ->
-         Bigstring.writev_assume_fd_is_nonblocking file_descr iovecs))
+         Bigstring_unix.writev_assume_fd_is_nonblocking file_descr iovecs))
 
 and write_when_ready t =
   if debug then Debug.log "Writer.write_when_ready" t [%sexp_of: t];
