@@ -340,6 +340,11 @@ val wait_nohang_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) option
     zero; it raises if the child terminates in any other way. *)
 val waitpid : Pid.t -> Exit_or_signal.t Deferred.t
 
+(** Same as {!waitpid}, but guarantees that the resulting [Deferred] is determined
+    in the same async job as the [wait] system call, so that it's safe to keep using
+    the [pid] if the deferred is not determined. *)
+val waitpid_prompt : Pid.t -> Exit_or_signal.t Deferred.t
+
 val waitpid_exn : Pid.t -> unit Deferred.t
 
 module Inet_addr : sig

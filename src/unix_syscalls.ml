@@ -486,29 +486,41 @@ let wait_nohang_untraced = Unix.wait_nohang_untraced
 module Wait : sig
   val check_all : unit -> unit
   val do_not_handle_sigchld : unit -> unit
+  val waitpid : Pid.t -> Exit_or_signal.t Deferred.t
   val wait : wait_on -> (Pid.t * Exit_or_signal.t) Deferred.t
   val wait_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
 end = struct
   module Kind = struct
-    type _ t =
-      | Normal : Exit_or_signal.t t
-      | Untraced : Exit_or_signal_or_stop.t t
+    type (_, _) t =
+      | Normal : (wait_on, Pid.t * Exit_or_signal.t) t
+      | Untraced : (wait_on, Pid.t * Exit_or_signal_or_stop.t) t
+      | Waitpid : (Pid.t, Exit_or_signal.t) t
     [@@deriving sexp_of]
 
-    let wait_nohang : type a. a t -> wait_on -> (Pid.t * a) option =
+    let waitpid_nohang pid =
+      let res = wait_nohang (`Pid pid) in
+      match res with
+      | None -> None
+      | Some (pid2, exit_or_signal) ->
+        assert (Pid.( = ) pid2 pid);
+        Some exit_or_signal
+    ;;
+
+    let wait_nohang : type q r. (q, r) t -> q -> r option =
       fun t wait_on ->
-      match t with
-      | Normal -> wait_nohang wait_on
-      | Untraced -> wait_nohang_untraced wait_on
+        match t with
+        | Normal -> wait_nohang wait_on
+        | Untraced -> wait_nohang_untraced wait_on
+        | Waitpid -> waitpid_nohang wait_on
     ;;
   end
 
   module Wait = struct
     type t =
       | T :
-          { kind : 'a Kind.t
-          ; result : (Pid.t * 'a, exn) Result.t Ivar.t
-          ; wait_on : wait_on
+          { kind : ('q, 'r) Kind.t
+          ; result : ('r, exn) Result.t Ivar.t
+          ; wait_on : 'q
           }
           -> t
     [@@deriving sexp_of]
@@ -544,7 +556,7 @@ end = struct
          Async_signal.handle [ Signal.chld ] ~f:(fun _ -> check_all ())))
   ;;
 
-  let deferred_wait (type k) wait_on ~(kind : k Kind.t) =
+  let deferred_wait (type q r) (wait_on : q) ~(kind : (q, r) Kind.t) =
     (* We are going to install a handler for SIGCHLD that will call [wait_nohang wait_on]
        in the future.  However, we must also call [wait_nohang wait_on] right now, in case
        the child already exited, and will thus never cause a SIGCHLD in the future.  We
@@ -560,16 +572,13 @@ end = struct
 
   let wait wait_on = deferred_wait wait_on ~kind:Normal
   let wait_untraced wait_on = deferred_wait wait_on ~kind:Untraced
+  let waitpid pid = deferred_wait pid ~kind:Waitpid
 end
 
 let wait = Wait.wait
 let wait_untraced = Wait.wait_untraced
-
-let waitpid pid =
-  let%map pid', exit_or_signal = wait (`Pid pid) in
-  assert (Pid.equal pid pid');
-  exit_or_signal
-;;
+let waitpid_prompt = Wait.waitpid
+let waitpid = Wait.waitpid
 
 let waitpid_exn pid =
   let%map exit_or_signal = waitpid pid in
