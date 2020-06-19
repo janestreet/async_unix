@@ -1045,6 +1045,14 @@ module Update = struct
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
 
+let default_time_source =
+  if am_running_inline_test
+  then
+    Synchronous_time_source.read_only
+      (Synchronous_time_source.create ~now:Time_ns.epoch ())
+  else Synchronous_time_source.wall_clock ()
+;;
+
 type t =
   { updates : Update.t Pipe.Writer.t
   ; mutable on_error : [ `Raise | `Call of Error.t -> unit ]
@@ -1209,7 +1217,7 @@ let create ~level ~output ~on_error ?time_source ?transform () : t =
   let time_source =
     match time_source with
     | Some time_source -> time_source
-    | None -> Synchronous_time_source.wall_clock ()
+    | None -> default_time_source
   in
   let t =
     { updates = w
@@ -1620,7 +1628,7 @@ end = struct
 
   let level : Level.t ref = ref `Info
   let write = ref Output.stderr
-  let time_source = ref (Synchronous_time_source.wall_clock ())
+  let time_source = ref default_time_source
   let transform = ref None
   let set_level l = level := l
   let level () = !level
