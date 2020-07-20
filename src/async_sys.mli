@@ -26,15 +26,15 @@ val when_file_exists
   -> string
   -> unit Deferred.t
 
-
 (** [when_file_changes file] polls [file] using [stat] and writes [file]'s mtime to the
-    pipe every time it changes.  The first time in the pipe will be [file]'s current
+    pipe every time it changes or there's an error.
+    The first time in the pipe will be [file]'s current
     mtime.  To stop polling, close the pipe. *)
 val when_file_changes
-  :  ?on_exn:(exn -> unit)
+  :  ?time_source:Time_source.t
   -> ?poll_delay:Time.Span.t
   -> string
-  -> Time.t Pipe.Reader.t
+  -> (Time.t, exn) Result.t Pipe.Reader.t
 
 val is_directory
   :  ?follow_symlinks:bool

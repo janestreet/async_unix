@@ -26,3 +26,9 @@ let of_pipe info pipe_r =
      Writer.close writer);
   reader
 ;;
+
+module For_testing = struct
+  let of_string ?(info = Info.of_string "reader of string contents for tests") str =
+    of_pipe info (Pipe.singleton str)
+  ;;
+end

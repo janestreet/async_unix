@@ -8,23 +8,35 @@ let executable_name = Sys.executable_name
 let wrap1 f x1 = In_thread.run (fun () -> f x1)
 let wrap2 f x1 x2 = In_thread.run (fun () -> f x1 x2)
 
-let when_file_changes ?on_exn ?(poll_delay = sec 0.5) file =
-  let last_reported_mtime = ref Time.epoch in
+let when_file_changes
+      ?(time_source = Time_source.wall_clock ())
+      ?(poll_delay = sec 0.5)
+      file
+  =
+  let last_reported_mtime = ref None in
   let reader, writer = Pipe.create () in
   let rec loop () =
-    Monitor.try_with (fun () -> Unix.stat file)
+    Monitor.try_with ~extract_exn:true (fun () -> Unix.stat file)
     >>> fun stat_result ->
     if not (Pipe.is_closed writer)
     then (
       (match stat_result with
-       | Error exn -> Option.iter on_exn ~f:(fun f -> f exn)
+       | Error exn ->
+         last_reported_mtime := None;
+         Pipe.write_without_pushback writer (Error exn)
        | Ok st ->
          let mtime = st.mtime in
-         if not (Time.equal mtime !last_reported_mtime)
+         let should_report =
+           match !last_reported_mtime with
+           | None -> true
+           | Some last_reported_mtime -> not (Time.equal mtime last_reported_mtime)
+         in
+         if should_report
          then (
-           last_reported_mtime := mtime;
-           Pipe.write_without_pushback writer mtime));
-      Clock.after poll_delay >>> loop)
+           last_reported_mtime := Some mtime;
+           Pipe.write_without_pushback writer (Ok mtime)));
+      Time_source.after time_source (Time_ns.Span.of_span_float_round_nearest poll_delay)
+      >>> loop)
   in
   loop ();
   reader

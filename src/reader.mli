@@ -389,3 +389,8 @@ type ('a, 'b) load_bin_prot =
 
 val load_bin_prot : ('a, 'a Or_error.t) load_bin_prot
 val load_bin_prot_exn : ('a, 'a) load_bin_prot
+
+module For_testing : sig
+  (** [of_string str], when read, will have contents equal to [str]. *)
+  val of_string : ?info:Info.t -> string -> t Deferred.t
+end
