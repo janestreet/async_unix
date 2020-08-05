@@ -97,3 +97,8 @@ let run_at_intervals ?start ?stop ?continue_on_error span f =
     (Time_ns.Span.of_span_float_round_nearest span)
     f
 ;;
+
+let duration_of f =
+  let%map res, span = duration_of f in
+  res, Time_ns.Span.to_span_float_round_nearest span
+;;
