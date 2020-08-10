@@ -7,10 +7,7 @@ let of_pipe info pipe_r =
   let%map `Reader reader_fd, `Writer writer_fd = Unix.pipe info in
   let reader = create reader_fd in
   let writer =
-    Writer.create
-      ~buffer_age_limit:`Unlimited
-      ~raise_when_consumer_leaves:false
-      writer_fd
+    Writer.create ~buffer_age_limit:`Unlimited ~raise_when_consumer_leaves:false writer_fd
   in
   if false
   then

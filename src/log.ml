@@ -645,12 +645,7 @@ end = struct
     let rotate () = iter_combine_exns (fun t -> t.rotate ()) in
     let close () = iter_combine_exns (fun t -> t.close ()) in
     let flush () = iter_combine_exns (fun t -> t.flush ()) in
-    { write
-    ; rotate
-    ; close
-    ; flush
-    ; heap_block = Definitely_a_heap_block.the_one_and_only
-    }
+    { write; rotate; close; flush; heap_block = Definitely_a_heap_block.the_one_and_only }
   ;;
 
   let filter_to_level t ~level =
@@ -713,8 +708,7 @@ end = struct
       let w = open_writer ~filename ~perm in
       create
         ~close:(fun () -> if Lazy.is_val w then force w >>= Writer.close else return ())
-        ~flush:(fun () ->
-          if Lazy.is_val w then force w >>= Writer.flushed else return ())
+        ~flush:(fun () -> if Lazy.is_val w then force w >>= Writer.flushed else return ())
         (fun msgs ->
            let%map (_ : Int63.t) = write' (force w) format msgs in
            ())
@@ -1545,10 +1539,7 @@ module Make_global () : Global_intf = struct
     surround_s ?level ?time ?tags (Lazy.force log) msg f
   ;;
 
-  let surroundf ?level ?time ?tags fmt =
-    surroundf ?level ?time ?tags (Lazy.force log) fmt
-  ;;
-
+  let surroundf ?level ?time ?tags fmt = surroundf ?level ?time ?tags (Lazy.force log) fmt
   let set_level_via_param () = set_level_via_param_lazy log
 end
 

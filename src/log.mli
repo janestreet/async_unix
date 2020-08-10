@@ -120,11 +120,8 @@ module Rotation : sig
     -> ?time:Time.Ofday.t
     -> ?zone:Time.Zone.t
     -> keep:[ `All | `Newer_than of Time.Span.t | `At_least of int ]
-    -> naming_scheme:[ `Numbered
-                     | `Timestamped
-                     | `Dated
-                     | `User_defined of (module Id_intf)
-                     ]
+    -> naming_scheme:
+         [ `Numbered | `Timestamped | `Dated | `User_defined of (module Id_intf) ]
     -> unit
     -> t
 

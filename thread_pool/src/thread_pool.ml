@@ -540,10 +540,7 @@ module Internal = struct
     if !debug then debug_log "become_helper_thread_internal" t [%sexp_of: t];
     if not (is_in_use t)
     then
-      error
-        "become_helper_thread_internal called on finished thread pool"
-        t
-        [%sexp_of: t]
+      error "become_helper_thread_internal called on finished thread pool" t [%sexp_of: t]
     else (
       match get_thread t with
       | Error _ as e -> e
@@ -591,8 +588,7 @@ module Internal = struct
         (helper_thread, t)
         [%sexp_of: Thread.t Helper_thread.t * t]
     else if not (is_in_use t)
-    then
-      error "add_work_for_helper_thread called on finished thread pool" t [%sexp_of: t]
+    then error "add_work_for_helper_thread called on finished thread pool" t [%sexp_of: t]
     else (
       match helper_thread.state with
       | `Finishing | `Finished ->

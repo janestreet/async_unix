@@ -130,8 +130,7 @@ val run_expect_no_output_exn : unit run
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
     [run_lines] but work from an existing process instead of creating a new one. *)
-type 'a collect =
-  ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
+type 'a collect = ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
 
 val collect_stdout_and_wait : string Or_error.t collect
 val collect_stdout_and_wait_exn : string collect

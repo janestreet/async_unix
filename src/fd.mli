@@ -263,11 +263,7 @@ val syscall_in_thread
 
 (** [syscall_in_thread_exn] is like [syscall_in_thread], except it raises rather than
     return [`Already_closed] or [`Error]. *)
-val syscall_in_thread_exn
-  :  t
-  -> name:string
-  -> (Unix.File_descr.t -> 'a)
-  -> 'a Deferred.t
+val syscall_in_thread_exn : t -> name:string -> (Unix.File_descr.t -> 'a) -> 'a Deferred.t
 
 (** [of_in_channel] and [of_out_channel] create an fd from their underlying file
     descriptor. *)

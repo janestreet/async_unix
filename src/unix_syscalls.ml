@@ -566,8 +566,7 @@ end = struct
     Lazy.force install_sigchld_handler_the_first_time;
     match Kind.wait_nohang kind wait_on with
     | Some result -> return result
-    | None ->
-      Deferred.create (fun result -> add ~kind ~result ~wait_on) >>| Result.ok_exn
+    | None -> Deferred.create (fun result -> add ~kind ~result ~wait_on) >>| Result.ok_exn
   ;;
 
   let wait wait_on = deferred_wait wait_on ~kind:Normal
@@ -761,9 +760,7 @@ module Socket = struct
         then [%sexp "udp"]
         else [%sexp (type_ : _ Type.t)]
       in
-      let bound_on, listening_on =
-        if listening then None, bound_on else bound_on, None
-      in
+      let bound_on, listening_on = if listening then None, bound_on else bound_on, None in
       Info.create_s
         [%sexp
           { connected_to : ([< Address.t ] option[@sexp.option])
@@ -981,8 +978,7 @@ module Socket = struct
          | `Ready -> `Repeat ()
          | `Interrupted as x -> `Finished x
          | `Closed -> `Finished `Socket_closed
-         | `Bad_fd ->
-           raise_s [%message "accept on bad file descriptor" ~_:(t.fd : Fd.t)]))
+         | `Bad_fd -> raise_s [%message "accept on bad file descriptor" ~_:(t.fd : Fd.t)]))
   ;;
 
   let accept t =
@@ -1230,8 +1226,7 @@ module Terminal_io = struct
   include Unix.Terminal_io
 
   let tcgetattr fd =
-    Fd.syscall_in_thread_exn fd ~name:"tcgetattr" (fun file_descr ->
-      tcgetattr file_descr)
+    Fd.syscall_in_thread_exn fd ~name:"tcgetattr" (fun file_descr -> tcgetattr file_descr)
   ;;
 
   let tcsetattr t fd ~mode =

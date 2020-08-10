@@ -99,8 +99,7 @@ module Close = struct
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
                   ~finally:(fun () ->
-                    In_thread.syscall_exn ~name:"close" (fun () ->
-                      Unix.close t.file_descr))
+                    In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
                   (fun () ->
                      match t.kind, socket_handling with
                      | Socket `Active, Shutdown_socket ->
@@ -232,8 +231,7 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
   | `Unsupported -> return `Unsupported
   | `Watching ->
     stop_watching_upon_interrupt t read_or_write finished ~interrupt;
-    (Ivar.read finished
-     :> [ `Bad_fd | `Closed | `Unsupported | `Interrupted ] Deferred.t)
+    (Ivar.read finished :> [ `Bad_fd | `Closed | `Unsupported | `Interrupted ] Deferred.t)
 ;;
 
 let every_ready_to t read_or_write f x =

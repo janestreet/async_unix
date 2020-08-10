@@ -26,10 +26,7 @@ module Where_to_connect = struct
     | Some inet_addr -> Socket.Address.Inet.create ~port inet_addr
   ;;
 
-  let of_host_and_port
-        ?bind_to_address
-        ?bind_to_port
-        ({ Host_and_port.host; port } as hp)
+  let of_host_and_port ?bind_to_address ?bind_to_port ({ Host_and_port.host; port } as hp)
     =
     { socket_type = Socket.Type.tcp
     ; remote_address =
@@ -171,11 +168,7 @@ let with_connection
   connect_sock ?interrupt ?timeout where_to_connect
   >>= fun socket ->
   let r, w =
-    reader_writer_of_sock
-      ?buffer_age_limit
-      ?reader_buffer_size
-      ?writer_buffer_size
-      socket
+    reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size socket
   in
   let res = collect_errors w (fun () -> f socket r w) in
   Deferred.any
@@ -353,8 +346,7 @@ module Server = struct
            before we got here.  In that case, we just close the clients. *)
         if is_closed t || t.drop_incoming_connections
         then
-          List.iter conns ~f:(fun (sock, _) ->
-            don't_wait_for (Fd.close (Socket.fd sock)))
+          List.iter conns ~f:(fun (sock, _) -> don't_wait_for (Fd.close (Socket.fd sock)))
         else (
           (* We first [handle_client] on all the connections, which increases
              [num_connections], and then call [maybe_accept] to try to accept more

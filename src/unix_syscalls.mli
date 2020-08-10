@@ -27,10 +27,7 @@ val getppid_exn : unit -> Pid.t
     information about parent death.
 
     [?poll_delay] controls how often to check. *)
-val this_process_became_child_of_init
-  :  ?poll_delay:Time.Span.t
-  -> unit
-  -> unit Deferred.t
+val this_process_became_child_of_init : ?poll_delay:Time.Span.t -> unit -> unit Deferred.t
 
 val nice : int -> int
 
@@ -90,7 +87,7 @@ end
 
     If [lock] is supplied, then the file descriptor is locked before calling [f] with
     the specified [lock_mechanism]. Note that it is not unlocked before close, which might
-    be significant if this file descriptior is held elsewhere (e.g., by fork() or
+    be significant if this file descriptor is held elsewhere (e.g., by fork() or
     dup()). *)
 val with_file
   :  ?lock:Lock.t (** default is no lock *)
@@ -557,13 +554,7 @@ module Socket : sig
 
   val getopt : ('a, 'addr) t -> 'c Opt.t -> 'c
   val setopt : ('a, 'addr) t -> 'c Opt.t -> 'c -> unit
-
-  val mcast_join
-    :  ?ifname:string
-    -> ?source:Inet_addr.t
-    -> ('a, 'addr) t
-    -> 'addr
-    -> unit
+  val mcast_join : ?ifname:string -> ?source:Inet_addr.t -> ('a, 'addr) t -> 'addr -> unit
 
   val mcast_leave
     :  ?ifname:string
@@ -647,11 +638,7 @@ module Addr_info : sig
     | AI_PASSIVE
   [@@deriving bin_io, sexp]
 
-  val get
-    :  ?service:string
-    -> host:string
-    -> getaddrinfo_option list
-    -> t list Deferred.t
+  val get : ?service:string -> host:string -> getaddrinfo_option list -> t list Deferred.t
 end
 
 module Name_info : sig

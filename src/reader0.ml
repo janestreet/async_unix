@@ -116,10 +116,10 @@ module Internal = struct
       ; state : State.t
       ; available : int
       ; pos : int
-      ; open_flags =
-          (open_flags |> unless_testing : (open_flags Deferred.t option[@sexp.option]))
-      ; last_read_time =
-          (last_read_time |> unless_testing : (Time.t option[@sexp.option]))
+      ; open_flags = (open_flags |> unless_testing : (open_flags Deferred.t option
+                                                      [@sexp.option]))
+      ; last_read_time = (last_read_time |> unless_testing : (Time.t option
+                                                              [@sexp.option]))
       ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
       ; close_finished : unit Ivar.t
       ; fd = (fd |> unless_testing : (Fd.t option[@sexp.option]))
@@ -409,8 +409,7 @@ module Internal = struct
 
      With [force_refill = true], [with_nonempty_buffer'] will do a read, whether or not
      there is already data available in [t.buf]. *)
-  let with_nonempty_buffer' ?(force_refill = false) t (f : [ `Ok | `Eof ] -> unit) : unit
-    =
+  let with_nonempty_buffer' ?(force_refill = false) t (f : [ `Ok | `Eof ] -> unit) : unit =
     match t.state with
     | `Not_in_use -> assert false
     | `Closed -> f `Eof
@@ -838,10 +837,7 @@ module Internal = struct
   ;;
 
   let read_sexps ?parse_pos t = gen_read_sexps t ~sexp_kind:Plain ?parse_pos
-
-  let read_annotated_sexps ?parse_pos t =
-    gen_read_sexps t ~sexp_kind:Annotated ?parse_pos
-  ;;
+  let read_annotated_sexps ?parse_pos t = gen_read_sexps t ~sexp_kind:Annotated ?parse_pos
 
   module Peek_or_read = struct
     type t =
@@ -905,9 +901,7 @@ module Internal = struct
                    let pos = t.pos + Bin_prot.Utils.size_header_length in
                    pos_ref := pos;
                    (
-                     match
-                       Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
-                     with
+                     match Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref) with
                      | Error _ as e -> k e
                      | Ok v ->
                        if !pos_ref - pos <> len
@@ -923,8 +917,7 @@ module Internal = struct
       if n = 0
       then `Eof
       else
-        raise_s
-          [%message "Reader.read_marshal got EOF with bytes remaining" ~_:(n : int)]
+        raise_s [%message "Reader.read_marshal got EOF with bytes remaining" ~_:(n : int)]
     in
     let header = Bytes.create Marshal.header_size in
     match%bind really_read t header with

@@ -239,16 +239,18 @@ let sexp_of_t_internals
     ; num_producers_to_flush_at_close = (Bag.length producers_to_flush_at_close : int)
     ; flush_at_shutdown_elt =
         (suppress_in_test flush_at_shutdown_elt : ((t[@sexp.opaque]) Bag.Elt.t option
-                                                     option[@sexp.option]))
+                                                     option
+                                                   [@sexp.option]))
     ; check_buffer_age =
         (suppress_in_test check_buffer_age : ((t[@sexp.opaque]) Check_buffer_age'.t
                                                 Bag.Elt.t
                                                 option
-                                                option[@sexp.option]))
+                                                option
+                                              [@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
-    ; open_flags =
-        (suppress_in_test open_flags : (open_flags Deferred.t option[@sexp.option]))
+    ; open_flags = (suppress_in_test open_flags : (open_flags Deferred.t option
+                                                   [@sexp.option]))
     ; line_ending : Line_ending.t
     ; backing_out_channel : (Backing_out_channel.t option[@sexp.option])
     }]
@@ -438,9 +440,7 @@ end = struct
         then (
           Queue.enqueue e.bytes_received_queue e.writer.bytes_received;
           Queue.enqueue e.times_received_queue now));
-      let too_old =
-        Int63.O.(e.bytes_received_at_now_minus_maximum_age > bytes_written)
-      in
+      let too_old = Int63.O.(e.bytes_received_at_now_minus_maximum_age > bytes_written) in
       match Ivar.is_full e.too_old, too_old with
       | true, true | false, false -> ()
       | true, false -> e.too_old <- Ivar.create ()
@@ -690,8 +690,7 @@ let final_flush ?force t =
          [after (sec 5.)]  makes sense. *)
       (match Fd.kind t.fd with
        | File -> Deferred.never ()
-       | Char | Fifo | Socket _ ->
-         Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
+       | Char | Fifo | Socket _ -> Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
   in
   Deferred.any_unit
     [ (* If the consumer leaves, there's no more writing we can do. *)
@@ -1204,12 +1203,7 @@ let write_gen_internal
         blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
         let remaining = src_len - available in
         let dst, dst_pos = give_buf t remaining in
-        blit_to_bigstring
-          ~src
-          ~src_pos:(src_pos + available)
-          ~len:remaining
-          ~dst
-          ~dst_pos)
+        blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
       else (
         let dst, dst_pos = give_buf t src_len in
         blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);

@@ -64,7 +64,8 @@ let run_after_scheduler_is_started
            "Async's thread pool was unable to create a single thread"
              ~_:
                (Thread_pool.last_thread_creation_failure t.thread_pool
-                : (Sexp.t option[@sexp.option]))]
+                : (Sexp.t option
+                   [@sexp.option]))]
    | Some helper_thread ->
      ok_exn
        (Thread_pool.add_work_for_helper_thread

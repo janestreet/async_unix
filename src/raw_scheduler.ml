@@ -237,8 +237,7 @@ let invariant t : unit =
                | Some fd -> assert (Fd.num_active_syscalls fd > 0)
              with
              | exn ->
-               raise_s
-                 [%message "fd problem" (exn : exn) (file_descr : File_descr.t)])))
+               raise_s [%message "fd problem" (exn : exn) (file_descr : File_descr.t)])))
       ~time_spent_waiting_for_io:ignore
       ~fd_by_descr:
         (check (fun fd_by_descr ->
@@ -333,7 +332,8 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
           ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
           ~last_thread_creation_failure:
             (Thread_pool.last_thread_creation_failure thread_pool
-             : (Sexp.t option[@sexp.option]))]
+             : (Sexp.t option
+                [@sexp.option]))]
     in
     if should_abort
     then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
@@ -806,9 +806,7 @@ let compute_timeout_and_check_file_descr_watcher t =
       else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
       then max_inter_cycle_timeout
       else (
-        let next_event_at =
-          Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
-        in
+        let next_event_at = Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler in
         Time_ns.Span.min
           max_inter_cycle_timeout
           (Time_ns.Span.max
@@ -831,9 +829,7 @@ let compute_timeout_and_check_file_descr_watcher t =
       else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
       then max_inter_cycle_timeout
       else (
-        let next_event_at =
-          Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler
-        in
+        let next_event_at = Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler in
         let set_timerfd_at =
           if not have_min_inter_cycle_timeout
           then next_event_at

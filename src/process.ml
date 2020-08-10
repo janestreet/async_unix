@@ -316,7 +316,7 @@ let send_signal t signal =
          legitimately happen for some reason. After all, not doing anything is the
          correct behavior if there is no such process. *)
       Debug.log_string
-        "Bug? We know we never waited for this process, but [kill] says the process \
-         does not exist."
+        "Bug? We know we never waited for this process, but [kill] says the process does \
+         not exist."
     | `Ok -> ())
 ;;

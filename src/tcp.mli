@@ -236,10 +236,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int
     -> ?backlog:int
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
-    -> on_handler_error:[ `Call of Socket.Address.Inet.t -> exn -> unit
-                        | `Ignore
-                        | `Raise
-                        ]
+    -> on_handler_error:
+         [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet
     -> (Socket.Address.Inet.t
         -> ([ `Active ], Socket.Address.Inet.t) Socket.t
@@ -269,10 +267,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
-    -> on_handler_error:[ `Call of Socket.Address.Inet.t -> exn -> unit
-                        | `Ignore
-                        | `Raise
-                        ]
+    -> on_handler_error:
+         [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet
     -> (Socket.Address.Inet.t -> Reader.t -> Writer.t -> unit Deferred.t)
     -> (Socket.Address.Inet.t, int) t

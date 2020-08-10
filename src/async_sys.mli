@@ -36,11 +36,7 @@ val when_file_changes
   -> string
   -> (Time.t, exn) Result.t Pipe.Reader.t
 
-val is_directory
-  :  ?follow_symlinks:bool
-  -> string
-  -> [ `Yes | `No | `Unknown ] Deferred.t
-
+val is_directory : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val is_directory_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 val is_file : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val is_file_exn : ?follow_symlinks:bool -> string -> bool Deferred.t

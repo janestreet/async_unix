@@ -132,8 +132,8 @@ include struct
     overwrite1
   [@@deprecated
     "[since 2019-12] If you want to the blocking version, use [Core.eprint_s] (this \
-     preserves behavior, but is discouraged). If you want the nonblocking version, \
-     use [eprint_s_nonblocking] or [Print.eprint_s]"]
+     preserves behavior, but is discouraged). If you want the nonblocking version, use \
+     [eprint_s_nonblocking] or [Print.eprint_s]"]
   ;;
 
   let eprint_s_nonblocking = Print.eprint_s

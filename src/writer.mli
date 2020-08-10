@@ -108,8 +108,7 @@ val create
   -> ?buffer_age_limit:buffer_age_limit
   -> ?raise_when_consumer_leaves:bool (** default is [true] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
-  -> ?time_source:[> read ] Time_source.T1.t
-  (** default is [Time_source.wall_clock ()] *)
+  -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> Fd.t
   -> t
 
@@ -139,8 +138,7 @@ val open_file
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?perm:int (** default is [0o666] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
-  -> ?time_source:[> read ] Time_source.T1.t
-  (** default is [Time_source.wall_clock ()] *)
+  -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> string
   -> t Deferred.t
 
@@ -157,8 +155,7 @@ val with_file
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?exclusive:bool (** default is [false] *)
   -> ?line_ending:Line_ending.t (** default is [Unix] *)
-  -> ?time_source:[> read ] Time_source.T1.t
-  (** default is [Time_source.wall_clock ()] *)
+  -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t
@@ -539,8 +536,7 @@ val with_file_atomic
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
-  -> ?time_source:[> read ] Time_source.T1.t
-  (** default is [Time_source.wall_clock ()] *)
+  -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> string
   -> f:(t -> 'a Deferred.t)
   -> 'a Deferred.t

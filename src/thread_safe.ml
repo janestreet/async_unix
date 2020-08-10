@@ -58,9 +58,7 @@ let block_on_async t f =
      context.  So we save and restore the execution context, if we're in the main thread.
      The restoration is necessary because subsequent code in the main thread can do
      operations that rely on the execution context. *)
-  let execution_context =
-    Kernel_scheduler.current_execution_context t.kernel_scheduler
-  in
+  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
   (* Create a scheduler thread if the scheduler isn't already running. *)
   if not t.is_running
   then (
