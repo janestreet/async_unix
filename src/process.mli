@@ -144,6 +144,18 @@ val collect_stdout_lines_and_wait_exn : string list collect
     regardless of whether or not the process was waited for. *)
 val send_signal : t -> Signal.t -> unit
 
+(** Similar to [send_signal], but additionally reports if a signal was actually sent,
+    or a process was already terminated and waited for.
+
+    Note that if you never called [wait] on this process, you will always get [`Ok], which
+    can be surprising. This function is exposed for compatibility with the code that used
+    [Signal.send]. *)
+val send_signal_compat : t -> Signal.t -> [ `Ok | `No_such_process ]
+
+(** Similar to [send_signal_compat], but raises an exception on [`No_such_process].
+    Used to migrate the code that uses [Signal.send_exn]. *)
+val send_signal_compat_exn : t -> Signal.t -> unit
+
 (** [Lines_or_sexp] is useful for rendering a string nicely in a sexp, avoiding quoting if
     the string is multi-line or was produced by converting a sexp to a string.
     [Output.sexp_of_t] uses [Lines_or_sexp] to nicely render stdout and stderr of a child
