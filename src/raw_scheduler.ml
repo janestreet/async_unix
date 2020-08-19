@@ -426,6 +426,7 @@ let request_stop_watching t fd read_or_write value =
     (match value with
      | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
      | (`Closed | `Bad_fd | `Interrupted) as value ->
+       Kernel_scheduler.free_job t.kernel_scheduler job;
        Ivar.fill finished value;
        set_fd_desired_watching t fd read_or_write Stop_requested;
        if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t)
