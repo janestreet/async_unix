@@ -93,7 +93,17 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
     {b Note:} You need to be careful that all your IO is done when the deferred you return
     becomes determined. If for example you use [with_file] and call [lines], make sure
     you return a deferred that becomes determined when the EOF is reached on the pipe,
-    not when you get the pipe (because you get it straight away). *)
+    not when you get the pipe (because you get it straight away).
+
+    [exclusive = true] uses a filesystem lock to try and make sure that the file is not
+    read while it's being modified. This is an advisory lock, which means that the writer
+    must be cooperating by taking a relevant lock when writing (see
+    [Writer.with_file]). This is unrelated and should not be confused with the [O_EXCL]
+    flag in [open] systemcall.  Note that the implementation uses [Unix.flock], which has
+    some known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
+    using a library dedicated to dealing with file locks where the pitfalls can be
+    documented in detail.
+*)
 val with_file
   :  ?buf_len:int
   -> ?exclusive:bool (** default is [false] *)
