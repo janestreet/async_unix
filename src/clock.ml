@@ -1,6 +1,7 @@
 open! Core
 open! Import
 open Async_kernel.Clock_ns
+module Or_timeout = Or_timeout
 
 let run_at time f a = run_at (Time_ns.of_time_float_round_nearest time) f a
 let run_after span f a = run_after (Time_ns.Span.of_span_float_round_nearest span) f a
