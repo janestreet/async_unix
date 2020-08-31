@@ -78,6 +78,22 @@ val create
   -> Info.t
   -> t
 
+(** [create_borrowed kind descr info ~f] borrows a file descriptor that is not managed by
+    Async, creates an [Fd.t] (see [create]), and runs [f] that uses that fd in async.
+
+    After [f] is finished (or raises an exception), it returns the file
+    descriptor to its original owner (leaving [Fd.t] in a closed state, but not closing
+    [descr]).
+
+    The caller must not close [descr] while [create_borrowed] is running. *)
+val create_borrowed
+  :  ?avoid_nonblock_if_possible:bool (** default is [false] *)
+  -> Kind.t
+  -> Unix.File_descr.t
+  -> Info.t
+  -> f:(t -> 'a Deferred.t)
+  -> 'a Deferred.t
+
 (** [kind t] returns the kind of file descriptor that [t] is. *)
 val kind : t -> Kind.t
 

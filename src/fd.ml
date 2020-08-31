@@ -134,6 +134,14 @@ let close_started t =
   | Close_requested _ | Closed -> return ()
 ;;
 
+let create_borrowed ?avoid_nonblock_if_possible kind file_descr info ~f =
+  let fd = create ?avoid_nonblock_if_possible kind file_descr info in
+  Monitor.protect
+    ~name:"Fd.create_borrowed"
+    (fun () -> f fd)
+    ~finally:(fun () -> close ~file_descriptor_handling:Do_not_close_file_descriptor fd)
+;;
+
 let with_close t ~f = Monitor.protect (fun () -> f t) ~finally:(fun () -> close t)
 
 let with_file_descr_deferred t f =
