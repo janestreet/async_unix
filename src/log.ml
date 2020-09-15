@@ -288,6 +288,7 @@ module Level = struct
 
   let arg =
     Command.Spec.Arg_type.of_alist_exn
+      ~list_values_in_help:false
       (List.concat_map all ~f:(fun t ->
          let s = to_string t in
          [ String.lowercase s, t; String.capitalize s, t; String.uppercase s, t ]))
