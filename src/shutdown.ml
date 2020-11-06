@@ -54,7 +54,11 @@ let shutdown ?force status =
     upon
       (Deferred.all
          (List.map !todo ~f:(fun (backtrace, f) ->
-            let%map result = Monitor.try_with_or_error f in
+            let%map result =
+              Monitor.try_with_or_error
+                ~rest:`Log
+                f
+            in
             (match result with
              | Ok () -> ()
              | Error error ->

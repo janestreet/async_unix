@@ -98,6 +98,9 @@ module Close = struct
               | Do_not_close_file_descriptor -> return ()
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
+                  ~run:
+                    `Schedule
+                  ~rest:`Log
                   ~finally:(fun () ->
                     In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
                   (fun () ->
@@ -137,18 +140,32 @@ let close_started t =
 let create_borrowed ?avoid_nonblock_if_possible kind file_descr info ~f =
   let fd = create ?avoid_nonblock_if_possible kind file_descr info in
   Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
     ~name:"Fd.create_borrowed"
     (fun () -> f fd)
     ~finally:(fun () -> close ~file_descriptor_handling:Do_not_close_file_descriptor fd)
 ;;
 
-let with_close t ~f = Monitor.protect (fun () -> f t) ~finally:(fun () -> close t)
+let with_close t ~f =
+  Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
+    (fun () -> f t)
+    ~finally:(fun () -> close t)
+;;
 
 let with_file_descr_deferred t f =
   match inc_num_active_syscalls t with
   | `Already_closed -> return `Already_closed
   | `Ok ->
-    let%map result = Monitor.try_with (fun () -> f t.file_descr) in
+    let%map result =
+      Monitor.try_with
+        ~run:
+          `Schedule
+        ~rest:`Log
+        (fun () -> f t.file_descr)
+    in
     Scheduler.dec_num_active_syscalls_fd (the_one_and_only ()) t;
     (match result with
      | Ok x -> `Ok x

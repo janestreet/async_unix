@@ -638,7 +638,9 @@ end = struct
       | ts ->
         fun f ->
           Deferred.List.map ~how:`Sequential ts ~f:(fun t ->
-            Monitor.try_with_or_error (fun () -> f t))
+            Monitor.try_with_or_error
+              ~rest:`Log
+              (fun () -> f t))
           >>| Or_error.combine_errors_unit
           >>| Or_error.ok_exn
     in
@@ -779,7 +781,11 @@ end = struct
            let now = Time.now () in
            let cutoff = Time.sub now span in
            Deferred.List.filter files ~f:(fun (_, filename) ->
-             Deferred.Or_error.try_with (fun () -> Unix.stat filename)
+             Deferred.Or_error.try_with
+               ~run:
+                 `Schedule
+               ~rest:`Log
+               (fun () -> Unix.stat filename)
              >>| function
              | Error _ -> false
              | Ok stats -> Time.( < ) stats.mtime cutoff)
@@ -791,7 +797,11 @@ end = struct
            in
            List.drop files i)
         >>= Deferred.List.map ~f:(fun (_i, filename) ->
-          Deferred.Or_error.try_with (fun () -> Unix.unlink filename))
+          Deferred.Or_error.try_with
+            ~run:
+              `Schedule
+            ~rest:`Log
+            (fun () -> Unix.unlink filename))
         >>| fun (_ : unit Or_error.t list) -> ()
       ;;
 
@@ -1196,9 +1206,12 @@ let create_log_processor ~output =
 ;;
 
 let process_log_redirecting_all_errors t r output =
-  Monitor.try_with (fun () ->
-    let process_log = create_log_processor ~output in
-    Pipe.iter' r ~f:process_log)
+  Monitor.try_with
+    ~run:`Schedule
+    ~rest:`Log
+    (fun () ->
+       let process_log = create_log_processor ~output in
+       Pipe.iter' r ~f:process_log)
   >>| function
   | Ok () -> ()
   | Error e ->
@@ -1341,7 +1354,11 @@ let surroundf_gen
 let surround_s ?level ?time ?tags t msg f =
   surround_s_gen
     ?tags
-    ~try_with:Monitor.try_with
+    ~try_with:
+      (Monitor.try_with
+         ~run:
+           `Schedule
+         ~rest:`Log )
     ~map_return:Deferred.map
     ~log_sexp:(fun ?tags s -> sexp ?tags ?level ?time t s)
     ~f
@@ -1351,7 +1368,11 @@ let surround_s ?level ?time ?tags t msg f =
 let surroundf ?level ?time ?tags t fmt =
   surroundf_gen
     ?tags
-    ~try_with:Monitor.try_with
+    ~try_with:
+      (Monitor.try_with
+         ~run:
+           `Schedule
+         ~rest:`Log )
     ~map_return:Deferred.map
     ~log_string:(fun ?tags -> string ?tags ?level ?time t)
     fmt

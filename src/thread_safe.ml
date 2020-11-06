@@ -81,7 +81,13 @@ let block_on_async t f =
   let maybe_blocked =
     run_holding_async_lock
       t
-      (fun () -> Monitor.try_with f ~name:"block_on_async")
+      (fun () ->
+         Monitor.try_with
+           ~run:
+             `Schedule
+           ~rest:`Log
+           f
+           ~name:"block_on_async")
       ~finish:(fun res ->
         match res with
         | Error exn -> `Available (Error exn)

@@ -632,6 +632,8 @@ let with_synchronous_backing_out_channel t backing_out_channel ~f =
      [oc].  The flush is caused by [set_synchronous_backing_out_channel].  In theory this
      could happen but in practice is exceedingly unlikely. *)
   Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
     (fun () ->
        let%bind () = set_synchronous_backing_out_channel t backing_out_channel in
        f ())
@@ -816,7 +818,13 @@ let create
       ?name:(if am_running_inline_test then Some "Writer.inner_monitor" else None)
   in
   let consumer_left = Ivar.create () in
-  let open_flags = try_with (fun () -> Unix.fcntl_getfl fd) in
+  let open_flags =
+    Monitor.try_with
+      ~run:
+        `Schedule
+      ~rest:`Log
+      (fun () -> Unix.fcntl_getfl fd)
+  in
   let t =
     { id
     ; fd
@@ -893,13 +901,23 @@ let open_file
   Unix.openfile file ~mode ~perm >>| create ?buf_len ?syscall ?line_ending ?time_source
 ;;
 
-let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
+let with_close t ~f =
+  Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
+    f
+    ~finally:(fun () -> close t)
+;;
 
 let with_writer_exclusive t f =
   let%bind () = Unix.lockf t.fd Exclusive in
-  Monitor.protect f ~finally:(fun () ->
-    let%map () = flushed t in
-    Unix.unlockf t.fd)
+  Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
+    f
+    ~finally:(fun () ->
+      let%map () = flushed t in
+      Unix.unlockf t.fd)
 ;;
 
 let with_file
@@ -1684,7 +1702,13 @@ let behave_nicely_in_pipeline ?writers () =
 
 let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source file ~f =
   let%bind current_file_permissions =
-    match%map Monitor.try_with (fun () -> Unix.stat file) with
+    match%map
+      Monitor.try_with
+        ~run:
+          `Schedule
+        ~rest:`Log
+        (fun () -> Unix.stat file)
+    with
     | Ok stats -> Some stats.perm
     | Error _ -> None
   in
@@ -1729,7 +1753,13 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
       let%map () = if do_fsync then fsync t else return () in
       result)
   in
-  match%bind Monitor.try_with (fun () -> Unix.rename ~src:temp_file ~dst:file) with
+  match%bind
+    Monitor.try_with
+      ~run:
+        `Schedule
+      ~rest:`Log
+      (fun () -> Unix.rename ~src:temp_file ~dst:file)
+  with
   | Ok () -> return result
   | Error exn ->
     let fail v sexp_of_v =
@@ -1737,7 +1767,13 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
         [%message
           "Writer.with_file_atomic could not create file" (file : string) ~_:(v : v)]
     in
-    (match%map Monitor.try_with (fun () -> Unix.unlink temp_file) with
+    (match%map
+       Monitor.try_with
+         ~run:
+           `Schedule
+         ~rest:`Log
+         (fun () -> Unix.unlink temp_file)
+     with
      | Ok () -> fail exn [%sexp_of: exn]
      | Error exn2 ->
        fail (exn, `Cleanup_failed exn2) [%sexp_of: exn * [ `Cleanup_failed of exn ]])
@@ -1763,11 +1799,15 @@ let save_sexp ?temp_file ?perm ?fsync ?(hum = true) file sexp =
     return ())
 ;;
 
-let save_sexps ?temp_file ?perm ?fsync ?(hum = true) file sexps =
+let save_sexps_conv ?temp_file ?perm ?fsync ?(hum = true) file xs sexp_of_x =
   with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
-    List.iter sexps ~f:(fun sexp ->
-      write_sexp_internal t sexp ~hum ~terminate_with:Newline);
+    List.iter xs ~f:(fun x ->
+      write_sexp_internal t (sexp_of_x x) ~hum ~terminate_with:Newline);
     return ())
+;;
+
+let save_sexps ?temp_file ?perm ?fsync ?hum file sexps =
+  save_sexps_conv ?temp_file ?perm ?fsync ?hum file sexps Fn.id
 ;;
 
 let save_bin_prot ?temp_file ?perm ?fsync file bin_writer a =
@@ -1778,9 +1818,13 @@ let save_bin_prot ?temp_file ?perm ?fsync file bin_writer a =
 
 let with_flushed_at_close t ~flushed ~f =
   let producers_to_flush_at_close_elt = Bag.add t.producers_to_flush_at_close flushed in
-  Monitor.protect f ~finally:(fun () ->
-    Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
-    return ())
+  Monitor.protect
+    ~run:`Schedule
+    ~rest:`Log
+    f
+    ~finally:(fun () ->
+      Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
+      return ())
 ;;
 
 let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r write_f =

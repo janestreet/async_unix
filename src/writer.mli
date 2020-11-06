@@ -148,7 +148,17 @@ val open_file
 
     There is no need to call [Writer.flushed] to ensure that [with_file] waits for the
     writer to be flushed before closing it.  [Writer.close] will already wait for the
-    flush. *)
+    flush.
+
+    [exclusive = true] uses a filesystem lock to try and make sure that the file is not
+    modified during a concurrent read or write operation. This is an advisory lock, which
+    means that the reader must be cooperating by taking a relevant lock when writing (see
+    [Reader.with_file]). This is unrelated and should not be confused with the [O_EXCL]
+    flag in [open] systemcall.  Note that the implementation uses [Unix.lockf], which has
+    known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
+    using a library dedicated to dealing with file locks where the pitfalls can be
+    documented in detail.
+*)
 val with_file
   :  ?perm:int (** default is [0o666] *)
   -> ?append:bool (** default is [false], meaning truncate instead *)
@@ -587,6 +597,19 @@ val save_sexps
   -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t list
+  -> unit Deferred.t
+
+(** [save_sexps_conv] is like [save_sexps], but converts to sexps internally, one at a
+    time. This avoids allocating the list of sexps up front, which can be costly. The
+    default values of the parameters are the same as [save_sexps]. *)
+val save_sexps_conv
+  :  ?temp_file:string
+  -> ?perm:int
+  -> ?fsync:bool
+  -> ?hum:bool
+  -> string
+  -> 'a list
+  -> ('a -> Sexp.t)
   -> unit Deferred.t
 
 (** [save_bin_prot t bin_writer 'a] is a special case of [with_file_atomic] that writes

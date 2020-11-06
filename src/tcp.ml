@@ -64,7 +64,11 @@ module Where_to_connect = struct
 end
 
 let close_sock_on_error s f =
-  try_with ~name:"Tcp.close_sock_on_error" f
+  Monitor.try_with
+    ~run:`Schedule
+    ~rest:`Log
+    ~name:"Tcp.close_sock_on_error"
+    f
   >>| function
   | Ok v -> v
   | Error e ->
@@ -148,7 +152,14 @@ let collect_errors writer f =
   (* don't propagate errors up, we handle them here *)
   choose
     [ choice (Monitor.get_next_error monitor) (fun e -> Error e)
-    ; choice (try_with ~name:"Tcp.collect_errors" f) Fn.id
+    ; choice
+        (Monitor.try_with
+           ~run:
+             `Schedule
+           ~rest:`Log
+           ~name:"Tcp.collect_errors"
+           f)
+        Fn.id
     ]
 ;;
 
@@ -262,13 +273,51 @@ module Server = struct
     let close t = Fd.close (Socket.fd t.client_socket)
   end
 
+  module Max_connections = struct
+    type t =
+      { limit : int
+      ; time_source : Time_source.t
+      ; listening_on : Info.t
+      ; mutable last_logged : Time_ns.t option
+      }
+
+    let sexp_of_t t = [%sexp_of: int] t.limit
+
+    let create ~limit ~time_source ~listening_on =
+      { limit; time_source; listening_on; last_logged = None }
+    ;;
+
+    (* We make sure not to be too spammy with logs. This number was chosen pretty
+       arbitrarily. *)
+    let log_threshold = Time_ns.Span.of_min 1.
+
+    let log_at_limit t ~now =
+      Log.Global.error_s
+        [%message
+          "At limit of Tcp server [max_connections]. New connections will not be \
+           accepted until an existing connection is closed."
+            ~limit:(t.limit : int)
+            ~listening_on:(t.listening_on : Info.t)];
+      t.last_logged <- Some now
+    ;;
+
+    let maybe_log_at_limit t =
+      let now = Time_source.now t.time_source in
+      match t.last_logged with
+      | None -> log_at_limit t ~now
+      | Some last_logged ->
+        if Time_ns.Span.( > ) (Time_ns.diff now last_logged) log_threshold
+        then log_at_limit t ~now
+    ;;
+  end
+
   type ('address, 'listening_on) t =
     { socket : ([ `Passive ], 'address) Socket.t
     ; listening_on : 'listening_on
     ; on_handler_error : [ `Raise | `Ignore | `Call of 'address -> exn -> unit ]
     ; handle_client :
         'address -> ([ `Active ], 'address) Socket.t -> (unit, exn) Result.t Deferred.t
-    ; max_connections : int
+    ; max_connections : Max_connections.t
     ; max_accepts_per_batch : int
     ; connections : 'address Connection.t Bag.t
     ; mutable accept_is_pending : bool
@@ -293,7 +342,9 @@ module Server = struct
         ~listening_on:ignore
         ~on_handler_error:ignore
         ~handle_client:ignore
-        ~max_connections:(check (fun max_connections -> assert (max_connections >= 1)))
+        ~max_connections:
+          (check (fun (max_connections : Max_connections.t) ->
+             assert (max_connections.limit >= 1)))
         ~max_accepts_per_batch:
           (check (fun max_accepts_per_batch -> assert (max_accepts_per_batch >= 1)))
         ~connections:
@@ -301,7 +352,7 @@ module Server = struct
              Bag.invariant (Connection.invariant ignore) connections;
              let num_connections = num_connections t in
              assert (num_connections >= 0);
-             assert (num_connections <= t.max_connections)))
+             assert (num_connections <= t.max_connections.limit)))
         ~accept_is_pending:ignore
         ~drop_incoming_connections:ignore
         ~close_finished_and_handlers_determined:ignore
@@ -332,7 +383,7 @@ module Server = struct
   (* [maybe_accept] is a bit tricky, but the idea is to avoid calling [accept] until we
      have an available slot (determined by [num_connections < max_connections]). *)
   let rec maybe_accept t =
-    let available_slots = t.max_connections - num_connections t in
+    let available_slots = t.max_connections.limit - num_connections t in
     if (not (is_closed t)) && available_slots > 0 && not t.accept_is_pending
     then (
       t.accept_is_pending <- true;
@@ -353,6 +404,8 @@ module Server = struct
              clients, which respects the just-increased [num_connections]. *)
           List.iter conns ~f:(fun (sock, addr) -> handle_client t sock addr);
           maybe_accept t))
+    else if (not (is_closed t)) && available_slots = 0
+    then Max_connections.maybe_log_at_limit t.max_connections
 
   and handle_client t client_socket client_address =
     let connection = Connection.create ~client_socket ~client_address in
@@ -408,7 +461,7 @@ module Server = struct
     t
   ;;
 
-  let get_max_connections max_connections =
+  let get_max_connections_limit max_connections =
     match max_connections with
     | None -> 10_000
     | Some max_connections ->
@@ -427,25 +480,41 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         (where_to_listen : _ Where_to_listen.t)
         handle_client
     =
-    let max_connections = get_max_connections max_connections in
+    let time_source =
+      match time_source with
+      | Some x -> Time_source.read_only x
+      | None -> Time_source.wall_clock ()
+    in
     let socket, should_set_reuseaddr =
       match socket with
       | Some socket -> socket, false
       | None -> Socket.create where_to_listen.socket_type, true
     in
-    close_sock_on_error socket (fun () ->
-      Socket.bind ~reuseaddr:should_set_reuseaddr socket where_to_listen.address
-      >>| Socket.listen ?backlog)
-    >>| create_from_socket
-          ~max_connections
-          ?max_accepts_per_batch
-          ~on_handler_error
-          where_to_listen
-          handle_client
+    let%map socket =
+      close_sock_on_error socket (fun () ->
+        Socket.bind ~reuseaddr:should_set_reuseaddr socket where_to_listen.address
+        >>| Socket.listen ?backlog)
+    in
+    let max_connections =
+      Max_connections.create
+        ~limit:(get_max_connections_limit max_connections)
+        ~time_source
+        (* We must call [Fd.info] on the socket's fd after [Socket.bind] is called,
+           otherwise the [Info.t] won't have been set yet. *)
+        ~listening_on:(Fd.info (Socket.fd socket))
+    in
+    create_from_socket
+      ~max_connections
+      ?max_accepts_per_batch
+      ~on_handler_error
+      where_to_listen
+      handle_client
+      socket
   ;;
 
   let create_sock
@@ -453,6 +522,7 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         (where_to_listen : ('address, 'listening_on) Where_to_listen.t)
         (handle_client :
@@ -464,10 +534,15 @@ module Server = struct
       ?backlog
       ~on_handler_error
       ?socket
+      ?time_source
       where_to_listen
       (fun client_address client_socket ->
-         try_with ~name:"Tcp.Server.create_sock" (fun () ->
-           handle_client client_address client_socket))
+         Monitor.try_with
+           ~run:
+             `Schedule
+           ~rest:`Log
+           ~name:"Tcp.Server.create_sock"
+           (fun () -> handle_client client_address client_socket))
   ;;
 
   let create_sock_inet_internal
@@ -475,11 +550,16 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
+        ?time_source
         ~on_handler_error
         (where_to_listen : Where_to_listen.inet)
         handle_client
     =
-    let max_connections = get_max_connections max_connections in
+    let time_source =
+      match time_source with
+      | Some x -> Time_source.read_only x
+      | None -> Time_source.wall_clock ()
+    in
     let socket, should_set_reuseaddr =
       match socket with
       | Some socket -> socket, false
@@ -496,6 +576,14 @@ module Server = struct
         don't_wait_for (Unix.close (Socket.fd socket));
         raise exn
     in
+    let max_connections =
+      Max_connections.create
+        ~limit:(get_max_connections_limit max_connections)
+        ~time_source
+        (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
+           otherwise the [Info.t] won't have been set yet. *)
+        ~listening_on:(Fd.info (Socket.fd socket))
+    in
     create_from_socket
       ~max_connections
       ?max_accepts_per_batch
@@ -510,6 +598,7 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         where_to_listen
         handle_client
@@ -519,11 +608,16 @@ module Server = struct
       ?max_accepts_per_batch
       ?backlog
       ?socket
+      ?time_source
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
-         try_with ~name:"Tcp.Server.create_sock_inet" (fun () ->
-           handle_client client_address client_socket))
+         Monitor.try_with
+           ~run:
+             `Schedule
+           ~rest:`Log
+           ~name:"Tcp.Server.create_sock_inet"
+           (fun () -> handle_client client_address client_socket))
   ;;
 
   let create_internal
@@ -533,6 +627,7 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         where_to_listen
         handle_client
@@ -542,6 +637,7 @@ module Server = struct
       ?max_accepts_per_batch
       ?backlog
       ?socket
+      ?time_source
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
@@ -560,6 +656,7 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         where_to_listen
         handle_client
@@ -571,6 +668,7 @@ module Server = struct
       ?max_accepts_per_batch
       ?backlog
       ?socket
+      ?time_source
       ~on_handler_error
       where_to_listen
       handle_client
@@ -582,6 +680,7 @@ module Server = struct
         ?max_accepts_per_batch
         ?backlog
         ?socket
+        ?time_source
         ~on_handler_error
         where_to_listen
         handle_client
@@ -593,6 +692,7 @@ module Server = struct
       ?max_accepts_per_batch
       ?backlog
       ?socket
+      ?time_source
       ~on_handler_error
       where_to_listen
       handle_client

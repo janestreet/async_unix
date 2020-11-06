@@ -205,13 +205,25 @@ module Internal = struct
     close_finished t
   ;;
 
-  let with_close t ~f = Monitor.protect f ~finally:(fun () -> close t)
+  let with_close t ~f =
+    Monitor.protect
+      ~run:
+        `Schedule
+      ~rest:`Log
+      f
+      ~finally:(fun () -> close t)
+  ;;
 
   let with_reader_exclusive t f =
     let%bind () = Unix.lockf t.fd Shared in
-    Monitor.protect f ~finally:(fun () ->
-      if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
-      return ())
+    Monitor.protect
+      ~run:
+        `Schedule
+      ~rest:`Log
+      f
+      ~finally:(fun () ->
+        if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
+        return ())
   ;;
 
   let with_file ?buf_len ?(exclusive = false) file ~f =
@@ -1242,16 +1254,21 @@ let gen_load_exn
   let may_load_file_multiple_times = ref false in
   let load ~sexp_kind =
     match%map
-      Monitor.try_with ~extract_exn:true (fun () ->
-        with_file ?exclusive file ~f:(fun t ->
-          (may_load_file_multiple_times
-           := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
-                 kinds.  We can only load it multiple times if it has kind [File]. *)
-             match Fd.kind (fd t) with
-             | File -> true
-             | Char | Fifo | Socket _ -> false);
-          use t;
-          Pipe.to_list (gen_read_sexps t ~sexp_kind)))
+      Monitor.try_with
+        ~run:
+          `Schedule
+        ~rest:`Log
+        ~extract_exn:true
+        (fun () ->
+           with_file ?exclusive file ~f:(fun t ->
+             (may_load_file_multiple_times
+              := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+                    kinds.  We can only load it multiple times if it has kind [File]. *)
+                match Fd.kind (fd t) with
+                | File -> true
+                | Char | Fifo | Socket _ -> false);
+             use t;
+             Pipe.to_list (gen_read_sexps t ~sexp_kind)))
     with
     | Ok sexps -> sexps
     | Error exn ->
@@ -1336,8 +1353,11 @@ let load_annotated_sexp_exn ?exclusive file a_of_sexp =
 ;;
 
 let gen_load_sexp ?exclusive ~sexp_kind ~file ~a_of_sexp =
-  Deferred.Or_error.try_with ~extract_exn:true (fun () ->
-    gen_load_sexp_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
+  Deferred.Or_error.try_with
+    ~run:`Schedule
+    ~rest:`Log
+    ~extract_exn:true
+    (fun () -> gen_load_sexp_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
 let load_sexp ?exclusive file a_of_sexp =
@@ -1377,8 +1397,11 @@ let load_annotated_sexps_exn ?exclusive file a_of_sexp =
 ;;
 
 let gen_load_sexps ?exclusive ~sexp_kind ~file ~a_of_sexp =
-  Deferred.Or_error.try_with ~extract_exn:true (fun () ->
-    gen_load_sexps_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
+  Deferred.Or_error.try_with
+    ~run:`Schedule
+    ~rest:`Log
+    ~extract_exn:true
+    (fun () -> gen_load_sexps_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
 let load_sexps ?exclusive file a_of_sexp =
@@ -1413,8 +1436,12 @@ type ('a, 'b) load_bin_prot =
 
 let load_bin_prot ?exclusive ?max_len file bin_reader =
   match%map
-    Monitor.try_with_or_error ~here:[%here] ~name:"Reader.load_bin_prot" (fun () ->
-      with_file ?exclusive file ~f:(fun t -> read_bin_prot ?max_len t bin_reader))
+    Monitor.try_with_or_error
+      ~rest:`Log
+      ~here:[%here]
+      ~name:"Reader.load_bin_prot"
+      (fun () ->
+         with_file ?exclusive file ~f:(fun t -> read_bin_prot ?max_len t bin_reader))
   with
   | Ok (`Ok v) -> Ok v
   | Ok `Eof -> Or_error.error_string "Reader.load_bin_prot got unexpected eof"

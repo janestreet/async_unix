@@ -16,7 +16,12 @@ let when_file_changes
   let last_reported_mtime = ref None in
   let reader, writer = Pipe.create () in
   let rec loop () =
-    Monitor.try_with ~extract_exn:true (fun () -> Unix.stat file)
+    Monitor.try_with
+      ~run:
+        `Schedule
+      ~rest:`Log
+      ~extract_exn:true
+      (fun () -> Unix.stat file)
     >>> fun stat_result ->
     if not (Pipe.is_closed writer)
     then (

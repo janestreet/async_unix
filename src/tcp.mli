@@ -224,6 +224,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64] *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
+    -> ?time_source:[> read ] Time_source.T1.t
+    (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> ('address -> ([ `Active ], 'address) Socket.t -> unit Deferred.t)
@@ -236,6 +238,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int
     -> ?backlog:int
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
+    -> ?time_source:[> read ] Time_source.T1.t
+    (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:
          [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet
@@ -256,6 +260,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
+    -> ?time_source:[> read ] Time_source.T1.t
+    (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> ('address -> Reader.t -> Writer.t -> unit Deferred.t)
@@ -267,6 +273,8 @@ module Server : sig
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
+    -> ?time_source:[> read ] Time_source.T1.t
+    (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:
          [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet

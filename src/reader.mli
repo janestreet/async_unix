@@ -99,8 +99,8 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
     read while it's being modified. This is an advisory lock, which means that the writer
     must be cooperating by taking a relevant lock when writing (see
     [Writer.with_file]). This is unrelated and should not be confused with the [O_EXCL]
-    flag in [open] systemcall.  Note that the implementation uses [Unix.flock], which has
-    some known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
+    flag in [open] systemcall.  Note that the implementation uses [Unix.lockf], which has
+    known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
     using a library dedicated to dealing with file locks where the pitfalls can be
     documented in detail.
 *)

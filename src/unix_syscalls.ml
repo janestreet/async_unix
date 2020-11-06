@@ -348,8 +348,12 @@ let fchown fd ~uid ~gid =
 
 let access filename perm =
   match%map
-    Monitor.try_with (fun () ->
-      In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
+    Monitor.try_with
+      ~run:
+        `Schedule
+      ~rest:`Log
+      (fun () ->
+         In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
   with
   | Ok res -> res
   | Error exn -> Error (Monitor.extract_exn exn)
@@ -943,9 +947,9 @@ module Socket = struct
           file_descr
           (Info.create
              "socket"
-             (`listening_on t, `client address)
+             (`listening_on (Fd.info t.fd), `client address)
              (let sexp_of_address = sexp_of_address t in
-              [%sexp_of: [ `listening_on of (_, _) t ] * [ `client of address ]]))
+              [%sexp_of: [ `listening_on of Info.t ] * [ `client of address ]]))
       in
       let s = { fd; type_ = t.type_; for_info = None } in
       turn_off_nagle sockaddr s;
@@ -1036,19 +1040,18 @@ module Socket = struct
       Fd.Private.replace t.fd (Fd.Kind.Socket `Active) info;
       `Ok t
     in
-    let fail_closed () = raise_s [%message "connect on closed fd" ~_:(t.fd : Fd.t)] in
-    (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect
-       (see Stevens' book on Unix Network Programming, p413).  Once the connect succeeds
-       or fails, [select] on the socket will return it in the writeable set. *)
+    (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect (see
+       Stevens' book on Unix Network Programming, p413).  Once the connect succeeds or
+       fails, [select] on the socket will return it in the writeable set. *)
     match
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->
         Unix.connect file_descr ~addr:sockaddr)
     with
-    | `Already_closed -> fail_closed ()
+    | `Already_closed -> raise_s [%message "close before connect" (t.fd : Fd.t)]
     | `Ok () -> return (success ())
     | `Error (Unix_error ((EINPROGRESS | EINTR), _, _)) ->
       (match%map Fd.interruptible_ready_to t.fd `Write ~interrupt with
-       | `Closed -> fail_closed ()
+       | `Closed -> raise_s [%message "close during connect" (t.fd : Fd.t)]
        | `Bad_fd -> raise_s [%message "connect on bad file descriptor" ~_:(t.fd : Fd.t)]
        | `Interrupted as x -> x
        | `Ready ->
@@ -1057,7 +1060,7 @@ module Socket = struct
             Fd.with_file_descr t.fd (fun file_descr ->
               Unix.getsockopt_int file_descr SO_ERROR)
           with
-          | `Already_closed -> fail_closed ()
+          | `Already_closed -> raise_s [%message "close after connect" (t.fd : Fd.t)]
           | `Error exn -> raise exn
           | `Ok err ->
             if err = 0

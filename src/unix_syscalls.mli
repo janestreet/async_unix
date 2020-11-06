@@ -118,6 +118,9 @@ val sync : unit -> unit Deferred.t
     current file position and [len] (see man lockf).  It returns when the lock has been
     acquired.  It raises if [fd] is closed.
 
+    Warning: [lockf] locks are held per-process, so taking the lock on the same file
+    multiple times in the same process is going to break in terrible ways.
+
     Note that, despite the name, this function does not call the UNIX lockf() system call;
     rather it calls fcntl() with F_SETLKW *)
 val lockf : ?len:Int64.t -> Fd.t -> Lock_mode.t -> unit Deferred.t
@@ -450,6 +453,8 @@ module Socket : sig
 
   val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t
 
+  (** Calling [Fd.close] on the socket's file descriptor before {e or during} [connect]
+      may cause [connect] to raise. *)
   val connect
     :  ([< `Unconnected | `Bound ], 'addr) t
     -> 'addr
