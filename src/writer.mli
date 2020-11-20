@@ -348,9 +348,9 @@ val schedule_bigsubstring : t -> Bigsubstring.t -> unit
     this operation. *)
 val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read ], _) Iobuf.t -> unit
 
-(** [schedule_iobuf_consume] is like [schedule_iobuf_peek], and additionally advances the
-    iobuf beyond the portion that has been written.  Until the result is determined, it is
-    not safe to assume whether the iobuf has been advanced yet or not. *)
+(** [schedule_iobuf_consume] is like [schedule_iobuf_peek]. Once the result is determined,
+    the iobuf will be fully consumed (or advanced by [min len (Iobuf.length iobuf)] if
+    [len] is specified), and the writer will be flushed. *)
 val schedule_iobuf_consume
   :  t
   -> ?len:int
