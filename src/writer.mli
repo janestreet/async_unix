@@ -425,10 +425,12 @@ val flushed : t -> unit Deferred.t
 val flushed_time : t -> Time.t Deferred.t
 val flushed_time_ns : t -> Time_ns.t Deferred.t
 
-(** [fsync t] calls [flushed t] before calling [Unix.fsync] on the underlying file descriptor *)
+(** [fsync t] calls [flushed t] before calling [Unix.fsync] on the underlying
+    file descriptor *)
 val fsync : t -> unit Deferred.t
 
-(** [fdatasync t] calls [flushed t] before calling [Unix.fdatasync] on the underlying file descriptor *)
+(** [fdatasync t] calls [flushed t] before calling [Unix.fdatasync] on the
+    underlying file descriptor *)
 val fdatasync : t -> unit Deferred.t
 
 (** [send] writes a string to the writer that can be read back using [Reader.recv]. *)
