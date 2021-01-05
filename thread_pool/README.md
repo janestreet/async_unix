@@ -1,7 +1,4 @@
----
-title: "Thread_pool"
-uuid: 6030caa1-1213-364f-c27c-cefc797cb6ef
----
+# Thread_pool
 
 A thread pool is a set of OCaml threads used to do work, where each
 piece of work is simply a thunk.

@@ -435,6 +435,7 @@ module Server = struct
   let create_from_socket
         ~max_connections
         ?(max_accepts_per_batch = 1)
+        ?(drop_incoming_connections = false)
         ~on_handler_error
         (where_to_listen : _ Where_to_listen.t)
         handle_client
@@ -449,7 +450,7 @@ module Server = struct
       ; max_accepts_per_batch
       ; connections = Bag.create ()
       ; accept_is_pending = false
-      ; drop_incoming_connections = false
+      ; drop_incoming_connections
       ; close_finished_and_handlers_determined = Ivar.create ()
       }
     in
@@ -479,6 +480,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -511,6 +513,7 @@ module Server = struct
     create_from_socket
       ~max_connections
       ?max_accepts_per_batch
+      ?drop_incoming_connections
       ~on_handler_error
       where_to_listen
       handle_client
@@ -521,6 +524,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -532,6 +536,7 @@ module Server = struct
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
+      ?drop_incoming_connections
       ~on_handler_error
       ?socket
       ?time_source
@@ -549,6 +554,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
         ?time_source
         ~on_handler_error
@@ -587,6 +593,7 @@ module Server = struct
     create_from_socket
       ~max_connections
       ?max_accepts_per_batch
+      ?drop_incoming_connections
       ~on_handler_error
       where_to_listen
       handle_client
@@ -597,6 +604,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -607,6 +615,7 @@ module Server = struct
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
+      ?drop_incoming_connections
       ?socket
       ?time_source
       ~on_handler_error
@@ -626,6 +635,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -636,6 +646,7 @@ module Server = struct
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
+      ?drop_incoming_connections
       ?socket
       ?time_source
       ~on_handler_error
@@ -655,6 +666,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -667,6 +679,7 @@ module Server = struct
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
+      ?drop_incoming_connections
       ?socket
       ?time_source
       ~on_handler_error
@@ -679,6 +692,7 @@ module Server = struct
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
+        ?drop_incoming_connections
         ?socket
         ?time_source
         ~on_handler_error
@@ -691,6 +705,7 @@ module Server = struct
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
+      ?drop_incoming_connections
       ?socket
       ?time_source
       ~on_handler_error

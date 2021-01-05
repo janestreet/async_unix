@@ -202,6 +202,10 @@ module Server : sig
       only service a small number of connections at a time should see little to no
       difference in behavior for different values of [max_accepts_per_branch].
 
+      [drop_incoming_connections] determines whether connections will be immediately
+      dropped when the server is created.  It can be modified later with
+      [set_drop_incoming_connections]; see that function for a more detailed description.
+
       Supplying [socket] causes the server to use [socket] rather than create a new
       socket.  In this usage, creation does not set [Socket.Opt.reuseaddr] to [true]; if
       you want that, you must set [reuseaddr] before creation.
@@ -223,6 +227,7 @@ module Server : sig
     :  ?max_connections:int (** defaults to [10_000]. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64] *)
+    -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
     (** default is [Time_source.wall_clock ()] *)
@@ -237,6 +242,7 @@ module Server : sig
     :  ?max_connections:int
     -> ?max_accepts_per_batch:int
     -> ?backlog:int
+    -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
     (** default is [Time_source.wall_clock ()] *)
@@ -259,6 +265,7 @@ module Server : sig
     -> ?max_connections:int (** defaults to [10_000]. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
+    -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
     (** default is [Time_source.wall_clock ()] *)
@@ -272,6 +279,7 @@ module Server : sig
     -> ?max_connections:int (** defaults to [10_000]. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
+    -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
     (** default is [Time_source.wall_clock ()] *)
