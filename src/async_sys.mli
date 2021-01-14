@@ -47,6 +47,7 @@ val getenv_exn : string -> string
 val command : string -> int Deferred.t
 val command_exn : string -> unit Deferred.t
 val quote : string -> string
+val concat_quoted : string list -> string
 val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t
 val readdir : string -> string array Deferred.t

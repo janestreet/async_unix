@@ -51,6 +51,7 @@ let chdir = wrap1 Sys.chdir
 let command = wrap1 Sys.command
 let command_exn = wrap1 Sys.command_exn
 let quote = Sys.quote
+let concat_quoted = Sys.concat_quoted
 let getcwd = wrap1 Sys.getcwd
 let home_directory = wrap1 Sys.home_directory
 let ls_dir = wrap1 Sys.ls_dir
