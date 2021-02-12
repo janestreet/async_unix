@@ -75,9 +75,10 @@ let create ~timerfd ~num_file_descrs ~handle_fd_read_ready ~handle_fd_write_read
          flags for hangup (HUP) and error (ERR), whereas select will just return that fd
          as "ready" in its appropriate fd_set.  Since we don't know if it's ready for IN
          or OUT, we have to go lookup the entry if the HUP or ERR flag is set. *)
-      if Flags.do_intersect flags bit
-      || (Flags.do_intersect flags err_or_hup
-          && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
+      if
+        Flags.do_intersect flags bit
+        || (Flags.do_intersect flags err_or_hup
+            && Flags.do_intersect (Epoll.find_exn epoll file_descr) bit)
       then handle_fd file_descr
   in
   Epoll.set epoll (Timerfd.to_file_descr timerfd) Flags.for_timerfd;

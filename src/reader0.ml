@@ -493,12 +493,13 @@ module Internal = struct
                    consume t len;
                    loop ~force_refill:true
                  | `Consumed (consumed, need) as c ->
-                   if consumed < 0
-                   || consumed > len
-                   ||
-                   match need with
-                   | `Need_unknown -> false
-                   | `Need need -> need < 0 || consumed + need <= len
+                   if
+                     consumed < 0
+                     || consumed > len
+                     ||
+                     match need with
+                     | `Need_unknown -> false
+                     | `Need need -> need < 0 || consumed + need <= len
                    then
                      raise_s
                        [%message
@@ -511,9 +512,10 @@ module Internal = struct
                    let new_len =
                      match need with
                      | `Need_unknown ->
-                       if t.available = buf_len
-                       (* The buffer is full and the client doesn't know how much to
-                          expect: double the buffer size. *)
+                       if
+                         t.available = buf_len
+                         (* The buffer is full and the client doesn't know how much to
+                            expect: double the buffer size. *)
                        then buf_len * 2
                        else buf_len
                      | `Need need ->
@@ -912,16 +914,17 @@ module Internal = struct
                  | `In_use ->
                    let pos = t.pos + Bin_prot.Utils.size_header_length in
                    pos_ref := pos;
-                   (
-                     match Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref) with
-                     | Error _ as e -> k e
-                     | Ok v ->
-                       if !pos_ref - pos <> len
-                       then error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ();
-                       (match peek_or_read with
-                        | Peek -> ()
-                        | Read -> consume t need);
-                       k (Ok (`Ok v)))))))
+                   (match
+                      Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
+                    with
+                    | Error _ as e -> k e
+                    | Ok v ->
+                      if !pos_ref - pos <> len
+                      then error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ();
+                      (match peek_or_read with
+                       | Peek -> ()
+                       | Read -> consume t need);
+                      k (Ok (`Ok v)))))))
   ;;
 
   let read_marshal_raw t =

@@ -1152,13 +1152,14 @@ let give_buf t desired =
     let pos = t.back in
     t.back <- t.back + desired;
     t.buf, pos)
-  else if (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
-             exactly the desired size if the desired size is more than half the buffer length.
-             If we only created a new buffer when the desired size was greater than the buffer
-             length, then multiple consecutive writes of slightly more than half the buffer
-             length would each waste slightly less than half of the buffer.  Although, it is
-             still the case that multiple consecutive writes of slightly more than one quarter
-             of the buffer length will waste slightly less than one quarter of the buffer. *)
+  else if
+    (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
+       exactly the desired size if the desired size is more than half the buffer length.
+       If we only created a new buffer when the desired size was greater than the buffer
+       length, then multiple consecutive writes of slightly more than half the buffer
+       length would each waste slightly less than half of the buffer.  Although, it is
+       still the case that multiple consecutive writes of slightly more than one quarter
+       of the buffer length will waste slightly less than one quarter of the buffer. *)
     desired > buf_len / 2
   then (
     schedule_unscheduled t Keep;
@@ -1614,35 +1615,35 @@ let newline ?line_ending t =
 
 let stdout_and_stderr =
   lazy
-    ((* We [create] the writers inside [Monitor.main] so that it is their monitors'
-        parent. *)
-      match
-        Scheduler.within_v ~monitor:Monitor.main (fun () ->
-          let stdout = Fd.stdout () in
-          let stderr = Fd.stderr () in
-          let t = create stdout in
-          let dev_and_ino fd =
-            let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
-            stats.st_dev, stats.st_ino
-          in
-          match am_test_runner with
-          | true ->
-            (* In tests, we use synchronous output to improve determinism, especially
-               when mixing libraries that use Core and Async printing. *)
-            set_backing_out_channel
-              t
-              (Backing_out_channel.of_out_channel Out_channel.stdout);
-            t, t
-          | false ->
-            if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-            then
-              (* If stdout and stderr point to the same file, we must share a single writer
-                 between them.  See the comment in writer.mli for details. *)
-              t, t
-            else t, create stderr)
-      with
-      | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
-      | Some v -> v)
+    (* We [create] the writers inside [Monitor.main] so that it is their monitors'
+       parent. *)
+    (match
+       Scheduler.within_v ~monitor:Monitor.main (fun () ->
+         let stdout = Fd.stdout () in
+         let stderr = Fd.stderr () in
+         let t = create stdout in
+         let dev_and_ino fd =
+           let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
+           stats.st_dev, stats.st_ino
+         in
+         match am_test_runner with
+         | true ->
+           (* In tests, we use synchronous output to improve determinism, especially
+              when mixing libraries that use Core and Async printing. *)
+           set_backing_out_channel
+             t
+             (Backing_out_channel.of_out_channel Out_channel.stdout);
+           t, t
+         | false ->
+           if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+           then
+             (* If stdout and stderr point to the same file, we must share a single writer
+                between them.  See the comment in writer.mli for details. *)
+             t, t
+           else t, create stderr)
+     with
+     | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
+     | Some v -> v)
 ;;
 
 let stdout = lazy (fst (Lazy.force stdout_and_stderr))
@@ -1653,10 +1654,10 @@ let use_synchronous_stdout_and_stderr () =
   let ts_and_channels =
     (stdout, Out_channel.stdout)
     ::
-    ((* We only set [stderr] if it is distinct from [stdout]. *)
-      match phys_equal stdout stderr with
-      | true -> []
-      | false -> [ stderr, Out_channel.stderr ])
+    (* We only set [stderr] if it is distinct from [stdout]. *)
+    (match phys_equal stdout stderr with
+     | true -> []
+     | false -> [ stderr, Out_channel.stderr ])
   in
   List.map ts_and_channels ~f:(fun (t, out_channel) ->
     set_synchronous_out_channel t out_channel)

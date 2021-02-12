@@ -190,7 +190,8 @@ module Stable = struct
         t_of_versioned_serializable versioned_t
       ;;
 
-      include Binable.Of_binable.V1 [@alert "-legacy"]
+      include
+        Binable.Of_binable.V1 [@alert "-legacy"]
           (struct
             type t = versioned_serializable [@@deriving bin_io]
           end)
@@ -238,7 +239,8 @@ module Stable = struct
         }
       ;;
 
-      include Binable.Of_binable.V1 [@alert "-legacy"]
+      include
+        Binable.Of_binable.V1 [@alert "-legacy"]
           (struct
             type t = v0_t [@@deriving bin_io]
           end)
@@ -863,12 +865,13 @@ end = struct
 
       let write t ~time_source msgs =
         let current_time = now ~time_source in
-        (if Rotation.should_rotate
-              t.rotation
-              ~last_messages:t.last_messages
-              ~last_size:(Byte_units.of_bytes_int t.last_size)
-              ~last_time:t.last_time
-              ~current_time
+        (if
+          Rotation.should_rotate
+            t.rotation
+            ~last_messages:t.last_messages
+            ~last_size:(Byte_units.of_bytes_int t.last_size)
+            ~last_time:t.last_time
+            ~current_time
          then rotate ~time_source t
          else return ())
         >>= fun () ->

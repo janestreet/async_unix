@@ -17,9 +17,10 @@ let time_spent_waiting_for_io () =
 
 let set_min_inter_cycle_timeout min_inter_cycle_timeout =
   let t = t () in
-  if Time_ns.Span.( > )
-       min_inter_cycle_timeout
-       (t.max_inter_cycle_timeout :> Time_ns.Span.t)
+  if
+    Time_ns.Span.( > )
+      min_inter_cycle_timeout
+      (t.max_inter_cycle_timeout :> Time_ns.Span.t)
   then
     Error.raise
       ([%message

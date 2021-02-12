@@ -379,10 +379,11 @@ let request_start_watching t fd read_or_write watching =
       "request_start_watching"
       (read_or_write, fd, t)
       [%sexp_of: Read_write.Key.t * Fd.t * t];
-  if not fd.supports_nonblock
-  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
-     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
-     file-descr-watcher to monitor such descriptors. *)
+  if
+    not fd.supports_nonblock
+    (* Some versions of epoll complain if one asks it to monitor a file descriptor that
+       doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
+       file-descr-watcher to monitor such descriptors. *)
   then `Unsupported
   else (
     let result =
