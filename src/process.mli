@@ -17,8 +17,12 @@ val stderr : t -> Reader.t
 type env = Unix.env [@@deriving sexp]
 
 (** [create ~prog ~args ()] uses [Core.Unix.create_process_env] to create a child process
-    that runs the executable [prog] with [args] as arguments.  It creates pipes to
-    communicate with the child process's [stdin], [stdout], and [stderr].
+    that runs the executable [prog] with [args] as arguments.
+
+    This creates pipes to communicate with the child process's [stdin], [stdout], and
+    [stderr]. The caller is responsible for closing all these pipes. Reading from the
+    [stdout] and [stderr] readers until EOF will result in those pipes being closed but
+    you must explicitly call [Writer.close] on the [stdin] writer.
 
     Unlike [exec], [args] should not include [prog] as the first argument.
 
