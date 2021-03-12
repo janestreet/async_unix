@@ -84,6 +84,7 @@ type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 val fold_fields : init:'b -> 'b folder -> 'b
 
 val is_ready_to_initialize : unit -> bool
+val is_initialized : unit -> bool
 
 (** If a process that has already created, but not started, the Async scheduler would like
     to fork, and would like the child to have a clean Async, i.e., not inherit any of the

@@ -161,6 +161,12 @@ let is_ready_to_initialize () =
   | Ready_to_initialize _ -> true
 ;;
 
+let is_initialized () =
+  match !the_one_and_only_ref with
+  | Initialized _ -> true
+  | Not_ready_to_initialize | Ready_to_initialize _ -> false
+;;
+
 (* Handling the uncommon cases in this function allows [the_one_and_only] to be inlined.
    The presence of a string constant keeps this function from being inlined. *)
 let the_one_and_only_uncommon_case ~should_lock =

@@ -20,9 +20,10 @@ type env = Unix.env [@@deriving sexp]
     that runs the executable [prog] with [args] as arguments.
 
     This creates pipes to communicate with the child process's [stdin], [stdout], and
-    [stderr]. The caller is responsible for closing all these pipes. Reading from the
-    [stdout] and [stderr] readers until EOF will result in those pipes being closed but
-    you must explicitly call [Writer.close] on the [stdin] writer.
+    [stderr]. The caller is responsible for closing all these pipes. A lot of calls in the
+    [Reader] module will close the underlying fd (e.g. iterating on [Reader.pipe]). You
+    likely will have to explicitly call [Writer.close] on the [stdin] writer unless you
+    call [collect_output_and_wait].
 
     Unlike [exec], [args] should not include [prog] as the first argument.
 

@@ -18,6 +18,7 @@ end
 
 module Stable = struct
   open! Core.Core_stable
+  module Time = Time_unix.Stable
 
   module Level = struct
     module V1 = struct
@@ -271,7 +272,7 @@ module Level = struct
     | `Info
     | `Error
     ]
-  [@@deriving bin_io, compare, sexp]
+  [@@deriving bin_io, compare, enumerate, sexp]
 
   let to_string = function
     | `Debug -> "Debug"
@@ -285,8 +286,6 @@ module Level = struct
     | "Error" -> `Error
     | s -> failwithf "not a valid level %s" s ()
   ;;
-
-  let all = [ `Debug; `Info; `Error ]
 
   let arg =
     Command.Arg_type.of_alist_exn

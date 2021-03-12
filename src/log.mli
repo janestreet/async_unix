@@ -21,7 +21,7 @@ module Level : sig
     | `Info (** default level *)
     | `Error
     ]
-  [@@deriving bin_io, compare, sexp]
+  [@@deriving bin_io, compare, enumerate, sexp]
 
   include Stringable with type t := t
 

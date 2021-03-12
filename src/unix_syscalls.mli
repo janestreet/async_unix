@@ -679,7 +679,7 @@ module Error = Unix.Error
 exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
-  type t = Caml.Unix.terminal_io =
+  type t = Caml_unix.terminal_io =
     { mutable c_ignbrk : bool (** Ignore the break condition. *)
     ; mutable c_brkint : bool (** Signal interrupt on break condition. *)
     ; mutable c_ignpar : bool (** Ignore characters with parity errors. *)
@@ -724,7 +724,7 @@ module Terminal_io : sig
     ; mutable c_vstop : char (** Stop character (usually ctrl-S). *)
     }
 
-  type setattr_when = Caml.Unix.setattr_when =
+  type setattr_when = Caml_unix.setattr_when =
     | TCSANOW
     | TCSADRAIN
     | TCSAFLUSH
