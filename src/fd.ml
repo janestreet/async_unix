@@ -34,7 +34,7 @@ module Kind = struct
 end
 
 let to_string t = Sexp.to_string_hum (sexp_of_t t)
-let the_one_and_only () = Scheduler.the_one_and_only ~should_lock:true
+let the_one_and_only () = Scheduler.the_one_and_only ()
 
 let create ?avoid_nonblock_if_possible kind file_descr info =
   Scheduler.create_fd
@@ -182,7 +182,8 @@ let with_file_descr_deferred_exn t f =
 
 let start_watching t read_or_write watching =
   if debug
-  then Debug.log "Fd.start_watching" (t, read_or_write) [%sexp_of: t * Read_write.Key.t];
+  then
+    Debug.log "Fd.start_watching" (t, read_or_write) [%sexp_of: t * Read_write_pair.Key.t];
   let r = the_one_and_only () in
   match Scheduler.request_start_watching r t read_or_write watching with
   | (`Unsupported | `Already_closed | `Watching) as x -> x
@@ -218,7 +219,7 @@ let interruptible_ready_to t read_or_write ~interrupt =
     Debug.log
       "Fd.interruptible_ready_to"
       (t, read_or_write)
-      [%sexp_of: t * Read_write.Key.t];
+      [%sexp_of: t * Read_write_pair.Key.t];
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -231,7 +232,7 @@ let interruptible_ready_to t read_or_write ~interrupt =
 
 let ready_to t read_or_write =
   if debug
-  then Debug.log "Fd.ready_to" (t, read_or_write) [%sexp_of: t * Read_write.Key.t];
+  then Debug.log "Fd.ready_to" (t, read_or_write) [%sexp_of: t * Read_write_pair.Key.t];
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
@@ -248,7 +249,7 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
     Debug.log
       "Fd.interruptible_every_ready_to"
       (t, read_or_write)
-      [%sexp_of: t * Read_write.Key.t];
+      [%sexp_of: t * Read_write_pair.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
@@ -261,7 +262,8 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
 
 let every_ready_to t read_or_write f x =
   if debug
-  then Debug.log "Fd.every_ready_to" (t, read_or_write) [%sexp_of: t * Read_write.Key.t];
+  then
+    Debug.log "Fd.every_ready_to" (t, read_or_write) [%sexp_of: t * Read_write_pair.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
   let finished = Ivar.create () in
   match start_watching t read_or_write (Watch_repeatedly (job, finished)) with

@@ -1,7 +1,7 @@
 open Core
 open Import
 open File_descr_watcher_intf
-open Read_write.Export
+open Read_write_pair.Export
 module Epoll = Linux_ext.Epoll
 module Timerfd = Linux_ext.Timerfd
 

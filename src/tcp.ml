@@ -89,12 +89,26 @@ let connect_sock
       ?socket
       ?interrupt
       ?(timeout = sec 10.)
+      ?time_source
       (where_to_connect : _ Where_to_connect.t)
   =
+  let time_source =
+    match time_source with
+    | Some x -> Time_source.read_only x
+    | None -> Time_source.wall_clock ()
+  in
   where_to_connect.remote_address ()
   >>= fun address ->
-  let timeout = Clock.after timeout in
+  let timeout =
+    Time_source.Event.after time_source (Time_ns.Span.of_span_float_round_nearest timeout)
+  in
   let interrupt =
+    let timeout =
+      Time_source.Event.fired timeout
+      >>= function
+      | Aborted () -> Deferred.never ()
+      | Happened () -> Deferred.unit
+    in
     match interrupt with
     | None -> timeout
     | Some interrupt -> Deferred.any [ interrupt; timeout ]
@@ -112,13 +126,17 @@ let connect_sock
       | Some local_interface ->
         Socket.bind s local_interface >>= fun s -> connect_interruptible s)
     >>> function
-    | `Ok s -> Ivar.fill result s
+    | `Ok s ->
+      Time_source.Event.abort_if_possible timeout ();
+      Ivar.fill result s
     | `Interrupted ->
       don't_wait_for (Unix.close (Socket.fd s));
       let address = Socket.Address.to_string address in
-      if Option.is_some (Deferred.peek timeout)
-      then raise_s [%sexp "connection attempt timeout", (address : string)]
-      else raise_s [%sexp "connection attempt aborted", (address : string)])
+      (match Time_source.Event.abort timeout () with
+       | Previously_happened () ->
+         raise_s [%sexp "connection attempt timeout", (address : string)]
+       | Ok | Previously_aborted () ->
+         raise_s [%sexp "connection attempt aborted", (address : string)]))
 ;;
 
 type 'a with_connect_options =
@@ -127,6 +145,7 @@ type 'a with_connect_options =
   -> ?reader_buffer_size:int
   -> ?writer_buffer_size:int
   -> ?timeout:Time.Span.t
+  -> ?time_source:Time_source.t
   -> 'a
 
 let connect
@@ -136,9 +155,10 @@ let connect
       ?reader_buffer_size
       ?writer_buffer_size
       ?timeout
+      ?time_source
       where_to_connect
   =
-  connect_sock ?socket ?interrupt ?timeout where_to_connect
+  connect_sock ?socket ?interrupt ?timeout ?time_source where_to_connect
   >>| fun s ->
   let r, w =
     reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size s
@@ -164,7 +184,17 @@ let collect_errors writer f =
 ;;
 
 let close_connection_via_reader_and_writer r w =
-  Writer.close w ~force_close:(Clock.after (sec 30.)) >>= fun () -> Reader.close r
+  let force_close_event = Clock.Event.after (sec 30.) in
+  let force_close =
+    Clock.Event.fired force_close_event
+    >>= function
+    | Aborted () -> Deferred.never ()
+    | Happened () -> Deferred.unit
+  in
+  Writer.close w ~force_close
+  >>= fun () ->
+  Clock.Event.abort_if_possible force_close_event ();
+  Reader.close r
 ;;
 
 let with_connection
@@ -173,10 +203,11 @@ let with_connection
       ?reader_buffer_size
       ?writer_buffer_size
       ?timeout
+      ?time_source
       where_to_connect
       f
   =
-  connect_sock ?interrupt ?timeout where_to_connect
+  connect_sock ?interrupt ?timeout ?time_source where_to_connect
   >>= fun socket ->
   let r, w =
     reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size socket

@@ -169,7 +169,7 @@ let is_initialized () =
 
 (* Handling the uncommon cases in this function allows [the_one_and_only] to be inlined.
    The presence of a string constant keeps this function from being inlined. *)
-let the_one_and_only_uncommon_case ~should_lock =
+let the_one_and_only_uncommon_case () =
   Nano_mutex.critical_section mutex_for_initializing_the_one_and_only_ref ~f:(fun () ->
     match !the_one_and_only_ref with
     | Initialized t -> t
@@ -177,24 +177,20 @@ let the_one_and_only_uncommon_case ~should_lock =
       raise_s [%message "Async the_one_and_only not ready to initialize"]
     | Ready_to_initialize f ->
       let t = f () in
-      (* We supply [~should_lock:true] to lock the scheduler when the user does async
-         stuff at the top level before calling [Scheduler.go], because we don't want
-         anyone to be able to run jobs until [Scheduler.go] is called.  This could happen,
-         e.g. by creating a reader that does a read system call in another (true) thread.
-         The scheduler will remain locked until the scheduler unlocks it. *)
-      if should_lock then lock t;
       the_one_and_only_ref := Initialized t;
       t)
 ;;
 
-let the_one_and_only ~should_lock =
+let the_one_and_only () =
   match !the_one_and_only_ref with
   | Initialized t -> t
-  | Not_ready_to_initialize | Ready_to_initialize _ ->
-    the_one_and_only_uncommon_case ~should_lock
+  | Not_ready_to_initialize | Ready_to_initialize _ -> the_one_and_only_uncommon_case ()
 ;;
 
-let current_thread_id () = Core.Thread.(id (self ()))
+let current_thread_id () = Core_thread.(id (self ()))
+
+(* OCaml runtime happens to assign the thread id of [0] to the main thread
+   (the initial thread that starts the program). *)
 let is_main_thread () = current_thread_id () = 0
 let remove_fd t fd = Fd_by_descr.remove t.fd_by_descr fd
 
@@ -371,7 +367,7 @@ let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interru
 let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
 let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
-  Read_write.set fd.watching read_or_write desired;
+  Read_write_pair.set fd.watching read_or_write desired;
   if not fd.watching_has_changed
   then (
     fd.watching_has_changed <- true;
@@ -384,7 +380,7 @@ let request_start_watching t fd read_or_write watching =
     Debug.log
       "request_start_watching"
       (read_or_write, fd, t)
-      [%sexp_of: Read_write.Key.t * Fd.t * t];
+      [%sexp_of: Read_write_pair.Key.t * Fd.t * t];
   if
     not fd.supports_nonblock
     (* Some versions of epoll complain if one asks it to monitor a file descriptor that
@@ -393,7 +389,7 @@ let request_start_watching t fd read_or_write watching =
   then `Unsupported
   else (
     let result =
-      match Read_write.get fd.watching read_or_write with
+      match Read_write_pair.get fd.watching read_or_write with
       | Watch_once _ | Watch_repeatedly _ -> `Already_watching
       | Stop_requested ->
         (* We don't [inc_num_active_syscalls] in this case, because we already did when we
@@ -422,8 +418,8 @@ let request_stop_watching t fd read_or_write value =
     Debug.log
       "request_stop_watching"
       (read_or_write, value, fd, t)
-      [%sexp_of: Read_write.Key.t * Fd.ready_to_result * Fd.t * t];
-  match Read_write.get fd.watching read_or_write with
+      [%sexp_of: Read_write_pair.Key.t * Fd.ready_to_result * Fd.t * t];
+  match Read_write_pair.get fd.watching read_or_write with
   | Stop_requested | Not_watching -> ()
   | Watch_once ready_to ->
     Ivar.fill ready_to value;
@@ -470,6 +466,7 @@ let post_check_handle_fd t file_descr read_or_write value =
 ;;
 
 let create
+      ~mutex
       ?(thread_pool_cpu_affinity = Config.thread_pool_cpu_affinity)
       ?(file_descr_watcher = Config.file_descr_watcher)
       ?(max_num_open_file_descrs = Config.max_num_open_file_descrs)
@@ -548,7 +545,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
   in
   let kernel_scheduler = Kernel_scheduler.t () in
   let t =
-    { mutex = Nano_mutex.create ()
+    { mutex
     ; is_running = false
     ; have_called_go = false
     ; fds_whose_watching_has_changed = Stack.create ()
@@ -578,10 +575,23 @@ Async will be unable to timeout with sub-millisecond precision.|}]
   t
 ;;
 
-let init () = the_one_and_only_ref := Ready_to_initialize (fun () -> create ())
-let () = init ()
+let init ~take_the_lock =
+  let mutex = Nano_mutex.create () in
+  if take_the_lock
+  then
+    (* We create a mutex that's initially locked by the main thread to support the
+       case when the user does async stuff at the top level before calling
+       [Scheduler.go].  This lock makes sure that async jobs don't run until
+       [Scheduler.go] is called.  That could happen, e.g. by creating a reader that
+       does a read system call in another (true) thread.  The scheduler remains
+       locked until the scheduler unlocks it. *)
+    Nano_mutex.lock_exn mutex;
+  the_one_and_only_ref := Ready_to_initialize (fun () -> create ~mutex ())
+;;
 
-let reset_in_forked_process () =
+let () = init ~take_the_lock:true
+
+let reset_in_forked_process ~take_the_lock =
   (match !the_one_and_only_ref with
    | Not_ready_to_initialize | Ready_to_initialize _ -> ()
    | Initialized { file_descr_watcher; timerfd; _ } ->
@@ -591,8 +601,14 @@ let reset_in_forked_process () =
       | None -> ()
       | Some tfd -> Unix.close (tfd :> Unix.File_descr.t)));
   Kernel_scheduler.reset_in_forked_process ();
-  init ()
+  init ~take_the_lock
 ;;
+
+let reset_in_forked_process_without_taking_lock () =
+  reset_in_forked_process ~take_the_lock:false
+;;
+
+let reset_in_forked_process () = reset_in_forked_process ~take_the_lock:true
 
 (* [thread_safe_reset] shuts down Async, exiting the scheduler thread, freeing up all
    Async resources (file descriptors, threads), and resetting Async global state, so that
@@ -647,14 +663,14 @@ let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
   Debug.log
     "File_descr_watcher.set"
     (file_descr, desired, F.watcher)
-    [%sexp_of: File_descr.t * bool Read_write.t * F.t]
+    [%sexp_of: File_descr.t * bool Read_write_pair.t * F.t]
 ;;
 
 let[@cold] sync_changed_fd_failed t fd desired exn =
   raise_s
     [%message
       "sync_changed_fds_to_file_descr_watcher unable to set fd"
-        (desired : bool Read_write.t)
+        (desired : bool Read_write_pair.t)
         (fd : Fd.t)
         (exn : exn)
         ~scheduler:(t : t)]
@@ -670,7 +686,7 @@ let sync_changed_fds_to_file_descr_watcher t =
       let fd = Stack.pop_exn t.fds_whose_watching_has_changed in
       fd.watching_has_changed <- false;
       let desired =
-        Read_write.map fd.watching ~f:(fun watching ->
+        Read_write_pair.map fd.watching ~f:(fun watching ->
           match watching with
           | Watch_once _ | Watch_repeatedly _ -> true
           | Not_watching | Stop_requested -> false)
@@ -682,11 +698,11 @@ let sync_changed_fds_to_file_descr_watcher t =
       (* We modify Async's data structures after calling [F.set], so that
          the error message produced by [sync_changed_fd_failed] displays
          them as they were before the call. *)
-      Read_write.iteri fd.watching ~f:(fun read_or_write watching ->
+      Read_write_pair.iteri fd.watching ~f:(fun read_or_write watching ->
         match watching with
         | Watch_once _ | Watch_repeatedly _ | Not_watching -> ()
         | Stop_requested ->
-          Read_write.set fd.watching read_or_write Not_watching;
+          Read_write_pair.set fd.watching read_or_write Not_watching;
           dec_num_active_syscalls_fd t fd)
     done
 ;;
@@ -925,10 +941,10 @@ let set_task_id () =
 let go ?raise_unhandled_exn () =
   if debug then Debug.log_string "Scheduler.go";
   set_task_id ();
-  let t = the_one_and_only ~should_lock:false in
-  (* [go] is called from the main thread and so must acquire the lock if the thread has
-     not already done so implicitly via use of an async operation that uses
-     [the_one_and_only]. *)
+  let t = the_one_and_only () in
+  (* [go] can be called from a thread other than the main thread, for example in programs
+     that reset scheduler after fork, so in some cases it must acquire the lock if
+     the thread has not already done so. *)
   if not (am_holding_lock t) then lock t;
   if t.have_called_go then raise_s [%message "cannot Scheduler.go more than once"];
   t.have_called_go <- true;
@@ -964,18 +980,18 @@ let go_main
     Option.map max_num_open_file_descrs ~f:Max_num_open_file_descrs.create_exn
   in
   let max_num_threads = Option.map max_num_threads ~f:Max_num_threads.create_exn in
+  let mutex = Nano_mutex.create () in
+  Nano_mutex.lock_exn mutex;
   the_one_and_only_ref
   := Ready_to_initialize
        (fun () ->
-          create ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
+          create ~mutex ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
   Deferred.upon (return ()) main;
   go ?raise_unhandled_exn ()
 ;;
 
 let is_running () =
-  if is_ready_to_initialize ()
-  then false
-  else (the_one_and_only ~should_lock:false).is_running
+  if is_ready_to_initialize () then false else (the_one_and_only ()).is_running
 ;;
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
@@ -991,17 +1007,17 @@ let report_long_cycle_times ?(cutoff = sec 1.) () =
 let set_check_invariants bool = Kernel_scheduler.(set_check_invariants (t ()) bool)
 
 let set_detect_invalid_access_from_thread bool =
-  update_check_access (the_one_and_only ~should_lock:false) bool
+  update_check_access (the_one_and_only ()) bool
 ;;
 
 let set_max_inter_cycle_timeout span =
-  (the_one_and_only ~should_lock:false).max_inter_cycle_timeout
+  (the_one_and_only ()).max_inter_cycle_timeout
   <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span_float_round_nearest span)
 ;;
 
 type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 
-let t () = the_one_and_only ~should_lock:true
+let t () = the_one_and_only ()
 
 let fold_fields (type a) ~init folder : a =
   let t = t () in

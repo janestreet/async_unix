@@ -210,6 +210,7 @@ module Output : sig
   val rotating_file
     :  ?perm:Unix.file_perm
     -> ?time_source:Synchronous_time_source.t
+    -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -220,6 +221,7 @@ module Output : sig
   val rotating_file_with_tail
     :  ?perm:Unix.file_perm
     -> ?time_source:Synchronous_time_source.t
+    -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -407,6 +409,17 @@ module type Global_intf = sig
     -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
     -> 'a
+
+  module For_testing : sig
+    (** Change the output of the global log so that it only prints the bodies of messages
+        to stdout, discarding any information about tags, levels, or timestamps.
+        [map_output] can be used to transform messages before they make it to stdout; by
+        default it is [Fn.id].
+
+        This is equivalent to:
+        [Log.Global.set_output [ Log.For_testing.create_output ~map_output ]] *)
+    val use_test_output : ?map_output:(string -> string) -> unit -> unit
+  end
 end
 
 (** This functor can be called to generate "singleton" logging modules. *)

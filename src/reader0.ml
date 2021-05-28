@@ -151,7 +151,7 @@ module Internal = struct
     in
     let open_flags =
       Fd.syscall_in_thread fd ~name:"fcntl_getfl" (fun file_descr ->
-        Core.Unix.fcntl_getfl file_descr)
+        Core_unix.fcntl_getfl file_descr)
     in
     { fd
     ; id = Id.create ()

@@ -41,6 +41,7 @@ type 'a with_connect_options =
   -> ?reader_buffer_size:int
   -> ?writer_buffer_size:int
   -> ?timeout:Time.Span.t
+  -> ?time_source:Time_source.t (** default is [Time_source.wall_clock ()] *)
   -> 'a
 
 
@@ -71,6 +72,7 @@ val connect_sock
   :  ?socket:([ `Unconnected ], 'addr) Socket.t
   -> ?interrupt:unit Deferred.t
   -> ?timeout:Time.Span.t
+  -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> 'addr Where_to_connect.t
   -> ([ `Active ], 'addr) Socket.t Deferred.t
 

@@ -68,14 +68,19 @@ let block_on_async t f =
     let scheduler_ran_a_job = Thread_safe_ivar.create () in
     upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
     ignore
-      (Core.Thread.create
+      (Core_thread.create
          ~on_uncaught_exn:`Print_to_stderr
          (fun () ->
             Exn.handle_uncaught ~exit:true (fun () ->
+              let () =
+                match Linux_ext.pr_set_name_first16 with
+                | Ok f -> f "async-scheduler"
+                | Error _ -> ()
+              in
               lock t;
               never_returns (be_the_scheduler t)))
          ()
-       : Core.Thread.t);
+       : Core_thread.t);
     (* Block until the scheduler has run the above job. *)
     Thread_safe_ivar.read scheduler_ran_a_job);
   let maybe_blocked =
@@ -171,7 +176,7 @@ let deferred t =
   Ivar.read ivar, fill
 ;;
 
-let t () = the_one_and_only ~should_lock:false
+let t () = the_one_and_only ()
 let am_holding_async_lock () = am_holding_lock (t ())
 let deferred () = deferred (t ())
 

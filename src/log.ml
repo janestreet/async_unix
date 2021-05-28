@@ -550,6 +550,7 @@ module Output : sig
   val rotating_file
     :  ?perm:Unix.file_perm
     -> ?time_source:Synchronous_time_source.t
+    -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -558,6 +559,7 @@ module Output : sig
   val rotating_file_with_tail
     :  ?perm:Unix.file_perm
     -> ?time_source:Synchronous_time_source.t
+    -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
     -> Rotation.t
@@ -565,6 +567,10 @@ module Output : sig
 
   val filter_to_level : t -> level:Level.t -> t
   val combine : t list -> t
+
+  module For_testing : sig
+    val create : map_output:(string -> string) -> t
+  end
 end = struct
   module Format = struct
     type machine_readable =
@@ -740,6 +746,7 @@ end = struct
       -> Format.t
       -> basename:string
       -> Rotation.t
+      -> log_on_rotation:(unit -> Message.t list) option
       -> t * string Tail.t
   end = struct
     module Make (Id : Rotation.Id_intf) = struct
@@ -817,6 +824,7 @@ end = struct
         ; mutable last_size : int
         ; mutable last_time : Time.t
         ; log_files : string Tail.t
+        ; log_on_rotation : unit -> Message.t list
         ; perm : int option
         }
       [@@deriving sexp_of]
@@ -871,17 +879,27 @@ end = struct
             ~last_size:(Byte_units.of_bytes_int t.last_size)
             ~last_time:t.last_time
             ~current_time
-         then rotate ~time_source t
-         else return ())
-        >>= fun () ->
+         then
+           rotate ~time_source t
+           >>= fun () ->
+           let msgs = t.log_on_rotation () |> Queue.of_list in
+           let rotation_msgs = Queue.length msgs in
+           write' (Lazy.force t.writer) t.format msgs >>| fun size -> rotation_msgs, size
+         else return (0, Int63.zero))
+        >>= fun (rotation_msgs, on_rotation_log_size) ->
         write' (Lazy.force t.writer) t.format msgs
         >>| fun size ->
-        t.last_messages <- t.last_messages + Queue.length msgs;
-        t.last_size <- Int63.to_int_exn size;
+        t.last_messages <- t.last_messages + rotation_msgs + Queue.length msgs;
+        t.last_size <- Int63.to_int_exn size + Int63.to_int_exn on_rotation_log_size;
         t.last_time <- current_time
       ;;
 
-      let create ?perm ?time_source format ~basename rotation =
+      let create ?perm ?time_source ~log_on_rotation format ~basename rotation =
+        let log_on_rotation =
+          match log_on_rotation with
+          | None -> Fn.const []
+          | Some f -> f
+        in
         let basename, dirname =
           (* make dirname absolute, because cwd may change *)
           match Filename.is_absolute basename with
@@ -908,6 +926,7 @@ end = struct
           ; last_messages = 0
           ; last_time = now ~time_source
           ; log_files
+          ; log_on_rotation
           ; perm
           }
         in
@@ -1003,11 +1022,22 @@ end = struct
     ;;
   end
 
-  let rotating_file ?perm ?time_source format ~basename rotation =
-    fst (Rotating_file.create format ~basename rotation ?perm ?time_source)
+  let rotating_file ?perm ?time_source ?log_on_rotation format ~basename rotation =
+    fst
+      (Rotating_file.create format ~basename ~log_on_rotation rotation ?perm ?time_source)
   ;;
 
-  let rotating_file_with_tail = Rotating_file.create
+  let rotating_file_with_tail
+        ?perm
+        ?time_source
+        ?log_on_rotation
+        format
+        ~basename
+        rotation
+    =
+    Rotating_file.create format ~basename ~log_on_rotation rotation ?perm ?time_source
+  ;;
+
   let file = File.create
   let writer = Log_writer.create
 
@@ -1024,6 +1054,17 @@ end = struct
     in
     fun ?(format = `Text) () -> make format
   ;;
+
+  module For_testing = struct
+    let create ~map_output =
+      let stdout = force Writer.stdout in
+      let we_flush_after_each_message_is_processed () = Deferred.unit in
+      create ~flush:we_flush_after_each_message_is_processed (fun queue ->
+        Queue.iter queue ~f:(fun message ->
+          map_output (Message.message message) |> print_endline);
+        Writer.flushed stdout)
+    ;;
+  end
 end
 
 (* A log is a pipe that can take one of four messages.
@@ -1085,7 +1126,7 @@ let push_update t update =
 ;;
 
 let flushed t = Deferred.create (fun i -> push_update t (Flush i))
-let rotate t = Deferred.create (fun i -> push_update t (Rotate i))
+let rotate t = Deferred.create (fun rotated -> push_update t (Rotate rotated))
 let is_closed t = Pipe.is_closed t.updates
 
 module Flush_at_exit_or_gc : sig
@@ -1508,6 +1549,10 @@ module type Global_intf = sig
     -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
     -> 'a
+
+  module For_testing : sig
+    val use_test_output : ?map_output:(string -> string) -> unit -> unit
+  end
 end
 
 module Make_global () : Global_intf = struct
@@ -1569,6 +1614,12 @@ module Make_global () : Global_intf = struct
 
   let surroundf ?level ?time ?tags fmt = surroundf ?level ?time ?tags (Lazy.force log) fmt
   let set_level_via_param () = set_level_via_param_lazy log
+
+  module For_testing = struct
+    let use_test_output ?(map_output = Fn.id) () =
+      set_output [ Output.For_testing.create ~map_output ]
+    ;;
+  end
 end
 
 module Blocking : sig
@@ -1770,14 +1821,7 @@ module Reader = struct
 end
 
 module For_testing = struct
-  let create_output ~map_output =
-    let stdout = force Writer.stdout in
-    let we_flush_after_each_message_is_processed () = Deferred.unit in
-    Output.create ~flush:we_flush_after_each_message_is_processed (fun queue ->
-      Queue.iter queue ~f:(fun message ->
-        map_output (Message.message message) |> print_endline);
-      Writer.flushed stdout)
-  ;;
+  let create_output = Output.For_testing.create
 
   let create ~map_output level =
     let output = [ create_output ~map_output ] in

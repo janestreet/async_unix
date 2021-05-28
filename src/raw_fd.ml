@@ -105,7 +105,7 @@ module T = struct
          which we must do before making any system calls that we expect to not block. *)
       mutable have_set_nonblock : bool
     ; mutable state : State.t
-    ; watching : Watching.t Read_write.Mutable.t
+    ; watching : Watching.t Read_write_pair.Mutable.t
     ; (* [watching_has_changed] is true if [watching] has changed since the last time
          [watching] was synchronized with the file_descr_watcher.  In this case, the
          fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
@@ -155,13 +155,14 @@ let invariant t : unit =
         (check (fun have_set_nonblock ->
            if not t.supports_nonblock then assert (not have_set_nonblock)))
       ~state:ignore
-      ~watching:(check (fun watching -> Read_write.iter watching ~f:Watching.invariant))
+      ~watching:
+        (check (fun watching -> Read_write_pair.iter watching ~f:Watching.invariant))
       ~watching_has_changed:ignore
       ~num_active_syscalls:
         (check (fun num_active_syscalls ->
            assert (t.num_active_syscalls >= 0);
            let watching read_or_write =
-             match Read_write.get t.watching read_or_write with
+             match Read_write_pair.get t.watching read_or_write with
              | Not_watching -> 0
              | Stop_requested | Watch_once _ | Watch_repeatedly _ -> 1
            in
@@ -219,7 +220,7 @@ let create ?(avoid_nonblock_if_possible = false) (kind : Kind.t) file_descr info
     ; supports_nonblock
     ; have_set_nonblock = false
     ; state = State.Open (Ivar.create ())
-    ; watching = Read_write.create_both Watching.Not_watching
+    ; watching = Read_write_pair.create_both Watching.Not_watching
     ; watching_has_changed = false
     ; num_active_syscalls = 0
     ; close_finished = Ivar.create ()

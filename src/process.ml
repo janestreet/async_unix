@@ -42,7 +42,7 @@ let create
   =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
-      Core.Unix.create_process_env
+      Core_unix.create_process_env
         ~prog
         ~args
         ~env
@@ -306,7 +306,7 @@ let send_signal_compat t signal =
     (* The process was reaped, so it's not safe to send signals to this pid. *)
     `No_such_process
   else (
-    match Signal.send signal (`Pid t.pid) with
+    match Signal_unix.send signal (`Pid t.pid) with
     | `No_such_process ->
       (* Normally this should not be reachable: even for a zombie process (a process that
          has already been terminated, but wasn't waited for), the [kill] system call

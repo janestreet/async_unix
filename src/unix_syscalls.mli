@@ -51,7 +51,12 @@ type open_flag =
 
 type file_perm = int
 
-val openfile : ?perm:file_perm -> string -> mode:open_flag list -> Fd.t Deferred.t
+val openfile
+  :  ?info:Info.t
+  -> ?perm:file_perm
+  -> string
+  -> mode:open_flag list
+  -> Fd.t Deferred.t
 
 module Lock_mode : sig
   type t =
@@ -100,7 +105,7 @@ val with_file
 module Open_flags = Unix.Open_flags
 
 (** [fcntl_getfl] and [fcntl_setf] are deferred wrappers around the corresponding
-    functions in [Core.Unix] for accessing the open-file-descriptor table. *)
+    functions in [Core_unix] for accessing the open-file-descriptor table. *)
 val fcntl_getfl : Fd.t -> Open_flags.t Deferred.t
 
 val fcntl_setfl : Fd.t -> Open_flags.t -> unit Deferred.t
@@ -175,7 +180,7 @@ module File_kind : sig
 
   include Comparable.S with type t := t
 
-  val of_unix : Core.Unix.file_kind -> t
+  val of_unix : Core_unix.file_kind -> t
 end
 
 module Stats : sig
@@ -195,7 +200,7 @@ module Stats : sig
     }
   [@@deriving fields, sexp, bin_io, compare]
 
-  val of_unix : Core.Unix.stats -> t
+  val of_unix : Core_unix.stats -> t
   val to_string : t -> string
 end
 
@@ -357,7 +362,7 @@ module Inet_addr : sig
   val of_string_or_getbyname : string -> t Deferred.t
 end
 
-module Cidr = Core.Unix.Cidr
+module Cidr = Core_unix.Cidr
 
 module Protocol_family : sig
   type t = Unix.Protocol_family.t
@@ -372,7 +377,7 @@ module Socket : sig
 
       val create : string -> t
       val to_string : t -> string
-      val to_sockaddr : t -> Core.Unix.sockaddr
+      val to_sockaddr : t -> Core_unix.sockaddr
     end
 
     module Inet : sig
@@ -398,7 +403,7 @@ module Socket : sig
       val port : t -> int
       val to_string : t -> string
       val to_host_and_port : t -> Host_and_port.t
-      val to_sockaddr : t -> Core.Unix.sockaddr
+      val to_sockaddr : t -> Core_unix.sockaddr
     end
 
     type t =
@@ -413,7 +418,7 @@ module Socket : sig
     end
 
     val to_string : [< t ] -> string
-    val to_sockaddr : [< t ] -> Core.Unix.sockaddr
+    val to_sockaddr : [< t ] -> Core_unix.sockaddr
   end
 
   module Family : sig
@@ -735,7 +740,7 @@ end
 
 (** Structure of entries in the [passwd] database. *)
 module Passwd : sig
-  type t = Core.Unix.Passwd.t =
+  type t = Core_unix.Passwd.t =
     { name : string
     ; passwd : string
     ; uid : int
@@ -754,7 +759,7 @@ end
 
 (** Structure of entries in the [groups] database. *)
 module Group : sig
-  type t = Core.Unix.Group.t =
+  type t = Core_unix.Group.t =
     { name : string
     ; passwd : string
     ; gid : int
@@ -768,7 +773,7 @@ module Group : sig
   val getbygid_exn : int -> t Deferred.t
 end
 
-module Ifaddr = Core.Unix.Ifaddr
+module Ifaddr = Core_unix.Ifaddr
 
 (** Gets the information using the socket-based netlink interface, which can block; see
     https://www.infradead.org/~tgr/libnl/doc/core.html. *)

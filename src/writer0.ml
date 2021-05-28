@@ -1,9 +1,8 @@
 open Core
 open Import
 open Require_explicit_time_source
-module Core_unix = Core.Unix
 module Unix = Unix_syscalls
-module IOVec = Core.Unix.IOVec
+module IOVec = Core_unix.IOVec
 module Id = Unique_id.Int63 ()
 
 let io_stats = Io_stats.create ()
@@ -862,7 +861,7 @@ let create
          [%message
            "Writer error from inner_monitor"
              ~_:(Monitor.extract_exn exn : Exn.t)
-             ~writer:(t : t_internals)]));
+             ~writer:(t : t)]));
   t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
   t
@@ -886,6 +885,7 @@ let ensure_can_write t =
 ;;
 
 let open_file
+      ?info
       ?(append = false)
       ?buf_len
       ?syscall
@@ -898,7 +898,8 @@ let open_file
      a file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
-  Unix.openfile file ~mode ~perm >>| create ?buf_len ?syscall ?line_ending ?time_source
+  Unix.openfile ?info file ~mode ~perm
+  >>| create ?buf_len ?syscall ?line_ending ?time_source
 ;;
 
 let with_close t ~f =
@@ -1613,6 +1614,8 @@ let newline ?line_ending t =
   newline ?line_ending t
 ;;
 
+let stdout_and_stderr_behave_nicely_in_pipeline = ref ignore
+
 let stdout_and_stderr =
   lazy
     (* We [create] the writers inside [Monitor.main] so that it is their monitors'
@@ -1623,7 +1626,7 @@ let stdout_and_stderr =
          let stderr = Fd.stderr () in
          let t = create stdout in
          let dev_and_ino fd =
-           let stats = Core.Unix.fstat (Fd.file_descr_exn fd) in
+           let stats = Core_unix.fstat (Fd.file_descr_exn fd) in
            stats.st_dev, stats.st_ino
          in
          match am_test_runner with
@@ -1635,12 +1638,17 @@ let stdout_and_stderr =
              (Backing_out_channel.of_out_channel Out_channel.stdout);
            t, t
          | false ->
-           if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-           then
-             (* If stdout and stderr point to the same file, we must share a single writer
-                between them.  See the comment in writer.mli for details. *)
-             t, t
-           else t, create stderr)
+           let stdout, stderr =
+             if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+             then
+               (* If stdout and stderr point to the same file, we must share a single writer
+                  between them.  See the comment in writer.mli for details. *)
+               t, t
+             else t, create stderr
+           in
+           !stdout_and_stderr_behave_nicely_in_pipeline stdout;
+           !stdout_and_stderr_behave_nicely_in_pipeline stderr;
+           stdout, stderr)
      with
      | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
      | Some v -> v)
@@ -1672,7 +1680,7 @@ let%expect_test "stdout and stderr are always the same in tests" =
   [%expect {| ("Lazy.is_val stdout" false) |}];
   print_s [%message (Lazy.is_val stderr : bool)];
   [%expect {| ("Lazy.is_val stderr" false) |}];
-  let module U = Core.Unix in
+  let module U = Core_unix in
   let saved_stderr = U.dup U.stderr in
   (* Make sure fd 1 and 2 have different inodes at the point that we force them. *)
   let pipe_r, pipe_w = U.pipe () in
@@ -1687,30 +1695,58 @@ let%expect_test "stdout and stderr are always the same in tests" =
   [%expect {| ("phys_equal stdout stderr" true) |}]
 ;;
 
-let behave_nicely_in_pipeline ?writers () =
-  let writers =
-    match writers with
-    | Some z -> z
-    | None -> List.map [ stdout; stderr ] ~f:force
-  in
-  List.iter writers ~f:(fun writer ->
-    set_buffer_age_limit writer `Unlimited;
-    set_raise_when_consumer_leaves writer false;
-    don't_wait_for
-      (let%map () = consumer_left writer in
-       Shutdown.shutdown 0))
+let make_writer_behave_nicely_in_pipeline writer =
+  set_buffer_age_limit writer `Unlimited;
+  set_raise_when_consumer_leaves writer false;
+  don't_wait_for
+    (let%map () = consumer_left writer in
+     Shutdown.shutdown 0)
 ;;
 
-let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source file ~f =
+let behave_nicely_in_pipeline ?writers () =
+  match writers with
+  | Some l -> List.iter l ~f:make_writer_behave_nicely_in_pipeline
+  | None ->
+    if Lazy.is_val stdout_and_stderr
+    then (
+      let stdout, stderr = force stdout_and_stderr in
+      List.iter [ stdout; stderr ] ~f:make_writer_behave_nicely_in_pipeline)
+    else
+      (* Forcing the lazy would initialize the scheduler, which would make calls to
+         Scheduler.go_main raise. Avoid that, so users can call this function without
+         having to think about this kind of implication. *)
+      stdout_and_stderr_behave_nicely_in_pipeline := make_writer_behave_nicely_in_pipeline
+;;
+
+let with_file_atomic
+      ?temp_file
+      ?perm
+      ?fsync:(do_fsync = false)
+      ?(replace_special = false)
+      ?time_source
+      file
+      ~f
+  =
   let%bind current_file_permissions =
-    match%map
-      Monitor.try_with
-        ~run:
-          `Schedule
-        ~rest:`Log
-        (fun () -> Unix.stat file)
-    with
-    | Ok stats -> Some stats.perm
+    match%map Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.stat file) with
+    | Ok stats ->
+      (match stats.kind with
+       | `File -> Some stats.perm
+       | `Directory ->
+         raise_s
+           [%message
+             "Writer.with_file_atomic: not replacing a directory" ~_:(file : string)]
+       | `Char | `Block | `Fifo | `Socket ->
+         (match replace_special with
+          | true -> Some stats.perm
+          | false ->
+            raise_s
+              [%message
+                "Writer.with_file_atomic: not replacing special file" ~_:(file : string)])
+       | `Link ->
+         (* [Unix.stat] resolves the symlinks already.
+            Unfortunately, this means we won't be able to replace a "broken" symlink. *)
+         assert false)
     | Error _ -> None
   in
   let initial_permissions =
@@ -1727,7 +1763,7 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
       let dir = Filename.dirname temp_file in
       let prefix = Filename.basename temp_file in
       In_thread.run (fun () ->
-        Core.Filename.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
+        Filename_unix.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
     in
     temp_file, Fd.create File fd (Info.of_string temp_file)
   in
@@ -1755,11 +1791,8 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
       result)
   in
   match%bind
-    Monitor.try_with
-      ~run:
-        `Schedule
-      ~rest:`Log
-      (fun () -> Unix.rename ~src:temp_file ~dst:file)
+    Monitor.try_with ~run:`Now ~rest:`Raise (fun () ->
+      Unix.rename ~src:temp_file ~dst:file)
   with
   | Ok () -> return result
   | Error exn ->
@@ -1769,50 +1802,55 @@ let with_file_atomic ?temp_file ?perm ?fsync:(do_fsync = false) ?time_source fil
           "Writer.with_file_atomic could not create file" (file : string) ~_:(v : v)]
     in
     (match%map
-       Monitor.try_with
-         ~run:
-           `Schedule
-         ~rest:`Log
-         (fun () -> Unix.unlink temp_file)
+       Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.unlink temp_file)
      with
      | Ok () -> fail exn [%sexp_of: exn]
      | Error exn2 ->
        fail (exn, `Cleanup_failed exn2) [%sexp_of: exn * [ `Cleanup_failed of exn ]])
 ;;
 
-let save ?temp_file ?perm ?fsync file ~contents =
-  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+let save ?temp_file ?perm ?fsync ?replace_special file ~contents =
+  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     write t contents;
     return ())
 ;;
 
-let save_lines ?temp_file ?perm ?fsync file lines =
-  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+let save_lines ?temp_file ?perm ?fsync ?replace_special file lines =
+  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     List.iter lines ~f:(fun line ->
       write t line;
       newline t);
     return ())
 ;;
 
-let save_sexp ?temp_file ?perm ?fsync ?(hum = true) file sexp =
-  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+let save_sexp ?temp_file ?perm ?fsync ?replace_special ?(hum = true) file sexp =
+  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     write_sexp_internal t sexp ~hum ~terminate_with:Newline;
     return ())
 ;;
 
-let save_sexps_conv ?temp_file ?perm ?fsync ?(hum = true) file xs sexp_of_x =
-  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+let save_sexps_conv
+      ?temp_file
+      ?perm
+      ?fsync
+      ?replace_special
+      ?(hum = true)
+      file
+      xs
+      sexp_of_x
+  =
+  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     List.iter xs ~f:(fun x ->
       write_sexp_internal t (sexp_of_x x) ~hum ~terminate_with:Newline);
     return ())
 ;;
 
-let save_sexps ?temp_file ?perm ?fsync ?hum file sexps =
-  save_sexps_conv ?temp_file ?perm ?fsync ?hum file sexps Fn.id
+let save_sexps ?temp_file ?perm ?fsync ?replace_special ?hum file sexps =
+  save_sexps_conv ?temp_file ?perm ?fsync ?replace_special ?hum file sexps Fn.id
 ;;
 
-let save_bin_prot ?temp_file ?perm ?fsync file bin_writer a =
-  with_file_atomic ?temp_file ?perm ?fsync file ~f:(fun t ->
+let save_bin_prot ?temp_file ?perm ?fsync ?replace_special file bin_writer a =
+  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     write_bin_prot t bin_writer a;
     return ())
 ;;

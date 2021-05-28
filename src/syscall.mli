@@ -1,6 +1,7 @@
 (** Automatically retrying system calls that may be interrupted with EINTR. *)
 
 open! Core
+open! Import
 module Syscall_result = Unix.Syscall_result
 
 (** [syscall f] repeatedly calls [f] until it returns or raises an exception that

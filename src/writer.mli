@@ -133,7 +133,8 @@ val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
     [Unix_syscalls.openfile] to open the file. *)
 val open_file
-  :  ?append:bool (** default is [false], meaning truncate instead *)
+  :  ?info:Info.t (** for errors. Defaults to the file path. *)
+  -> ?append:bool (** default is [false], meaning truncate instead *)
   -> ?buf_len:int
   -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
   -> ?perm:int (** default is [0o666] *)
@@ -522,19 +523,27 @@ val bytes_written : t -> Int63.t
 val bytes_received : t -> Int63.t
 
 
-(** [with_file_atomic ?temp_file ?perm ?fsync file ~f] creates a writer to a temp file,
-    feeds that writer to [f], and when the result of [f] becomes determined, atomically
-    moves (using [Unix.rename]) the temp file to [file].  If [file] currently exists, it
-    will be replaced, even if it is read-only.  The temp file will be [file] (or
-    [temp_file] if supplied) suffixed by a unique random sequence of six characters.  The
-    temp file may need to be removed in case of a crash so it may be prudent to choose a
-    temp file that can be easily found by cleanup tools.
+(** [with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f] creates a writer
+    to a temp file, feeds that writer to [f], and when the result of [f] becomes
+    determined, atomically moves (using [Unix.rename]) the temp file to [file].  If
+    [file] currently exists and is a regular file (see below regarding [replace_special])
+    it will be replaced, even if it is read-only.  The temp file will be [file] (or
+    [temp_file] if supplied) suffixed by a unique random sequence of six characters.
+    The temp file may need to be removed in case of a crash so it may be prudent to
+    choose a temp file that can be easily found by cleanup tools.
 
     If [fsync] is [true], the temp file will be flushed to disk before it takes the place
     of the target file, thus guaranteeing that the target file will always be in a sound
     state, even after a machine crash.  Since synchronization is extremely slow, this is
     not the default.  Think carefully about the event of machine crashes and whether you
     may need this option!
+
+    If [replace_special] is [false] (the default) an existing special [file] (block or
+    character device, socket or FIFO) will not be replaced by a regular file, the
+    temporary file is not created and an exception is raised.  To explicitly replace an
+    existing special [file], [replace_special] must be passed as [true].  Note that
+    if [file] exists and is a directory, the rename will fail;  if [file] exists and is
+    a symbolic link, the link will be replaced, not the target (as per [Unix.rename]).
 
     We intend for [with_file_atomic] to mimic the behavior of the [open] system call, so
     if [file] does not exist, we will apply the current umask to [perm] (the effective
@@ -552,6 +561,7 @@ val with_file_atomic
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> string
   -> f:(t -> 'a Deferred.t)
@@ -563,6 +573,7 @@ val save
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> string
   -> contents:string
   -> unit Deferred.t
@@ -573,6 +584,7 @@ val save_lines
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> string
   -> string list
   -> unit Deferred.t
@@ -588,6 +600,7 @@ val save_sexp
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t
@@ -600,6 +613,7 @@ val save_sexps
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> ?hum:bool (** default is [true] *)
   -> string
   -> Sexp.t list
@@ -611,7 +625,8 @@ val save_sexps
 val save_sexps_conv
   :  ?temp_file:string
   -> ?perm:int
-  -> ?fsync:bool
+  -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> ?hum:bool
   -> string
   -> 'a list
@@ -626,6 +641,7 @@ val save_bin_prot
   :  ?temp_file:string
   -> ?perm:Unix.file_perm
   -> ?fsync:bool (** default is [false] *)
+  -> ?replace_special:bool (** default is [false] *)
   -> string
   -> 'a Bin_prot.Type_class.writer
   -> 'a
@@ -684,7 +700,10 @@ val of_pipe
 (** [behave_nicely_in_pipeline ~writers ()] causes the program to silently exit with
     status 0 if any of the consumers of [writers] go away.  It also sets the buffer age to
     unlimited, in case there is a human (e.g., using [less]) on the other side of the
-    pipeline. *)
+    pipeline.
+
+    This can be called at the toplevel of a program, before [Command.run] for instance.
+    (this function doesn't start the async scheduler). *)
 val behave_nicely_in_pipeline
   :  ?writers:t list (** defaults to [stdout; stderr] *)
   -> unit

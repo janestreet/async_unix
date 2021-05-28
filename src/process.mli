@@ -1,6 +1,6 @@
 (** [Async.Process] is for creating child processes of the current process, and
     communicating with children via their stdin, stdout, and stderr.  [Async.Process] is
-    the Async analog of [Core.Unix.create_process] and related functions. *)
+    the Async analog of [Core_unix.create_process] and related functions. *)
 
 open! Core
 open! Import
@@ -16,7 +16,7 @@ val stderr : t -> Reader.t
 
 type env = Unix.env [@@deriving sexp]
 
-(** [create ~prog ~args ()] uses [Core.Unix.create_process_env] to create a child process
+(** [create ~prog ~args ()] uses [Core_unix.create_process_env] to create a child process
     that runs the executable [prog] with [args] as arguments.
 
     This creates pipes to communicate with the child process's [stdin], [stdout], and
@@ -48,7 +48,7 @@ type env = Unix.env [@@deriving sexp]
     binary exits with non-zero exit code; instead, it returns [OK t], where [wait t]
     returns an [Error].
 
-    See [Core.Unix.create_process_env] for more details. *)
+    See [Core_unix.create_process_env] for more details. *)
 type 'a create =
   ?argv0:string
   -> ?buf_len:int
@@ -154,11 +154,11 @@ val send_signal : t -> Signal.t -> unit
 
     Note that if you never called [wait] on this process, you will always get [`Ok], which
     can be surprising. This function is exposed for compatibility with the code that used
-    [Signal.send]. *)
+    [Signal_unix.send]. *)
 val send_signal_compat : t -> Signal.t -> [ `Ok | `No_such_process ]
 
 (** Similar to [send_signal_compat], but raises an exception on [`No_such_process].
-    Used to migrate the code that uses [Signal.send_exn]. *)
+    Used to migrate the code that uses [Signal_unix.send_exn]. *)
 val send_signal_compat_exn : t -> Signal.t -> unit
 
 (** [Lines_or_sexp] is useful for rendering a string nicely in a sexp, avoiding quoting if

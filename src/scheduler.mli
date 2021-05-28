@@ -93,6 +93,12 @@ val is_initialized : unit -> bool
     then start the Async scheduler. *)
 val reset_in_forked_process : unit -> unit
 
+(** [reset_in_forked_process_without_taking_lock] is similar to [reset_in_forked_process],
+    with the difference that async lock is not taken by the calling thread. This means
+    it's not safe to do Async stuff unless you obtain the lock first, usually by calling
+    functions from the [Thread_safe] module. *)
+val reset_in_forked_process_without_taking_lock : unit -> unit
+
 (** [make_async_unusable ()] makes subsequent attempts to use the Async scheduler raise.
     One use case for [make_async_unusable] is if you fork from a process already running
     the Async scheduler, and want to run non-Async OCaml code in the child process, with

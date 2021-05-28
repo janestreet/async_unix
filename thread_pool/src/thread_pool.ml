@@ -19,13 +19,13 @@ module Thread_id : sig
 
   include Hashable with type t := t
 
-  val of_ocaml_thread : Core.Thread.t -> t
+  val of_ocaml_thread : Core_thread.t -> t
   val self : unit -> t
 end = struct
   include Int
 
-  let of_ocaml_thread = Core.Thread.id
-  let self () = of_ocaml_thread (Core.Thread.self ())
+  let of_ocaml_thread = Core_thread.id
+  let self () = of_ocaml_thread (Core_thread.self ())
 end
 
 module Priority = Linux_ext.Priority
@@ -191,7 +191,7 @@ module Internal = struct
       | Inherit -> ()
       | Cpuset cpuset ->
         Or_error.ok_exn
-          Core.Thread.setaffinity_self_exn
+          Core_thread.setaffinity_self_exn
           (cpuset |> Cpu_affinity.Cpuset.raw)
     ;;
 
@@ -246,7 +246,7 @@ module Internal = struct
        a thread. *)
     ; mutable thread_creation_failure_lockout : Time_ns.Span.t
     (* [last_thread_creation_failure] has information about the last time that
-       [Core.Thread.create] raised. *)
+       [Core_thread.create] raised. *)
     ; mutable last_thread_creation_failure : Thread_creation_failure.t option
     (* [thread_by_id] holds all the threads that have been created by the pool. *)
     ; mutable thread_by_id : Thread.t Thread_id.Table.t
@@ -304,7 +304,7 @@ module Internal = struct
                   has_unstarted_work t
                   && t.num_threads < t.max_num_threads ]}
 
-                This happens when adding work and [Core.Thread.create] raises.  In that
+                This happens when adding work and [Core_thread.create] raises.  In that
                 case, the thread pool enqueues the work and continues with the threads it
                 has.  If the thread pool can't make progress, then Async's thread-pool-stuck
                 detection will later report it. *)
@@ -335,7 +335,7 @@ module Internal = struct
     if
       match cpu_affinity with
       | Inherit -> false
-      | Cpuset _ -> Or_error.is_error Core.Thread.setaffinity_self_exn
+      | Cpuset _ -> Or_error.is_error Core_thread.setaffinity_self_exn
     then
       Or_error.error_string
         "Thread_pool.create setaffinity not supported on this platform"
@@ -431,7 +431,7 @@ module Internal = struct
     let thread = Thread.create t.default_priority in
     let ocaml_thread =
       Or_error.try_with (fun () ->
-        Core.Thread.create
+        Core_thread.create
           ~on_uncaught_exn:`Print_to_stderr
           (fun () ->
              Thread.initialize_ocaml_thread thread t.cpu_affinity;

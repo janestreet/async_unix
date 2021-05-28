@@ -72,13 +72,13 @@ type open_flag =
 
 type file_perm = int [@@deriving sexp, bin_io, compare]
 
-let openfile ?perm file ~mode =
+let openfile ?info ?perm file ~mode =
   let mode = List.map mode ~f:convert_open_flag @ [ O_CLOEXEC ] in
   let%bind file_descr =
     In_thread.syscall_exn ~name:"openfile" (fun () -> Unix.openfile ?perm file ~mode)
   in
   let%map kind = Fd.Kind.infer_using_stat file_descr in
-  Fd.create kind file_descr (Info.of_string file)
+  Fd.create kind file_descr (Option.value info ~default:(Info.of_string file))
 ;;
 
 let fcntl_getfl fd =
@@ -846,7 +846,7 @@ module Socket = struct
     let sndtimeo = float "sndtimeo" SO_SNDTIMEO
 
     (* Since there aren't socket options like SO_MCASTLOOP or SO_MCASTTTL, we wrap
-       [Core.Unix] functions to match async's socket-options interface. *)
+       [Core_unix] functions to match async's socket-options interface. *)
     let mcast_loop =
       { name = "mcast_loop"; get = Unix.get_mcast_loop; set = Unix.set_mcast_loop }
     ;;
