@@ -471,8 +471,8 @@ type env = Unix.env [@@deriving sexp]
 let environment = Unix.environment
 let getenv = Sys.getenv
 let getenv_exn = Sys.getenv_exn
-let unsafe_getenv = Sys.unsafe_getenv
-let unsafe_getenv_exn = Sys.unsafe_getenv_exn
+let unsafe_getenv = Sys_unix.unsafe_getenv
+let unsafe_getenv_exn = Sys_unix.unsafe_getenv_exn
 let putenv = Unix.putenv
 let unsetenv = Unix.unsetenv
 

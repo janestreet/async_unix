@@ -191,3 +191,20 @@ let block_on_async_exn f = block_on_async_exn (t ()) f
 let run_in_async_wait f = run_in_async_wait (t ()) f
 let run_in_async_wait_exn f = run_in_async_wait_exn (t ()) f
 let reset_scheduler () = reset_scheduler (t ())
+
+let ok_to_drop_lock t =
+  is_main_thread () && not (Kernel_scheduler.in_cycle t.kernel_scheduler)
+;;
+
+let without_async_lock f =
+  let t = t () in
+  if i_am_the_scheduler t || (am_holding_lock t && not (ok_to_drop_lock t))
+  then
+    raise_s
+      [%message "called [become_helper_thread_and_block_on_async] from within async"]
+  else if am_holding_lock t
+  then (
+    unlock t;
+    protect ~f ~finally:(fun () -> lock t))
+  else f ()
+;;

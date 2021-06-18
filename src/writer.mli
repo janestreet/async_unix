@@ -525,12 +525,15 @@ val bytes_received : t -> Int63.t
 
 (** [with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f] creates a writer
     to a temp file, feeds that writer to [f], and when the result of [f] becomes
-    determined, atomically moves (using [Unix.rename]) the temp file to [file].  If
-    [file] currently exists and is a regular file (see below regarding [replace_special])
-    it will be replaced, even if it is read-only.  The temp file will be [file] (or
-    [temp_file] if supplied) suffixed by a unique random sequence of six characters.
-    The temp file may need to be removed in case of a crash so it may be prudent to
-    choose a temp file that can be easily found by cleanup tools.
+    determined, atomically moves (using [Unix.rename]) the temp file to [file].  If [file]
+    currently exists and is a regular file (see below regarding [replace_special]) it will
+    be replaced, even if it is read-only.
+
+    The temp file will be [file] (or [temp_file] if supplied) suffixed by a unique random
+    sequence of six characters. The temp file will be removed if an exception is raised to
+    the monitor of [f] before the result of [f] becomes determined. However, if the
+    program exits for some other reason, the temp file may not be cleaned up; so it may be
+    prudent to choose a temp file that can be easily found by cleanup tools.
 
     If [fsync] is [true], the temp file will be flushed to disk before it takes the place
     of the target file, thus guaranteeing that the target file will always be in a sound

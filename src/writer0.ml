@@ -1768,45 +1768,60 @@ let with_file_atomic
     temp_file, Fd.create File fd (Info.of_string temp_file)
   in
   let t = create ?time_source fd in
-  let%bind result =
-    with_close t ~f:(fun () ->
-      let%bind result = f t in
-      if is_closed t
-      then
-        raise_s
-          [%message "Writer.with_file_atomic: writer closed by [f]" ~_:(file : string)];
-      let%bind () =
-        match current_file_permissions with
-        | None ->
-          (* We don't need to change the permissions here.
-             The [initial_permissions] (with umask applied by the OS) should be good. *)
-          return ()
-        | Some _ ->
-          (* We are overwriting permissions here to undo the umask that was applied
-             by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
-             behavior. *)
-          Unix.fchmod fd ~perm:initial_permissions
-      in
-      let%map () = if do_fsync then fsync t else return () in
-      result)
-  in
-  match%bind
-    Monitor.try_with ~run:`Now ~rest:`Raise (fun () ->
-      Unix.rename ~src:temp_file ~dst:file)
-  with
-  | Ok () -> return result
-  | Error exn ->
-    let fail v sexp_of_v =
-      raise_s
-        [%message
-          "Writer.with_file_atomic could not create file" (file : string) ~_:(v : v)]
+  (let%bind.Deferred.Result f_result =
+     Monitor.try_with_or_error (fun () -> f t)
+     >>| Result.map_error ~f:(fun e -> `f_raised e)
+   in
+   match%map
+     let%bind.Deferred.Or_error () =
+       Result.ok_if_true
+         (not (is_closed t))
+         ~error:(Error.create_s [%message "writer closed by [f]" ~_:(file : string)])
+       |> Deferred.return
+     in
+     Monitor.try_with_or_error (fun () ->
+       let%bind () =
+         match current_file_permissions with
+         | None ->
+           (* We don't need to change the permissions here.
+              The [initial_permissions] (with umask applied by the OS) should be good. *)
+           return ()
+         | Some _ ->
+           (* We are overwriting permissions here to undo the umask that was applied
+              by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
+              behavior. *)
+           Unix.fchmod fd ~perm:initial_permissions
+       in
+       let%bind () = if do_fsync then fsync t else return () in
+       let%bind () = close t in
+       Unix.rename ~src:temp_file ~dst:file)
+   with
+   | Error e -> Error (`final_steps_raised e)
+   | Ok () -> Ok f_result)
+  >>= function
+  | Ok res -> return res
+  | Error error ->
+    let%bind unlink_result =
+      Monitor.try_with_or_error (fun () -> Unix.unlink temp_file)
     in
-    (match%map
-       Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.unlink temp_file)
-     with
-     | Ok () -> fail exn [%sexp_of: exn]
-     | Error exn2 ->
-       fail (exn, `Cleanup_failed exn2) [%sexp_of: exn * [ `Cleanup_failed of exn ]])
+    (* NB we may have tried to close above, but that's OK because close is
+       idempotent. *)
+    let%map close_result = Monitor.try_with_or_error (fun () -> close t) in
+    (match Or_error.combine_errors_unit [ close_result; unlink_result ] with
+     | Ok () ->
+       (match error with
+        | `f_raised f_error ->
+          (* We do not tag an error arising in [f] *)
+          Error.raise f_error
+        | `final_steps_raised our_error -> our_error)
+     | Error cleanup_error ->
+       let initial_error =
+         match error with
+         | `final_steps_raised e | `f_raised e -> e
+       in
+       Error.of_list [ initial_error; cleanup_error ])
+    |> Error.tag_s ~tag:[%message "Error in Writer.with_file_atomic" (file : string)]
+    |> Error.raise
 ;;
 
 let save ?temp_file ?perm ?fsync ?replace_special file ~contents =

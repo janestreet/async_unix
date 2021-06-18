@@ -429,12 +429,12 @@ module Server = struct
         if is_closed t || t.drop_incoming_connections
         then
           List.iter conns ~f:(fun (sock, _) -> don't_wait_for (Fd.close (Socket.fd sock)))
-        else (
+        else
           (* We first [handle_client] on all the connections, which increases
              [num_connections], and then call [maybe_accept] to try to accept more
              clients, which respects the just-increased [num_connections]. *)
           List.iter conns ~f:(fun (sock, addr) -> handle_client t sock addr);
-          maybe_accept t))
+        maybe_accept t)
     else if (not (is_closed t)) && available_slots = 0
     then Max_connections.maybe_log_at_limit t.max_connections
 
