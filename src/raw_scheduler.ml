@@ -363,6 +363,7 @@ let detect_stuck_thread_pool t =
         stuck_num_work_completed := num_work_completed)))
 ;;
 
+let thread_pool_has_unfinished_work t = Thread_pool.unfinished_work t.thread_pool <> 0
 let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
 let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
@@ -768,6 +769,25 @@ let init t =
    | `Already_watching | `Watching -> ()
    | `Unsupported | `Already_closed -> problem_with_interruptor ());
   upon (Ivar.read interruptor_finished) (fun _ -> problem_with_interruptor ())
+;;
+
+let fds_may_produce_events t =
+  let interruptor_fd = Interruptor.read_fd t.interruptor in
+  Fd_by_descr.exists t.fd_by_descr ~f:(fun fd ->
+    (* Jobs created by the interruptor don't do anything, so we don't need to
+       count them as something that can drive progress. When interruptor is involved, the
+       progress is driven by other modules (e.g. the thread_pool).
+       The caller should inspect those directly.
+
+       We don't need a similar special-case for [timerfd] because that's never added
+       to [fd_by_descr], in the first place.
+    *)
+    (not (Fd.equal fd interruptor_fd))
+    && Read_write_pair.exists (Fd.watching fd) ~f:(fun watching ->
+      match (watching : Fd.Watching.t) with
+      | Not_watching -> false
+      (* Stop_requested will enqueue a single job, so we have jobs to do still at this point. *)
+      | Watch_once _ | Watch_repeatedly _ | Stop_requested -> true))
 ;;
 
 (* We avoid allocation in [check_file_descr_watcher], since it is called every time in

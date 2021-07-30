@@ -261,9 +261,12 @@ val read_until
   -> keep_delim:bool
   -> [ `Ok of string | `Eof_without_delim of string | `Eof ] Deferred.t
 
-(** [read_until_max] is just like [read_until], except you have the option of specifying
-    a maximum number of chars to read. *)
-val read_until_max
+(** [read_until_bounded] is just like [read_until], except you have the option of
+    specifying a maximum number of chars to read (not including the separator).
+
+    When [`Max_exceeded str] is returned, the length of [str] will be equal to
+    [max + 1]. *)
+val read_until_bounded
   :  t
   -> [ `Pred of char -> bool | `Char of char ]
   -> keep_delim:bool

@@ -660,8 +660,8 @@ module Internal = struct
         `Ok c)
   ;;
 
-  let first_char t p =
-    let limit = t.pos + t.available in
+  let first_char t p ~available =
+    let limit = t.pos + available in
     let buf = t.buf in
     match p with
     | `Pred p ->
@@ -696,20 +696,33 @@ module Internal = struct
           let concat_helper ss lst =
             Bigsubstring.concat_string (List.rev_append lst [ ss ])
           in
-          (match first_char t p with
+          let available, need_more_bytes_to_exceed_max =
+            match max with
+            | None -> t.available, true
+            | Some max ->
+              if t.available < max - total + 1
+              then t.available, true
+              else max - total + 1, false
+          in
+          (match first_char t p ~available with
            | Error _ as e -> k e
            | Ok None ->
-             let len = t.available in
-             let total = total + len in
-             let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
-             t.buf <- Bigstring.create (Bigstring.length t.buf);
-             t.pos <- 0;
-             t.available <- 0;
-             (match max with
-              | Some max when total > max ->
-                let s = concat_helper ss ac in
-                k (Ok (`Max_exceeded s))
-              | Some _ | None -> loop (ss :: ac) total)
+             (match need_more_bytes_to_exceed_max with
+              | false ->
+                let amount_consumed = available in
+                let len = amount_consumed in
+                let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
+                consume t amount_consumed;
+                let res = concat_helper ss ac in
+                k (Ok (`Max_exceeded res))
+              | true ->
+                let len = t.available in
+                let total = total + len in
+                let ss = Bigsubstring.create t.buf ~pos:t.pos ~len in
+                t.buf <- Bigstring.create (Bigstring.length t.buf);
+                t.pos <- 0;
+                t.available <- 0;
+                loop (ss :: ac) total)
            | Ok (Some pos) ->
              let amount_consumed = pos + 1 - t.pos in
              let len = if keep_delim then amount_consumed else amount_consumed - 1 in
@@ -1137,7 +1150,7 @@ let do_read_k
 
 let read_until t p ~keep_delim = do_read_k t (read_until t p ~keep_delim) Fn.id
 
-let read_until_max t p ~keep_delim ~max =
+let read_until_bounded t p ~keep_delim ~max =
   do_read_k t (read_until_gen t p ~keep_delim ~max:(Some max)) Fn.id
 ;;
 
@@ -1319,6 +1332,7 @@ let gen_load_sexp_exn
       ~(sexp_kind : sexp sexp_kind)
       ~file
       ~(a_of_sexp : sexp -> a)
+      ()
   =
   let multiple sexps =
     Error.create
@@ -1348,27 +1362,27 @@ let gen_load_sexp_exn
 ;;
 
 let load_sexp_exn ?exclusive file a_of_sexp =
-  gen_load_sexp_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
+  gen_load_sexp_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp ()
 ;;
 
 let load_annotated_sexp_exn ?exclusive file a_of_sexp =
-  gen_load_sexp_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
+  gen_load_sexp_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp ()
 ;;
 
-let gen_load_sexp ?exclusive ~sexp_kind ~file ~a_of_sexp =
+let gen_load_sexp ?exclusive ~sexp_kind ~file ~a_of_sexp () =
   Deferred.Or_error.try_with
     ~run:`Schedule
     ~rest:`Log
     ~extract_exn:true
-    (fun () -> gen_load_sexp_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
+    (gen_load_sexp_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
 let load_sexp ?exclusive file a_of_sexp =
-  gen_load_sexp ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
+  gen_load_sexp ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp ()
 ;;
 
 let load_annotated_sexp ?exclusive file a_of_sexp =
-  gen_load_sexp ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
+  gen_load_sexp ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp ()
 ;;
 
 let gen_load_sexps_exn
@@ -1377,6 +1391,7 @@ let gen_load_sexps_exn
       ~(sexp_kind : sexp sexp_kind)
       ~file
       ~(a_of_sexp : sexp -> a)
+      ()
   =
   gen_load_exn
     ?exclusive
@@ -1392,27 +1407,27 @@ let gen_load_sexps_exn
 ;;
 
 let load_sexps_exn ?exclusive file a_of_sexp =
-  gen_load_sexps_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
+  gen_load_sexps_exn ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp ()
 ;;
 
 let load_annotated_sexps_exn ?exclusive file a_of_sexp =
-  gen_load_sexps_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
+  gen_load_sexps_exn ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp ()
 ;;
 
-let gen_load_sexps ?exclusive ~sexp_kind ~file ~a_of_sexp =
+let gen_load_sexps ?exclusive ~sexp_kind ~file ~a_of_sexp () =
   Deferred.Or_error.try_with
     ~run:`Schedule
     ~rest:`Log
     ~extract_exn:true
-    (fun () -> gen_load_sexps_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
+    (gen_load_sexps_exn ?exclusive ~sexp_kind ~file ~a_of_sexp)
 ;;
 
 let load_sexps ?exclusive file a_of_sexp =
-  gen_load_sexps ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp
+  gen_load_sexps ?exclusive ~sexp_kind:Plain ~file ~a_of_sexp ()
 ;;
 
 let load_annotated_sexps ?exclusive file a_of_sexp =
-  gen_load_sexps ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp
+  gen_load_sexps ?exclusive ~sexp_kind:Annotated ~file ~a_of_sexp ()
 ;;
 
 let pipe t =

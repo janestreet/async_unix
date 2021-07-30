@@ -668,6 +668,9 @@ let finished_with t = critical_section t ~f:(fun () -> finished_with t)
    thread safe, and we do not want it to hold [t]'s lock while blocking, because we must
    allow the finishing threads to acquire [t]'s lock. *)
 let block_until_finished t = Thread_safe_ivar.read t.finished
+
+(* We do not use [critical_section] for the record field accessors because that's
+   thread-safe with the current OCaml runtime. *)
 let cpu_affinity = cpu_affinity
 let default_priority = default_priority
 let has_unstarted_work = has_unstarted_work

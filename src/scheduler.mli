@@ -127,3 +127,26 @@ val time_spent_waiting_for_io : unit -> Time_ns.Span.t
     scheduler and other threads.  A plausible setting is 10us.  This can also be set via
     the [ASYNC_CONFIG] environment variable. *)
 val set_min_inter_cycle_timeout : Time_ns.Span.t -> unit
+
+(** Returns true if any user-created fds are registered with the file descriptor
+    watcher.
+
+    The intended use case for this function (together with
+    [thread_pool_has_unfinished_work]) is approximate deadlock detection, so that
+    a test can crash when it runs out of things to do.
+*)
+val fds_may_produce_events : unit -> bool
+
+(** Returns true if any of the threads in the thread pool are in use.
+    Note that this value can change from [true] to [false] "suddenly" (from a separate
+    thread) when a thread pool thread finishes.
+
+    However, the work items submitted to the thread pool by [In_thread.run]
+    enqueue their result as an [external_job] before finishing.
+
+    So if you observe [thread_pool_has_unfinished_work () = false] and then confirm that
+    there are no external jobs in the scheduler, then you know you didn't miss any thead
+    pool work.
+
+*)
+val thread_pool_has_unfinished_work : unit -> bool
