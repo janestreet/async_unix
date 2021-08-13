@@ -82,7 +82,7 @@ val create : ?buf_len:int -> Fd.t -> t
 
 val of_in_channel : In_channel.t -> Fd.Kind.t -> t
 
-(** [with_file file f] opens [files], creates a reader with it, and passes the reader to
+(** [with_file file f] opens [file], creates a reader with it, and passes the reader to
     [f].  It closes the reader when the result of [f] becomes determined, and returns
     [f]'s result.
 
@@ -102,8 +102,7 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
     flag in [open] systemcall.  Note that the implementation uses [Unix.lockf], which has
     known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
     using a library dedicated to dealing with file locks where the pitfalls can be
-    documented in detail.
-*)
+    documented in detail. *)
 val with_file
   :  ?buf_len:int
   -> ?exclusive:bool (** default is [false] *)
