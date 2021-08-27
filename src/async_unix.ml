@@ -128,8 +128,7 @@ include struct
   let write_lines = overwrite2
   let write_wrap ?binary:_ ~f:_ = overwrite1
 
-  let eprint_s =
-    overwrite1
+  let eprint_s = overwrite1
   [@@deprecated
     "[since 2019-12] If you want to the blocking version, use [Core.eprint_s] (this \
      preserves behavior, but is discouraged). If you want the nonblocking version, use \

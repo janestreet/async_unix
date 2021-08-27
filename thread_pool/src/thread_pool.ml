@@ -332,8 +332,7 @@ module Internal = struct
   let has_unstarted_work t = not (Queue.is_empty t.work_queue)
 
   let create ?(cpu_affinity = Cpu_affinity.Inherit) ~max_num_threads () =
-    if
-      match cpu_affinity with
+    if match cpu_affinity with
       | Inherit -> false
       | Cpuset _ -> Or_error.is_error Core_thread.setaffinity_self_exn
     then
@@ -499,10 +498,9 @@ module Internal = struct
       then `None_available
       else (
         let now = Time_ns.now () in
-        if
-          Time_ns.Span.( < )
-            (Time_ns.diff now (last_thread_creation_failure_at t))
-            t.thread_creation_failure_lockout
+        if Time_ns.Span.( < )
+             (Time_ns.diff now (last_thread_creation_failure_at t))
+             t.thread_creation_failure_lockout
         then `None_available
         else (
           match create_thread t with

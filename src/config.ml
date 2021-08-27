@@ -11,11 +11,10 @@ let file_descr_watcher =
 ;;
 
 let max_num_open_file_descrs =
-  if
-    not
-      (Max_num_open_file_descrs.equal
-         max_num_open_file_descrs
-         Max_num_open_file_descrs.default)
+  if not
+       (Max_num_open_file_descrs.equal
+          max_num_open_file_descrs
+          Max_num_open_file_descrs.default)
   then max_num_open_file_descrs
   else (
     match file_descr_watcher with

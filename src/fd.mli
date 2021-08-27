@@ -204,7 +204,10 @@ val with_file_descr_deferred_exn
 
 (** [interruptible_ready_to t read_write ~interrupt] returns a deferred that will become
     determined when the file descriptor underlying [t] can be read from or written to
-    without blocking, or when [interrupt] becomes determined. *)
+    without blocking, or when [interrupt] becomes determined.
+
+    It's an error to make multiple concurrent calls to [*ready_to] functions on
+    the same file descriptor. *)
 val interruptible_ready_to
   :  t
   -> [ `Read | `Write ]

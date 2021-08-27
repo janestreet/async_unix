@@ -116,10 +116,10 @@ module Internal = struct
       ; state : State.t
       ; available : int
       ; pos : int
-      ; open_flags = (open_flags |> unless_testing : (open_flags Deferred.t option
-                                                      [@sexp.option]))
-      ; last_read_time = (last_read_time |> unless_testing : (Time.t option
-                                                              [@sexp.option]))
+      ; open_flags =
+          (open_flags |> unless_testing : (open_flags Deferred.t option[@sexp.option]))
+      ; last_read_time =
+          (last_read_time |> unless_testing : (Time.t option[@sexp.option]))
       ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
       ; close_finished : unit Ivar.t
       ; fd = (fd |> unless_testing : (Fd.t option[@sexp.option]))
@@ -493,13 +493,12 @@ module Internal = struct
                    consume t len;
                    loop ~force_refill:true
                  | `Consumed (consumed, need) as c ->
-                   if
-                     consumed < 0
-                     || consumed > len
-                     ||
-                     match need with
-                     | `Need_unknown -> false
-                     | `Need need -> need < 0 || consumed + need <= len
+                   if consumed < 0
+                   || consumed > len
+                   ||
+                   match need with
+                   | `Need_unknown -> false
+                   | `Need need -> need < 0 || consumed + need <= len
                    then
                      raise_s
                        [%message
@@ -512,10 +511,9 @@ module Internal = struct
                    let new_len =
                      match need with
                      | `Need_unknown ->
-                       if
-                         t.available = buf_len
-                         (* The buffer is full and the client doesn't know how much to
-                            expect: double the buffer size. *)
+                       if t.available = buf_len
+                       (* The buffer is full and the client doesn't know how much to
+                          expect: double the buffer size. *)
                        then buf_len * 2
                        else buf_len
                      | `Need need ->

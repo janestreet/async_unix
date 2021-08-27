@@ -248,8 +248,8 @@ let sexp_of_t_internals
                                               [@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
-    ; open_flags = (suppress_in_test open_flags : (open_flags Deferred.t option
-                                                   [@sexp.option]))
+    ; open_flags =
+        (suppress_in_test open_flags : (open_flags Deferred.t option[@sexp.option]))
     ; line_ending : Line_ending.t
     ; backing_out_channel : (Backing_out_channel.t option[@sexp.option])
     }]
@@ -1153,14 +1153,13 @@ let give_buf t desired =
     let pos = t.back in
     t.back <- t.back + desired;
     t.buf, pos)
-  else if
-    (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
-       exactly the desired size if the desired size is more than half the buffer length.
-       If we only created a new buffer when the desired size was greater than the buffer
-       length, then multiple consecutive writes of slightly more than half the buffer
-       length would each waste slightly less than half of the buffer.  Although, it is
-       still the case that multiple consecutive writes of slightly more than one quarter
-       of the buffer length will waste slightly less than one quarter of the buffer. *)
+  else if (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
+             exactly the desired size if the desired size is more than half the buffer length.
+             If we only created a new buffer when the desired size was greater than the buffer
+             length, then multiple consecutive writes of slightly more than half the buffer
+             length would each waste slightly less than half of the buffer.  Although, it is
+             still the case that multiple consecutive writes of slightly more than one quarter
+             of the buffer length will waste slightly less than one quarter of the buffer. *)
     desired > buf_len / 2
   then (
     schedule_unscheduled t Keep;

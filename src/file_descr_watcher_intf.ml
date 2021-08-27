@@ -17,16 +17,12 @@ open Import
 module Timeout = struct
   type 'a t =
     (*_ performance hack: avoid allocation *)
-    | Never : unit t
     | Immediately : unit t
     | After : Time_ns.Span.t t
 
-  let variant_of
-    : type a. a t -> a -> [ `Never | `Immediately | `After of Time_ns.Span.t ]
-    =
+  let variant_of : type a. a t -> a -> [ `Immediately | `After of Time_ns.Span.t ] =
     fun t span_or_unit ->
     match t with
-    | Never -> `Never
     | Immediately -> `Immediately
     | After -> `After (span_or_unit : Time_ns.Span.t)
   ;;

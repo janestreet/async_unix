@@ -334,8 +334,7 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
           ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
           ~last_thread_creation_failure:
             (Thread_pool.last_thread_creation_failure thread_pool
-             : (Sexp.t option
-                [@sexp.option]))]
+             : (Sexp.t option[@sexp.option]))]
     in
     if should_abort
     then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
@@ -375,6 +374,14 @@ let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
     Stack.push t.fds_whose_watching_has_changed fd)
 ;;
 
+let kind_supports_nonblock (kind : Raw_fd.Kind.t) =
+  match kind with
+  | File -> false
+  | Char ->
+    false
+  | Fifo | Socket _ -> true
+;;
+
 let request_start_watching t fd read_or_write watching =
   if Debug.file_descr_watcher
   then
@@ -382,11 +389,10 @@ let request_start_watching t fd read_or_write watching =
       "request_start_watching"
       (read_or_write, fd, t)
       [%sexp_of: Read_write_pair.Key.t * Fd.t * t];
-  if
-    not fd.supports_nonblock
-    (* Some versions of epoll complain if one asks it to monitor a file descriptor that
-       doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
-       file-descr-watcher to monitor such descriptors. *)
+  if not (kind_supports_nonblock fd.kind)
+  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
+     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
+     file-descr-watcher to monitor such descriptors. *)
   then `Unsupported
   else (
     let result =
@@ -810,7 +816,7 @@ let check_file_descr_watcher t ~timeout span_or_unit =
     Debug.log
       "File_descr_watcher.thread_safe_check"
       (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
-      [%sexp_of: [ `Never | `Immediately | `After of Time_ns.Span.t ] * t];
+      [%sexp_of: [ `Immediately | `After of Time_ns.Span.t ] * t];
   let before = Tsc.now () in
   let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
   let after = Tsc.now () in
