@@ -374,14 +374,6 @@ let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
     Stack.push t.fds_whose_watching_has_changed fd)
 ;;
 
-let kind_supports_nonblock (kind : Raw_fd.Kind.t) =
-  match kind with
-  | File -> false
-  | Char ->
-    false
-  | Fifo | Socket _ -> true
-;;
-
 let request_start_watching t fd read_or_write watching =
   if Debug.file_descr_watcher
   then
@@ -389,7 +381,7 @@ let request_start_watching t fd read_or_write watching =
       "request_start_watching"
       (read_or_write, fd, t)
       [%sexp_of: Read_write_pair.Key.t * Fd.t * t];
-  if not (kind_supports_nonblock fd.kind)
+  if not fd.supports_nonblock
   (* Some versions of epoll complain if one asks it to monitor a file descriptor that
      doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
      file-descr-watcher to monitor such descriptors. *)

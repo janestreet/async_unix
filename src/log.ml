@@ -979,7 +979,7 @@ end = struct
         type t = Time.t
 
         let create ?time_source _zone = now ~time_source
-        let rotate_one = ident
+        let rotate_one = Fn.id
 
         let to_string_opt ts =
           Some (Time.to_filename_string ~zone:(force Time.Zone.local) ts)
@@ -999,7 +999,7 @@ end = struct
         type t = Date.t
 
         let create ?time_source zone = Date.of_time (now ~time_source) ~zone
-        let rotate_one = ident
+        let rotate_one = Fn.id
         let to_string_opt date = Some (Date.to_string date)
         let cmp_newest_first = Date.descending
 
@@ -1689,7 +1689,7 @@ end = struct
   module Output = struct
     type t = Message.t -> unit
 
-    let create = ident
+    let create = Fn.id
     let write print msg = print (Message.to_write_only_text msg)
     let stdout = write (Core.Printf.printf "%s\n%!")
     let stderr = write (Core.Printf.eprintf "%s\n%!")
