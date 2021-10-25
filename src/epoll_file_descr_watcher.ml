@@ -108,10 +108,17 @@ let set t file_descr desired =
     | true, true -> Some Flags.in_out
   in
   match actual_flags, desired_flags with
-  | None, None -> ()
-  | None, Some d -> Epoll.set t.epoll file_descr d
-  | Some _, None -> Epoll.remove t.epoll file_descr
-  | Some a, Some d -> if not (Flags.equal a d) then Epoll.set t.epoll file_descr d
+  | None, None -> `Ok
+  | None, Some d ->
+    (match Epoll.set t.epoll file_descr d with
+     | exception Core_unix.Unix_error (EPERM, _, _) -> `Unsupported
+     | () -> `Ok)
+  | Some _, None ->
+    Epoll.remove t.epoll file_descr;
+    `Ok
+  | Some a, Some d ->
+    if not (Flags.equal a d) then Epoll.set t.epoll file_descr d;
+    `Ok
 ;;
 
 module Pre = struct

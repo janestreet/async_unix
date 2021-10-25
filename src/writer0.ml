@@ -61,7 +61,12 @@ end
 
 module Open_flags = Unix.Open_flags
 
-type open_flags = (Open_flags.t, exn) Result.t [@@deriving sexp_of]
+type open_flags =
+  [ `Already_closed
+  | `Ok of Open_flags.t
+  | `Error of exn
+  ]
+[@@deriving sexp_of]
 
 module Backing_out_channel = Backing_out_channel
 
@@ -156,13 +161,9 @@ type t =
        consumer leaves.  By default, it raises, but that can be disabled. *)
     consumer_left : unit Ivar.t
   ; mutable raise_when_consumer_leaves : bool (* default is [true] *)
-  ; (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
-       created, and starts a deferred computation that calls [Unix.fcntl_getfl].
-       [open_flags] is used to report an error when [fd] is not writable.  [Fd] treats the
-       call to [fcntl_getfl] as an active system call, which prevents [Unix.close fd] from
-       completing until [fcntl_getfl] finishes.  This prevents a file-descriptor or thread
-       leak even though client code doesn't explicitly wait on [open_flags]. *)
-    open_flags : open_flags Deferred.t
+  ; (* [open_flags] is the open-file-descriptor bits of [fd].
+       [open_flags] is used to report an error when [fd] is not writable. *)
+    open_flags : open_flags
   ; line_ending : Line_ending.t
   ; (* If specified, subsequent writes are synchronously redirected here. *)
     mutable backing_out_channel : Backing_out_channel.t option
@@ -248,8 +249,7 @@ let sexp_of_t_internals
                                               [@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
-    ; open_flags =
-        (suppress_in_test open_flags : (open_flags Deferred.t option[@sexp.option]))
+    ; open_flags = (suppress_in_test open_flags : (open_flags option[@sexp.option]))
     ; line_ending : Line_ending.t
     ; backing_out_channel : (Backing_out_channel.t option[@sexp.option])
     }]
@@ -817,13 +817,7 @@ let create
       ?name:(if am_running_inline_test then Some "Writer.inner_monitor" else None)
   in
   let consumer_left = Ivar.create () in
-  let open_flags =
-    Monitor.try_with
-      ~run:
-        `Schedule
-      ~rest:`Log
-      (fun () -> Unix.fcntl_getfl fd)
-  in
+  let open_flags = Fd.syscall fd (fun file_descr -> Core_unix.fcntl_getfl file_descr) in
   let t =
     { id
     ; fd
@@ -1104,7 +1098,7 @@ and write_finished t bytes_written =
     t.background_writer_state <- `Not_running)
   else (
     match t.syscall with
-    | `Per_cycle -> write_when_ready t
+    | `Per_cycle -> start_write t
     | `Periodic span ->
       Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
       >>> fun _ -> start_write t)
@@ -1121,12 +1115,11 @@ let maybe_start_writer t =
          runs at the end of the cycle and that all of the calls to Writer.write will
          usually be batched into a single system call. *)
       schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
-        t.open_flags
-        >>> fun open_flags ->
+        let open_flags = t.open_flags in
         let can_write_fd =
           match open_flags with
-          | Error _ -> false
-          | Ok flags -> Unix.Open_flags.can_write flags
+          | `Error _ | `Already_closed -> false
+          | `Ok flags -> Unix.Open_flags.can_write flags
         in
         if not can_write_fd
         then

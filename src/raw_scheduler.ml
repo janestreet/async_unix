@@ -374,6 +374,24 @@ let set_fd_desired_watching t (fd : Fd.t) read_or_write desired =
     Stack.push t.fds_whose_watching_has_changed fd)
 ;;
 
+let give_up_on_watching t fd read_or_write (watching : Watching.t) =
+  if Debug.file_descr_watcher
+  then
+    Debug.log
+      "give_up_on_watching"
+      (read_or_write, fd, t)
+      [%sexp_of: Read_write_pair.Key.t * Fd.t * t];
+  match watching with
+  | Stop_requested | Not_watching -> ()
+  | Watch_once ready_to ->
+    Ivar.fill ready_to `Unsupported;
+    set_fd_desired_watching t fd read_or_write Stop_requested
+  | Watch_repeatedly (job, finished) ->
+    Kernel_scheduler.free_job t.kernel_scheduler job;
+    Ivar.fill finished `Unsupported;
+    set_fd_desired_watching t fd read_or_write Stop_requested
+;;
+
 let request_start_watching t fd read_or_write watching =
   if Debug.file_descr_watcher
   then
@@ -381,34 +399,28 @@ let request_start_watching t fd read_or_write watching =
       "request_start_watching"
       (read_or_write, fd, t)
       [%sexp_of: Read_write_pair.Key.t * Fd.t * t];
-  if not fd.supports_nonblock
-  (* Some versions of epoll complain if one asks it to monitor a file descriptor that
-     doesn't support nonblocking I/O, e.g. a file.  So, we never ask the
-     file-descr-watcher to monitor such descriptors. *)
-  then `Unsupported
-  else (
-    let result =
-      match Read_write_pair.get fd.watching read_or_write with
-      | Watch_once _ | Watch_repeatedly _ -> `Already_watching
-      | Stop_requested ->
-        (* We don't [inc_num_active_syscalls] in this case, because we already did when we
-           transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
-           was closed since we transitioned to [Stop_requested], in which case we don't want
-           to [start_watching]; we want to report that it was closed and leave it
-           [Stop_requested] so the the file-descr-watcher will stop watching it and we can
-           actually close it. *)
-        if Fd.is_closed fd then `Already_closed else `Watching
-      | Not_watching ->
-        (match Fd.inc_num_active_syscalls fd with
-         | `Already_closed -> `Already_closed
-         | `Ok -> `Watching)
-    in
-    (match result with
-     | `Already_closed | `Already_watching -> ()
-     | `Watching ->
-       set_fd_desired_watching t fd read_or_write watching;
-       if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t);
-    result)
+  let result =
+    match Read_write_pair.get fd.watching read_or_write with
+    | Watch_once _ | Watch_repeatedly _ -> `Already_watching
+    | Stop_requested ->
+      (* We don't [inc_num_active_syscalls] in this case, because we already did when we
+         transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
+         was closed since we transitioned to [Stop_requested], in which case we don't want
+         to [start_watching]; we want to report that it was closed and leave it
+         [Stop_requested] so the the file-descr-watcher will stop watching it and we can
+         actually close it. *)
+      if Fd.is_closed fd then `Already_closed else `Watching
+    | Not_watching ->
+      (match Fd.inc_num_active_syscalls fd with
+       | `Already_closed -> `Already_closed
+       | `Ok -> `Watching)
+  in
+  (match result with
+   | `Already_closed | `Already_watching -> ()
+   | `Watching ->
+     set_fd_desired_watching t fd read_or_write watching;
+     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t);
+  result
 ;;
 
 let request_stop_watching t fd read_or_write value =
@@ -427,7 +439,7 @@ let request_stop_watching t fd read_or_write value =
   | Watch_repeatedly (job, finished) ->
     (match value with
      | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
-     | (`Closed | `Bad_fd | `Interrupted) as value ->
+     | (`Closed | `Bad_fd | `Interrupted | `Unsupported) as value ->
        Kernel_scheduler.free_job t.kernel_scheduler job;
        Ivar.fill finished value;
        set_fd_desired_watching t fd read_or_write Stop_requested;
@@ -666,12 +678,14 @@ let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
 ;;
 
 let[@cold] sync_changed_fd_failed t fd desired exn =
+  let bt = Backtrace.Exn.most_recent () in
   raise_s
     [%message
       "sync_changed_fds_to_file_descr_watcher unable to set fd"
         (desired : bool Read_write_pair.t)
         (fd : Fd.t)
         (exn : exn)
+        (bt : Backtrace.t)
         ~scheduler:(t : t)]
 ;;
 
@@ -692,17 +706,21 @@ let sync_changed_fds_to_file_descr_watcher t =
       in
       if Debug.file_descr_watcher
       then log_sync_changed_fds_to_file_descr_watcher t fd.file_descr desired;
-      (try F.set F.watcher fd.file_descr desired with
-       | exn -> sync_changed_fd_failed t fd desired exn);
-      (* We modify Async's data structures after calling [F.set], so that
-         the error message produced by [sync_changed_fd_failed] displays
-         them as they were before the call. *)
-      Read_write_pair.iteri fd.watching ~f:(fun read_or_write watching ->
-        match watching with
-        | Watch_once _ | Watch_repeatedly _ | Not_watching -> ()
-        | Stop_requested ->
-          Read_write_pair.set fd.watching read_or_write Not_watching;
-          dec_num_active_syscalls_fd t fd)
+      match
+        try F.set F.watcher fd.file_descr desired with
+        | exn -> sync_changed_fd_failed t fd desired exn
+      with
+      | `Unsupported -> Read_write_pair.iteri fd.watching ~f:(give_up_on_watching t fd)
+      | `Ok ->
+        (* We modify Async's data structures after calling [F.set], so that
+           the error message produced by [sync_changed_fd_failed] displays
+           them as they were before the call. *)
+        Read_write_pair.iteri fd.watching ~f:(fun read_or_write watching ->
+          match watching with
+          | Watch_once _ | Watch_repeatedly _ | Not_watching -> ()
+          | Stop_requested ->
+            Read_write_pair.set fd.watching read_or_write Not_watching;
+            dec_num_active_syscalls_fd t fd)
     done
 ;;
 

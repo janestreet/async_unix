@@ -227,7 +227,10 @@ let interruptible_ready_to t read_or_write ~interrupt =
     return (if Deferred.is_determined interrupt then `Interrupted else `Ready)
   | `Watching ->
     stop_watching_upon_interrupt t read_or_write ready ~interrupt;
-    Ivar.read ready
+    Deferred.map (Ivar.read ready) ~f:(function
+      | `Unsupported ->
+        if Deferred.is_determined interrupt then `Interrupted else `Ready
+      | (`Bad_fd | `Closed | `Interrupted | `Ready) as res -> res)
 ;;
 
 let ready_to t read_or_write =
@@ -236,9 +239,11 @@ let ready_to t read_or_write =
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
-  | `Unsupported -> return `Ready
+  | `Unsupported ->
+    return `Ready
   | `Watching ->
     (match%map Ivar.read ready with
+     | `Unsupported -> `Ready
      | (`Bad_fd | `Closed | `Ready) as x -> x
      | `Interrupted -> (* impossible *) assert false)
 ;;
@@ -271,7 +276,7 @@ let every_ready_to t read_or_write f x =
   | `Unsupported -> return `Unsupported
   | `Watching ->
     (match%map Ivar.read finished with
-     | (`Bad_fd | `Closed) as x -> x
+     | (`Unsupported | `Bad_fd | `Closed) as x -> x
      | `Interrupted -> (* impossible *) assert false)
 ;;
 
@@ -323,6 +328,20 @@ let file_descr_exn t =
 ;;
 
 let to_int_exn t = File_descr.to_int (file_descr_exn t)
+
+let expect_file_descr_redirection_for_fd fd ~f =
+  if fd.num_active_syscalls > 0
+  then raise_s [%sexp "File descriptor can't be redirected while in use", (fd : t)];
+  Exn.protect ~f ~finally:(fun () ->
+    fd.kind <- Kind.blocking_infer_using_stat fd.file_descr)
+;;
+
+let expect_file_descr_redirection file_descr ~f =
+  let fd_by_descr = Raw_scheduler.fd_by_descr (the_one_and_only ()) in
+  match Fd_by_descr.find fd_by_descr file_descr with
+  | None -> f ()
+  | Some fd -> expect_file_descr_redirection_for_fd fd ~f
+;;
 
 module Private = struct
   let replace t kind info =

@@ -51,6 +51,7 @@ type ready_to_result =
   | `Bad_fd
   | `Closed
   | `Interrupted
+  | `Unsupported
   ]
 [@@deriving sexp_of]
 
@@ -74,7 +75,8 @@ module Watching = struct
   type t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
-    | Watch_repeatedly of Job.t * [ `Bad_fd | `Closed | `Interrupted ] Ivar.t
+    | Watch_repeatedly of
+        Job.t * [ `Bad_fd | `Closed | `Interrupted | `Unsupported ] Ivar.t
     | Stop_requested
   [@@deriving sexp_of]
 

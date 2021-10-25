@@ -48,6 +48,7 @@ module Kind : sig
         | `Passive (** the result of [listen()] *)
         | `Active (** the result of [connect()] or [accept()] *)
         ]
+  [@@deriving sexp_of]
 
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
@@ -315,6 +316,11 @@ val file_descr_exn : t -> Unix.File_descr.t
 val to_int_exn : t -> int
 
 (**/**)
+
+
+(** Run a function [f] with the expectation that it's going to redirect the file
+    descriptor, thereby possibly changing its kind. *)
+val expect_file_descr_redirection : Unix.File_descr.t -> f:(unit -> 'a) -> 'a
 
 module Private : sig
   (** [replace t kind] is for internal use only, by [Unix_syscalls].  It is used when one

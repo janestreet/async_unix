@@ -54,8 +54,11 @@ module type S = sig
 
   (** [set] alters the map of file descriptors being watched.  It will take effect on the
       next call to [thread_safe_check].  Calling [set fd] with [{ read = false, write =
-      false }] removes [fd] from the map. *)
-  val set : t -> File_descr.t -> bool Read_write_pair.t -> unit
+      false }] removes [fd] from the map.
+      [`Unsupported] can be returned for file descriptors that do not support polling.
+      This usually (always?) means that they are always ready for read or write.
+  *)
+  val set : t -> File_descr.t -> bool Read_write_pair.t -> [ `Ok | `Unsupported ]
 
   (** [iter t ~f] iterates over every file descriptor in the map, apply [f] to it once
       for each of \{`Read,`Write\} that it is being watched for. *)

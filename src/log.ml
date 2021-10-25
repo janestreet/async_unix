@@ -267,32 +267,35 @@ module Sys = Async_sys
 module Unix = Unix_syscalls
 
 module Level = struct
-  type t =
-    [ `Debug
-    | `Info
-    | `Error
-    ]
-  [@@deriving bin_io, compare, enumerate, sexp]
+  module T = struct
+    type t =
+      [ `Debug
+      | `Info
+      | `Error
+      ]
+    [@@deriving bin_io, compare, enumerate, sexp]
 
-  let to_string = function
-    | `Debug -> "Debug"
-    | `Info -> "Info"
-    | `Error -> "Error"
-  ;;
+    let to_string = function
+      | `Debug -> "Debug"
+      | `Info -> "Info"
+      | `Error -> "Error"
+    ;;
 
-  let of_string = function
-    | "Debug" -> `Debug
-    | "Info" -> `Info
-    | "Error" -> `Error
-    | s -> failwithf "not a valid level %s" s ()
-  ;;
+    let of_string = function
+      | "Debug" -> `Debug
+      | "Info" -> `Info
+      | "Error" -> `Error
+      | s -> failwithf "not a valid level %s" s ()
+    ;;
+  end
+
+  include T
 
   let arg =
-    Command.Arg_type.of_alist_exn
-      ~list_values_in_help:false
-      (List.concat_map all ~f:(fun t ->
-         let s = to_string t in
-         [ String.lowercase s, t; String.capitalize s, t; String.uppercase s, t ]))
+    Command.Arg_type.enumerated
+      ~list_values_in_help:true
+      ~case_sensitive:false
+      (module T : Command.Enumerable_stringable with type t = t)
   ;;
 
   (* Ordering of log levels in terms of verbosity. *)
@@ -1422,15 +1425,9 @@ let surroundf ?level ?time ?tags t fmt =
 
 let set_level_via_param_helper ~f =
   let open Command.Param in
-  let values = Level.all |> List.map ~f:Level.to_string |> String.concat ~sep:", " in
   map
-    (flag
-       "log-level"
-       (optional Level.arg)
-       ~doc:[%string "LEVEL The log level (can be: %{values})"])
-    ~f:(function
-      | None -> ()
-      | Some level -> f level)
+    (flag "log-level" (optional Level.arg) ~doc:"LEVEL The log level")
+    ~f:(Option.iter ~f)
 ;;
 
 let set_level_via_param log = set_level_via_param_helper ~f:(set_level log)

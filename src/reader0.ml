@@ -82,14 +82,8 @@ module Internal = struct
       mutable state : State.t
     ; close_finished : unit Ivar.t
     ; mutable last_read_time : Time.t
-    ; (* [open_flags] is the open-file-descriptor bits of [fd].  It is created when [t] is
-         created, and starts a deferred computation that calls [Unix.fcntl_getfl].
-         [open_flags] is used to report an error when [fd] is not readable.  [Fd] treats
-         the call to [fcntl_getfl] as an active system call, which prevents [Unix.close
-         fd] from completing until [fcntl_getfl] finishes.  This prevents a
-         file-descriptor or thread leak even though client code doesn't explicitly wait on
-         [open_flags]. *)
-      open_flags : open_flags Deferred.t
+    ; (* [open_flags] is the open-file-descriptor bits of [fd]. *)
+      open_flags : open_flags
     }
   [@@deriving fields]
 
@@ -116,8 +110,7 @@ module Internal = struct
       ; state : State.t
       ; available : int
       ; pos : int
-      ; open_flags =
-          (open_flags |> unless_testing : (open_flags Deferred.t option[@sexp.option]))
+      ; open_flags = (open_flags |> unless_testing : (open_flags option[@sexp.option]))
       ; last_read_time =
           (last_read_time |> unless_testing : (Time.t option[@sexp.option]))
       ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
@@ -150,8 +143,9 @@ module Internal = struct
               "Reader.create got non positive buf_len" (buf_len : int) (fd : Fd.t)]
     in
     let open_flags =
-      Fd.syscall_in_thread fd ~name:"fcntl_getfl" (fun file_descr ->
-        Core_unix.fcntl_getfl file_descr)
+      (* Even though [fcntl] in general can block, [fcntl_getfl] simply reads flags that
+         are already in memory, so it does not need to be run in a separate thread. *)
+      Fd.syscall fd (fun file_descr -> Core_unix.fcntl_getfl file_descr)
     in
     { fd
     ; id = Id.create ()
@@ -236,10 +230,8 @@ module Internal = struct
      returns [`Ok], otherwise it returns [`Eof]. *)
   let get_data t : [ `Ok | `Eof ] Deferred.t =
     Deferred.create (fun result ->
-      t.open_flags
-      >>> fun open_flags ->
       let eof () = Ivar.fill result `Eof in
-      match t.state, open_flags with
+      match t.state, t.open_flags with
       | `Not_in_use, _ -> assert false
       | `Closed, _ | _, `Already_closed -> eof ()
       | `In_use, ((`Error _ | `Ok _) as open_flags) ->
@@ -1454,7 +1446,6 @@ let load_bin_prot ?exclusive ?max_len file bin_reader =
   match%map
     Monitor.try_with_or_error
       ~rest:`Log
-      ~here:[%here]
       ~name:"Reader.load_bin_prot"
       (fun () ->
          with_file ?exclusive file ~f:(fun t -> read_bin_prot ?max_len t bin_reader))
