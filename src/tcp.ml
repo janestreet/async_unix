@@ -1,7 +1,6 @@
 open! Core
 open! Import
 module Unix = Unix_syscalls
-module Host = Unix.Host
 module Socket = Unix.Socket
 
 module Where_to_connect = struct

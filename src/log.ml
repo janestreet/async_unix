@@ -1827,5 +1827,4 @@ end
 
 module Private = struct
   module Message = Message
-  module Stable = Stable
 end

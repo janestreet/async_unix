@@ -1,6 +1,5 @@
 open Core
 open Import
-module File_descr = Unix.File_descr
 module Scheduler = Raw_scheduler
 module Fd = Raw_fd
 include Fd.T
