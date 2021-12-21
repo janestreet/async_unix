@@ -426,6 +426,7 @@ module Socket : sig
 
     val unix : Address.Unix.t t
     val inet : Address.Inet.t t
+    val is_inet_witness : 'a t -> ('a, Address.Inet.t) Type_equal.t option
     val to_string : 'a t -> string
   end
 
@@ -454,6 +455,7 @@ module Socket : sig
     val udp : Address.Inet.t t
     val unix : Address.Unix.t t
     val unix_dgram : Address.Unix.t t
+    val family : 'a t -> 'a Family.t
   end
 
   val create : 'addr Type.t -> ([ `Unconnected ], 'addr) t

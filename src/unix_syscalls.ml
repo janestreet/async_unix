@@ -697,15 +697,31 @@ module Socket = struct
   end
 
   module Family = struct
+    module Gadt = struct
+      type _ t =
+        | Inet : Address.Inet.t t
+        | Unix : Address.Unix.t t
+
+      let is_inet_witness : type a. a t -> (a, Address.Inet.t) Type_equal.t option
+        = function
+          | Inet -> Some T
+          | Unix -> None
+      ;;
+    end
+
     type 'address t =
       { family : Unix.socket_domain
+      ; family_gadt : 'address Gadt.t
       ; address_of_sockaddr_exn : Unix.sockaddr -> 'address
       ; sexp_of_address : 'address -> Sexp.t
       }
       constraint 'address = [< Address.t ]
     [@@deriving fields]
 
-    let sexp_of_t _ { address_of_sockaddr_exn = _; family; sexp_of_address = _ } =
+    let sexp_of_t
+          _
+          { address_of_sockaddr_exn = _; family; family_gadt = _; sexp_of_address = _ }
+      =
       [%sexp (family : Unix.socket_domain)]
     ;;
 
@@ -718,6 +734,7 @@ module Socket = struct
 
     let inet =
       { family = PF_INET
+      ; family_gadt = Inet
       ; address_of_sockaddr_exn = Address.Inet.of_sockaddr_exn
       ; sexp_of_address = Address.Inet.sexp_of_t
       }
@@ -725,10 +742,13 @@ module Socket = struct
 
     let unix =
       { family = PF_UNIX
+      ; family_gadt = Unix
       ; address_of_sockaddr_exn = Address.Unix.of_sockaddr_exn
       ; sexp_of_address = Address.Unix.sexp_of_t
       }
     ;;
+
+    let is_inet_witness t = Gadt.is_inet_witness t.family_gadt
   end
 
   module Type = struct
@@ -738,6 +758,7 @@ module Socket = struct
       }
     [@@deriving sexp_of]
 
+    let family t = t.family
     let sexp_of_address t = t.family.sexp_of_address
     let tcp = { family = Family.inet; socket_type = SOCK_STREAM }
     let udp = { family = Family.inet; socket_type = SOCK_DGRAM }

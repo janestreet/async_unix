@@ -252,6 +252,7 @@ module Where_to_listen = struct
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]
 
+  let is_inet_witness t = Socket.Family.is_inet_witness (Socket.Type.family t.socket_type)
   let create ~socket_type ~address ~listening_on = { socket_type; address; listening_on }
 
   let bind_to (bind_to_address : Bind_to_address.t) (bind_to_port : Bind_to_port.t) =
@@ -282,6 +283,18 @@ module Where_to_listen = struct
     ; address = Socket.Address.Unix.create path
     ; listening_on = (fun _ -> path)
     }
+  ;;
+
+  let binding_on_port_chosen_by_os t =
+    match t.address with
+    | `Inet _ as inet -> Socket.Address.Inet.port inet = 0
+    | `Unix _ -> false
+  ;;
+
+  let max_retries_upon_addr_in_use t =
+    match binding_on_port_chosen_by_os t with
+    | true -> 10
+    | false -> 0
   ;;
 end
 
@@ -506,7 +519,103 @@ module Server = struct
       max_connections
   ;;
 
-  let create_sock_internal
+  module Socket_creator : sig
+    type 'a t constraint 'a = [< Socket.Address.t ]
+
+    val create
+      :  ([ `Unconnected ], 'addr) Socket.t option
+      -> ('addr, _) Where_to_listen.t
+      -> 'addr t
+
+    val bind_and_listen_maybe_retry
+      :  'addr t
+      -> f:
+           (([ `Unconnected ], 'addr) Socket.t
+            -> reuseaddr:bool
+            -> ([ `Passive ], 'addr) Socket.t Deferred.t)
+      -> ([ `Passive ], 'addr) Socket.t Deferred.t
+
+    val bind_and_listen_maybe_retry'
+      :  'addr t
+      -> f:
+           (([ `Unconnected ], 'addr) Socket.t
+            -> reuseaddr:bool
+            -> ([ `Passive ], 'addr) Socket.t)
+      -> ([ `Passive ], 'addr) Socket.t
+  end = struct
+    type 'addr t =
+      { create_socket : unit -> ([ `Unconnected ], 'addr) Socket.t
+      ; should_set_reuseaddr : bool
+      ; retries_upon_addr_in_use : int
+      }
+
+    let create maybe_socket where_to_listen =
+      match maybe_socket with
+      | Some socket ->
+        { create_socket = Fn.const socket
+        ; should_set_reuseaddr = false
+        ; retries_upon_addr_in_use = 0
+        }
+      | None ->
+        { create_socket =
+            (fun () -> Socket.create where_to_listen.Where_to_listen.socket_type)
+        ; should_set_reuseaddr = true
+        ; retries_upon_addr_in_use =
+            Where_to_listen.max_retries_upon_addr_in_use where_to_listen
+        }
+    ;;
+
+    let handle_exn t socket exn ~retries_attempted_upon_addr_in_use =
+      don't_wait_for (Unix.close (Socket.fd socket));
+      match t.retries_upon_addr_in_use > retries_attempted_upon_addr_in_use, exn with
+      | true, Unix.Unix_error (EADDRINUSE, _, _) -> `Please_retry
+      | _, _ ->
+        if retries_attempted_upon_addr_in_use > 0
+        then
+          raise_s
+            [%message
+              "Failed to bind and listen to socket."
+                (exn : Exn.t)
+                (retries_attempted_upon_addr_in_use : int)]
+        else raise exn
+    ;;
+
+    let rec aux_bind_and_listen_maybe_retry t ~retries_attempted_upon_addr_in_use ~f =
+      let socket = t.create_socket () in
+      match%bind
+        Monitor.try_with ~extract_exn:true (fun () ->
+          f socket ~reuseaddr:t.should_set_reuseaddr)
+      with
+      | Ok v -> return v
+      | Error exn ->
+        let `Please_retry = handle_exn t socket exn ~retries_attempted_upon_addr_in_use in
+        aux_bind_and_listen_maybe_retry
+          t
+          ~retries_attempted_upon_addr_in_use:(retries_attempted_upon_addr_in_use + 1)
+          ~f
+    ;;
+
+    let rec aux_bind_and_listen_maybe_retry' t ~retries_attempted_upon_addr_in_use ~f =
+      let socket = t.create_socket () in
+      try f socket ~reuseaddr:t.should_set_reuseaddr with
+      | exn ->
+        let `Please_retry = handle_exn t socket exn ~retries_attempted_upon_addr_in_use in
+        aux_bind_and_listen_maybe_retry'
+          t
+          ~retries_attempted_upon_addr_in_use:(retries_attempted_upon_addr_in_use + 1)
+          ~f
+    ;;
+
+    let bind_and_listen_maybe_retry =
+      aux_bind_and_listen_maybe_retry ~retries_attempted_upon_addr_in_use:0
+    ;;
+
+    let bind_and_listen_maybe_retry' =
+      aux_bind_and_listen_maybe_retry' ~retries_attempted_upon_addr_in_use:0
+    ;;
+  end
+
+  let create_sock_non_inet_internal
         ?max_connections
         ?max_accepts_per_batch
         ?backlog
@@ -522,15 +631,12 @@ module Server = struct
       | Some x -> Time_source.read_only x
       | None -> Time_source.wall_clock ()
     in
-    let socket, should_set_reuseaddr =
-      match socket with
-      | Some socket -> socket, false
-      | None -> Socket.create where_to_listen.socket_type, true
-    in
     let%map socket =
-      close_sock_on_error socket (fun () ->
-        Socket.bind ~reuseaddr:should_set_reuseaddr socket where_to_listen.address
-        >>| Socket.listen ?backlog)
+      let socket_creator = Socket_creator.create socket where_to_listen in
+      Socket_creator.bind_and_listen_maybe_retry
+        socket_creator
+        ~f:(fun socket ~reuseaddr ->
+          Socket.bind ~reuseaddr socket where_to_listen.address >>| Socket.listen ?backlog)
     in
     let max_connections =
       Max_connections.create
@@ -548,6 +654,131 @@ module Server = struct
       where_to_listen
       handle_client
       socket
+  ;;
+
+  let create_sock_inet_internal
+        ?max_connections
+        ?max_accepts_per_batch
+        ?backlog
+        ?drop_incoming_connections
+        ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
+        ?time_source
+        ~on_handler_error
+        (where_to_listen : (Socket.Address.Inet.t, 'listening_on) Where_to_listen.t)
+        handle_client
+    =
+    let time_source =
+      match time_source with
+      | Some x -> Time_source.read_only x
+      | None -> Time_source.wall_clock ()
+    in
+    let socket =
+      let socket_creator = Socket_creator.create socket where_to_listen in
+      Socket_creator.bind_and_listen_maybe_retry'
+        socket_creator
+        ~f:(fun socket ~reuseaddr ->
+          Socket.bind_inet ~reuseaddr socket where_to_listen.address
+          |> Socket.listen ?backlog)
+    in
+    let max_connections =
+      Max_connections.create
+        ~limit:(get_max_connections_limit max_connections)
+        ~time_source
+        (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
+           otherwise the [Info.t] won't have been set yet. *)
+        ~listening_on:(Fd.info (Socket.fd socket))
+    in
+    create_from_socket
+      ~max_connections
+      ?max_accepts_per_batch
+      ?drop_incoming_connections
+      ~on_handler_error
+      where_to_listen
+      handle_client
+      socket
+  ;;
+
+  type ('address, 'listening_on, 'time_source_access) create_sock_async =
+    ?max_connections:int
+    -> ?max_accepts_per_batch:int
+    -> ?backlog:int
+    -> ?drop_incoming_connections:bool
+    -> ?socket:([ `Unconnected ], 'address) Socket.t
+    -> ?time_source:([> read ] as 'time_source_access) Time_source.T1.t
+    -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
+    -> ('address, 'listening_on) Where_to_listen.t
+    -> ('address -> ([ `Active ], 'address) Socket.t -> (unit, exn) Result.t Deferred.t)
+    -> ('address, 'listening_on) t Deferred.t
+
+  let create_sock_inet_internal_async : ('address, _, _) create_sock_async =
+    fun ?max_connections
+      ?max_accepts_per_batch
+      ?backlog
+      ?drop_incoming_connections
+      ?socket
+      ?time_source
+      ~on_handler_error
+      where_to_listen
+      handle_client ->
+      return
+        (create_sock_inet_internal
+           ?max_connections
+           ?max_accepts_per_batch
+           ?backlog
+           ?drop_incoming_connections
+           ?socket
+           ?time_source
+           ~on_handler_error
+           where_to_listen
+           handle_client)
+  ;;
+
+  type ('address, 'listening_on, 't) create_sock_async_no_constraint =
+    | T :
+        ('address, 'listening_on, 't) create_sock_async
+        -> ('address, 'listening_on, 't) create_sock_async_no_constraint
+
+  type 'address is_address_type = T : [< Socket.Address.t ] is_address_type
+
+  let create_sock_internal_type_hackery
+    : type address listening_on.
+      is_address:address is_address_type
+      -> is_inet:(address, [ `Inet of Unix.Inet_addr.t * int ]) Type_equal.t option
+      -> (address, listening_on, _) create_sock_async_no_constraint
+    =
+    fun ~is_address ~is_inet ->
+    match is_inet with
+    | Some T -> T create_sock_inet_internal_async
+    | None ->
+      let T = is_address in
+      T create_sock_non_inet_internal
+  ;;
+
+  let create_sock_internal : (_, _, [> read ]) create_sock_async =
+    fun ?max_connections
+      ?max_accepts_per_batch
+      ?backlog
+      ?drop_incoming_connections
+      ?socket
+      ?time_source
+      ~on_handler_error
+      where_to_listen
+      handle_client ->
+      let (T f) =
+        create_sock_internal_type_hackery
+          ~is_inet:(Where_to_listen.is_inet_witness where_to_listen)
+          ~is_address:T
+      in
+      f
+        ?max_connections
+        ?max_accepts_per_batch
+        ?backlog
+        ?drop_incoming_connections
+        ?socket
+        ?time_source
+        ~on_handler_error
+        where_to_listen
+        handle_client
   ;;
 
   let create_sock
@@ -578,56 +809,6 @@ module Server = struct
            ~rest:`Log
            ~name:"Tcp.Server.create_sock"
            (fun () -> handle_client client_address client_socket))
-  ;;
-
-  let create_sock_inet_internal
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
-        ?time_source
-        ~on_handler_error
-        (where_to_listen : Where_to_listen.inet)
-        handle_client
-    =
-    let time_source =
-      match time_source with
-      | Some x -> Time_source.read_only x
-      | None -> Time_source.wall_clock ()
-    in
-    let socket, should_set_reuseaddr =
-      match socket with
-      | Some socket -> socket, false
-      | None -> Socket.create where_to_listen.socket_type, true
-    in
-    let socket =
-      try
-        let socket =
-          Socket.bind_inet ~reuseaddr:should_set_reuseaddr socket where_to_listen.address
-        in
-        Socket.listen ?backlog socket
-      with
-      | exn ->
-        don't_wait_for (Unix.close (Socket.fd socket));
-        raise exn
-    in
-    let max_connections =
-      Max_connections.create
-        ~limit:(get_max_connections_limit max_connections)
-        ~time_source
-        (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
-           otherwise the [Info.t] won't have been set yet. *)
-        ~listening_on:(Fd.info (Socket.fd socket))
-    in
-    create_from_socket
-      ~max_connections
-      ?max_accepts_per_batch
-      ?drop_incoming_connections
-      ~on_handler_error
-      where_to_listen
-      handle_client
-      socket
   ;;
 
   let create_sock_inet

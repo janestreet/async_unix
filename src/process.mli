@@ -56,6 +56,7 @@ type 'a create =
   -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
+  -> ?setpgid:Unix.Pgid.t
   -> prog:string
   -> args:string list
   -> unit

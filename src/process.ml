@@ -24,6 +24,7 @@ type 'a create =
   -> ?prog_search_path:string list
   -> ?stdin:string
   -> ?working_dir:string
+  -> ?setpgid:Core_unix.Pgid.t
   -> prog:string
   -> args:string list
   -> unit
@@ -36,6 +37,7 @@ let create
       ?prog_search_path
       ?stdin:write_to_stdin
       ?working_dir
+      ?setpgid
       ~prog
       ~args
       ()
@@ -49,6 +51,7 @@ let create
         ?working_dir
         ?prog_search_path
         ?argv0
+        ?setpgid
         ())
   with
   | Error exn -> Or_error.of_exn exn
@@ -93,8 +96,29 @@ let create
     Ok t
 ;;
 
-let create_exn ?argv0 ?buf_len ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () =
-  create ?argv0 ?buf_len ?env ?prog_search_path ?stdin ?working_dir ~prog ~args ()
+let create_exn
+      ?argv0
+      ?buf_len
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ?setpgid
+      ~prog
+      ~args
+      ()
+  =
+  create
+    ?argv0
+    ?buf_len
+    ?env
+    ?prog_search_path
+    ?stdin
+    ?working_dir
+    ?setpgid
+    ~prog
+    ~args
+    ()
   >>| ok_exn
 ;;
 
