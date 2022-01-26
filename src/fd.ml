@@ -35,16 +35,11 @@ end
 let to_string t = Sexp.to_string_hum (sexp_of_t t)
 let the_one_and_only () = Scheduler.the_one_and_only ()
 
-let create ?avoid_nonblock_if_possible kind file_descr info =
-  Scheduler.create_fd
-    ?avoid_nonblock_if_possible
-    (the_one_and_only ())
-    kind
-    file_descr
-    info
+let create ?avoid_setting_nonblock kind file_descr info =
+  Scheduler.create_fd ?avoid_setting_nonblock (the_one_and_only ()) kind file_descr info
 ;;
 
-(* If possible, we try not to treat [stdin], [stdout], or [stderr] as nonblocking so that
+(* We do not make [stdin], [stdout], or [stderr] nonblocking so that
    one can use Core I/O libraries simultaneously with async without them failing due to
    [Sys_blocked_io]. *)
 let create_std_descr file_descr info =
@@ -52,7 +47,7 @@ let create_std_descr file_descr info =
     (Kind.blocking_infer_using_stat file_descr)
     file_descr
     info
-    ~avoid_nonblock_if_possible:true
+    ~avoid_setting_nonblock:true
 ;;
 
 let stdin = Memo.unit (fun () -> create_std_descr Unix.stdin (Info.of_string "<stdin>"))
@@ -65,14 +60,18 @@ let stderr =
   Memo.unit (fun () -> create_std_descr Unix.stderr (Info.of_string "<stderr>"))
 ;;
 
+let supports_nonblock t = Fd.supports_nonblock t
+
 let clear_nonblock t =
-  if t.supports_nonblock
-  then (
-    t.supports_nonblock <- false;
-    if t.have_set_nonblock
-    then (
-      t.have_set_nonblock <- false;
-      Unix.clear_nonblock t.file_descr))
+  (* By setting [t.can_set_nonblock] to false we're making the user choice persistent:
+     the next time a nonblocking operation is attempted it simply won't work, instead of
+     ignoring the user choice and setting nonblock anyway *)
+  t.can_set_nonblock <- false;
+  match t.nonblock_status with
+  | Blocking -> ()
+  | Nonblocking | Unknown ->
+    t.nonblock_status <- Blocking;
+    Unix.clear_nonblock t.file_descr
 ;;
 
 module Close = struct
@@ -136,8 +135,8 @@ let close_started t =
   | Close_requested _ | Closed -> return ()
 ;;
 
-let create_borrowed ?avoid_nonblock_if_possible kind file_descr info ~f =
-  let fd = create ?avoid_nonblock_if_possible kind file_descr info in
+let create_borrowed ?avoid_setting_nonblock kind file_descr info ~f =
+  let fd = create ?avoid_setting_nonblock kind file_descr info in
   Monitor.protect
     ~run:`Schedule
     ~rest:`Log

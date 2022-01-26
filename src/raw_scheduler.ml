@@ -101,8 +101,8 @@ let with_execution_context t context ~f =
   Kernel_scheduler.with_execution_context t.kernel_scheduler context ~f
 ;;
 
-let create_fd ?avoid_nonblock_if_possible t kind file_descr info =
-  let fd = Fd.create ?avoid_nonblock_if_possible kind file_descr info in
+let create_fd ?avoid_setting_nonblock t kind file_descr info =
+  let fd = Fd.create ?avoid_setting_nonblock kind file_descr info in
   match Fd_by_descr.add t.fd_by_descr fd with
   | Ok () -> fd
   | Error error ->

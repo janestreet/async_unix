@@ -18,7 +18,8 @@ let system s = In_thread.syscall_exn ~name:"system" (fun () -> Unix.system s)
 let system_exn s =
   let%map status = system s in
   if not (Result.is_ok status)
-  then raise_s [%message "system failed" ~_:(s : string) (status : Exit_or_signal.t)]
+  then
+    raise_s [%message "shell command failed" ~_:(s : string) (status : Exit_or_signal.t)]
 ;;
 
 let getpid () = Unix.getpid ()

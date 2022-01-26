@@ -1265,7 +1265,9 @@ let process_log_redirecting_all_errors t r output =
      | `Call f -> f (Error.of_exn e))
 ;;
 
-let create ~level ~output ~on_error ?time_source ?transform () : t =
+let create_internal ~level ~output ~on_error ~time_source ~transform : t =
+  (* this has no optional args so that we make sure to update/consider all internal call
+     sites if the signature changes *)
   let r, w = Pipe.create () in
   let time_source =
     match time_source with
@@ -1287,6 +1289,13 @@ let create ~level ~output ~on_error ?time_source ?transform () : t =
   t
 ;;
 
+module For_external_use_only = struct
+  (* a more convenient interface for use externally *)
+  let create ~level ~output ~on_error ?time_source ?transform () : t =
+    create_internal ~level ~output ~on_error ~time_source ~transform
+  ;;
+end
+
 let set_output t outputs =
   t.output_is_disabled <- List.is_empty outputs;
   t.current_output <- outputs;
@@ -1294,6 +1303,7 @@ let set_output t outputs =
 ;;
 
 let get_output t = t.current_output
+let get_on_error t = t.on_error
 let set_on_error t handler = t.on_error <- handler
 let level t = t.current_level
 let set_level t level = t.current_level <- level
@@ -1301,6 +1311,15 @@ let get_time_source t = t.current_time_source
 let set_time_source t time_source = t.current_time_source <- time_source
 let get_transform t = t.transform
 let set_transform t f = t.transform <- f
+
+let copy t =
+  create_internal
+    ~level:(level t)
+    ~output:(get_output t)
+    ~on_error:(get_on_error t)
+    ~time_source:(Some (get_time_source t))
+    ~transform:(get_transform t)
+;;
 
 (* would_log is broken out and tested separately for every sending function to avoid the
    overhead of message allocation when we are just going to drop the message. *)
@@ -1448,11 +1467,12 @@ let error_s ?time ?tags t the_sexp = sexp ~level:`Error ?time ?tags t the_sexp
 let%bench_module "unused log messages" =
   (module struct
     let (log : t) =
-      create
+      create_internal
         ~level:`Info
         ~output:[ Output.file `Text ~filename:"/dev/null" ]
         ~on_error:`Raise
-        ()
+        ~time_source:None
+        ~transform:None
     ;;
 
     let%bench "unused printf" = debug log "blah"
@@ -1562,11 +1582,12 @@ module Make_global () : Global_intf = struct
 
   let log =
     lazy
-      (create
+      (create_internal
          ~level:`Info
          ~output:[ Output.stderr () ]
          ~on_error:(`Call send_errors_to_top_level_monitor)
-         ())
+         ~time_source:None
+         ~transform:None)
   ;;
 
   let level () = level (Lazy.force log)
@@ -1821,10 +1842,12 @@ module For_testing = struct
 
   let create ~map_output level =
     let output = [ create_output ~map_output ] in
-    create ~output ~level ~on_error:`Raise ()
+    create_internal ~output ~level ~on_error:`Raise ~time_source:None ~transform:None
   ;;
 end
 
 module Private = struct
   module Message = Message
 end
+
+include For_external_use_only

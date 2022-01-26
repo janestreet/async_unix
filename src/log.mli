@@ -464,10 +464,11 @@ val get_transform : t -> (Message.t -> Message.t) option
 
 val set_transform : t -> (Message.t -> Message.t) option -> unit
 
-
 (** If [`Raise] is given, then background errors raised by logging will be raised to the
     monitor that was in scope when [create] was called.  Errors can be redirected anywhere
     by providing [`Call f]. *)
+val get_on_error : t -> [ `Raise | `Call of Error.t -> unit ]
+
 val set_on_error : t -> [ `Raise | `Call of Error.t -> unit ] -> unit
 
 (** Any call that writes to a log after [close] is called will raise. *)
@@ -493,6 +494,9 @@ val create
   -> ?transform:(Message.t -> Message.t)
   -> unit
   -> t
+
+(** Creates a copy of a log, which has the same settings and logs to the same outputs. *)
+val copy : t -> t
 
 (** Printf-like logging for messages at each log level or raw (no level) messages. Raw
     messages still include a timestamp. *)

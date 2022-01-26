@@ -70,10 +70,10 @@ val to_string : t -> string
     used within the Async implementation -- clients shouldn't need it unless they are
     mixing Async and non-Async code.
 
-    If [avoid_nonblock_if_possible], then Async will treat the file descriptor as blocking
-    if it can (more precisely, if it's not a bound socket). *)
+    If [avoid_setting_nonblock], then Async will not set nonblock flag on the file
+    descriptor. The fd will be used in accordance with the existing flag. *)
 val create
-  :  ?avoid_nonblock_if_possible:bool (** default is [false] *)
+  :  ?avoid_setting_nonblock:bool (** default is [false] *)
   -> Kind.t
   -> Unix.File_descr.t
   -> Info.t
@@ -88,7 +88,7 @@ val create
 
     The caller must not close [descr] while [create_borrowed] is running. *)
 val create_borrowed
-  :  ?avoid_nonblock_if_possible:bool (** default is [false] *)
+  :  ?avoid_setting_nonblock:bool (** default is [false] *)
   -> Kind.t
   -> Unix.File_descr.t
   -> Info.t
