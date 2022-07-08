@@ -4,7 +4,7 @@ module type Rotation_id_intf = sig
 
   val create
     :  ?time_source:Async_kernel.Synchronous_time_source.t
-    -> Core.Time.Zone.t
+    -> Core.Time_float.Zone.t
     -> t
 
   (* For any rotation scheme that renames logs on rotation, this defines how to do
@@ -18,7 +18,7 @@ end
 
 module Stable = struct
   open! Core.Core_stable
-  module Time = Time_unix.Stable
+  module Time = Time_float_unix.Stable
 
   module Level = struct
     module V1 = struct
@@ -793,8 +793,7 @@ end = struct
            let cutoff = Time.sub now span in
            Deferred.List.filter files ~f:(fun (_, filename) ->
              Deferred.Or_error.try_with
-               ~run:
-                 `Schedule
+               ~run:`Schedule
                ~rest:`Log
                (fun () -> Unix.stat filename)
              >>| function
@@ -809,8 +808,7 @@ end = struct
            List.drop files i)
         >>= Deferred.List.map ~f:(fun (_i, filename) ->
           Deferred.Or_error.try_with
-            ~run:
-              `Schedule
+            ~run:`Schedule
             ~rest:`Log
             (fun () -> Unix.unlink filename))
         >>| fun (_ : unit Or_error.t list) -> ()
@@ -1252,7 +1250,6 @@ let create_log_processor ~output =
 
 let process_log_redirecting_all_errors t r output =
   Monitor.try_with
-    ~run:`Schedule
     ~rest:`Log
     (fun () ->
        let process_log = create_log_processor ~output in
@@ -1420,8 +1417,7 @@ let surround_s ?level ?time ?tags t msg f =
     ?tags
     ~try_with:
       (Monitor.try_with
-         ~run:
-           `Schedule
+         ~run:`Schedule
          ~rest:`Log )
     ~map_return:Deferred.map
     ~log_sexp:(fun ?tags s -> sexp ?tags ?level ?time t s)
@@ -1434,8 +1430,7 @@ let surroundf ?level ?time ?tags t fmt =
     ?tags
     ~try_with:
       (Monitor.try_with
-         ~run:
-           `Schedule
+         ~run:`Schedule
          ~rest:`Log )
     ~map_return:Deferred.map
     ~log_string:(fun ?tags -> string ?tags ?level ?time t)
@@ -1682,6 +1677,13 @@ module Blocking : sig
     -> ('a, unit, string, unit) format4
     -> 'a
 
+  val printf
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> ('a, unit, string, unit) format4
+    -> 'a
+
   val sexp
     :  ?level:Level.t
     -> ?time:Time.t
@@ -1759,6 +1761,7 @@ end = struct
     if would_log level then write (create_message ?level ?time ?tags (`String s))
   ;;
 
+  let printf ?level ?time ?tags k = gen ?level ?time ?tags k
   let raw ?time ?tags k = gen ?time ?tags k
   let debug ?time ?tags k = gen ~level:`Debug ?time ?tags k
   let info ?time ?tags k = gen ~level:`Info ?time ?tags k

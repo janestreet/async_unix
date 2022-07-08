@@ -19,10 +19,12 @@ module Where_to_connect = struct
   let remote_address t = t.remote_address ()
 
   let create_local_address ~bind_to_address ~bind_to_port =
-    let port = Option.value bind_to_port ~default:0 in
-    match bind_to_address with
-    | None -> Socket.Address.Inet.create_bind_any ~port
-    | Some inet_addr -> Socket.Address.Inet.create ~port inet_addr
+    match bind_to_address, bind_to_port with
+    | None, None -> None
+    | None, Some port -> Some (Socket.Address.Inet.create_bind_any ~port)
+    | Some inet_addr, bind_to_port ->
+      let port = Option.value bind_to_port ~default:0 in
+      Some (Socket.Address.Inet.create ~port inet_addr)
   ;;
 
   let of_host_and_port ?bind_to_address ?bind_to_port ({ Host_and_port.host; port } as hp)
@@ -32,7 +34,7 @@ module Where_to_connect = struct
         (fun () ->
            Unix.Inet_addr.of_string_or_getbyname host
            >>| fun inet_addr -> Socket.Address.Inet.create inet_addr ~port)
-    ; local_address = Some (create_local_address ~bind_to_address ~bind_to_port)
+    ; local_address = create_local_address ~bind_to_address ~bind_to_port
     ; info = [%sexp (hp : Host_and_port.t)]
     }
   ;;
@@ -48,7 +50,7 @@ module Where_to_connect = struct
   let of_inet_address ?bind_to_address ?bind_to_port address =
     { socket_type = Socket.Type.tcp
     ; remote_address = (fun () -> return address)
-    ; local_address = Some (create_local_address ~bind_to_address ~bind_to_port)
+    ; local_address = create_local_address ~bind_to_address ~bind_to_port
     ; info = [%sexp_of: Socket.Address.Inet.t] address
     }
   ;;
@@ -138,15 +140,6 @@ let connect_sock
          raise_s [%sexp "connection attempt aborted", (address : string)]))
 ;;
 
-type 'a with_connect_options =
-  ?buffer_age_limit:[ `At_most of Time.Span.t | `Unlimited ]
-  -> ?interrupt:unit Deferred.t
-  -> ?reader_buffer_size:int
-  -> ?writer_buffer_size:int
-  -> ?timeout:Time.Span.t
-  -> ?time_source:Time_source.t
-  -> 'a
-
 let connect
       ?socket
       ?buffer_age_limit
@@ -173,8 +166,7 @@ let collect_errors writer f =
     [ choice (Monitor.get_next_error monitor) (fun e -> Error e)
     ; choice
         (Monitor.try_with
-           ~run:
-             `Schedule
+           ~run:`Schedule
            ~rest:`Log
            ~name:"Tcp.collect_errors"
            f)
@@ -804,8 +796,7 @@ module Server = struct
       where_to_listen
       (fun client_address client_socket ->
          Monitor.try_with
-           ~run:
-             `Schedule
+           ~run:`Schedule
            ~rest:`Log
            ~name:"Tcp.Server.create_sock"
            (fun () -> handle_client client_address client_socket))
@@ -833,8 +824,7 @@ module Server = struct
       where_to_listen
       (fun client_address client_socket ->
          Monitor.try_with
-           ~run:
-             `Schedule
+           ~run:`Schedule
            ~rest:`Log
            ~name:"Tcp.Server.create_sock_inet"
            (fun () -> handle_client client_address client_socket))
@@ -927,6 +917,17 @@ module Server = struct
   module Private = struct
     let fd = fd
   end
+end
+
+module Aliases = struct
+  type 'a with_connect_options =
+    ?buffer_age_limit:[ `At_most of Time.Span.t | `Unlimited ]
+    -> ?interrupt:unit Deferred.t
+    -> ?reader_buffer_size:int
+    -> ?writer_buffer_size:int
+    -> ?timeout:Time.Span.t
+    -> ?time_source:Time_source.t
+    -> 'a
 end
 
 module Private = struct

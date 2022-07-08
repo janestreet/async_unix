@@ -49,7 +49,7 @@ type env = Unix.env [@@deriving sexp]
     returns an [Error].
 
     See [Core_unix.create_process_env] for more details. *)
-type 'a create =
+type 'a create :=
   ?argv0:string
   -> ?buf_len:int
   -> ?env:env (** default is [`Extend []] *)
@@ -114,8 +114,12 @@ val collect_output_and_wait : t -> Output.t Deferred.t
     [String.split_lines].
 
     [run_expect_no_output] is like [run] but expects the command to produce no output, and
-    returns an error if the command does produce output. *)
-type 'a run =
+    returns an error if the command does produce output.
+
+    [run_forwarding] is like [run] but it forwards the stdout and stderr of the child
+    process to the stdout and stderr of the calling process.
+*)
+type 'a run :=
   ?accept_nonzero_exit:int list (** default is [] *)
   -> ?argv0:string
   -> ?env:env (** default is [`Extend []] *)
@@ -133,15 +137,24 @@ val run_lines : string list Or_error.t run
 val run_lines_exn : string list run
 val run_expect_no_output : unit Or_error.t run
 val run_expect_no_output_exn : unit run
+val run_forwarding : unit Or_error.t run
+val run_forwarding_exn : unit run
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
     [run_lines] but work from an existing process instead of creating a new one. *)
-type 'a collect = ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
+type 'a collect :=
+  ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
 
 val collect_stdout_and_wait : string Or_error.t collect
 val collect_stdout_and_wait_exn : string collect
 val collect_stdout_lines_and_wait : string list Or_error.t collect
 val collect_stdout_lines_and_wait_exn : string list collect
+
+(** [forward_output_and_wait] is like [run_forwarding] but works from an existing process
+    instead of creating a new one. *)
+
+val forward_output_and_wait : unit Or_error.t collect
+val forward_output_and_wait_exn : unit collect
 
 (** Sends a signal to this process. This is safe to call concurrently with [wait t], even
     if the Pid is reused after the process died.
@@ -171,4 +184,12 @@ module Lines_or_sexp : sig
   type t [@@deriving sexp_of]
 
   val create : string -> t
+end
+
+(** Aliases exposed for other libraries that want to match Process's style of process
+    manipulation, but not really part of the modules proper interface. *)
+module Aliases : sig
+  type nonrec 'a create = 'a create
+  type nonrec 'a run = 'a run
+  type nonrec 'a collect = 'a collect
 end

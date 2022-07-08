@@ -34,9 +34,9 @@ module type Require_explicit_time_source = sig
     val today : zone:Time.Zone.t -> t [@@deprecated "[since 2019-05] Use [Time_source]"]
   end
 
-  module Time : sig
+  module Time_float : sig
     include module type of struct
-      include Time_unix
+      include Time_float_unix
     end
 
     module Ofday : sig
@@ -50,6 +50,23 @@ module type Require_explicit_time_source = sig
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
+  module Time : sig
+    include module type of struct
+      include Time_float_unix
+    end
+
+    module Ofday : sig
+      include module type of struct
+        include Ofday
+      end
+
+      val now : zone:Zone.t -> t [@@deprecated "[since 2019-05] Use [Time_source]"]
+    end
+
+    val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
+  end
+  [@@deprecated "[since 2022-04] Use [Time_float]"]
+
   module Time_ns : sig
     include module type of struct
       include Time_ns_unix
@@ -60,11 +77,12 @@ module type Require_explicit_time_source = sig
         include Ofday
       end
 
-      val now : zone:Time.Zone.t -> t [@@deprecated "[since 2019-05] Use [Time_source]"]
+      val now : zone:Time_float.Zone.t -> t
+      [@@deprecated "[since 2019-05] Use [Time_source]"]
     end
 
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
-  module Clock : Async_kernel.Clock_ns.Clock_deprecated with module Time := Time
+  module Clock : Async_kernel.Clock_ns.Clock_deprecated with module Time := Time_float
 end

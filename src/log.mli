@@ -292,6 +292,13 @@ module Blocking : sig
     -> ('a, unit, string, unit) format4
     -> 'a
 
+  val printf
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> ('a, unit, string, unit) format4
+    -> 'a
+
   val raw_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val info_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit
   val error_s : ?time:Time.t -> ?tags:(string * string) list -> Sexp.t -> unit

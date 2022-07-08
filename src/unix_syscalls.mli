@@ -545,6 +545,7 @@ module Socket : sig
     val debug : bool t
     val broadcast : bool t
     val reuseaddr : bool t
+    val reuseport : bool t
     val keepalive : bool t
     val dontroute : bool t
     val oobinline : bool t

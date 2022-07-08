@@ -1,6 +1,29 @@
 (** An interruptor provides a file descriptor that can be used to cause a
     file-descr-watcher to detect the file descriptor is ready for reading.  We use an
-    interruptor when a thread needs the Async scheduler to service a request. *)
+    interruptor when a thread needs the Async scheduler to service a request.
+
+    Knock, knock.
+    Who's there?
+    Interruptor cow.
+    Interrup-
+    {v
+       _________________________
+      /                         \
+      |   __  __  ____   ____   |
+      |  |  \/  |/ __ \ / __ \  |
+      |  | \  / | |  | | |  | | |
+      |  | |\/| | |  | | |  | | |
+      |  | |  | | |__| | |__| | |
+      |  |_|  |_|\____/ \____/  |
+      \                         /
+       -------------------------
+              \   ^__^
+               \  (oo)\_______
+                  (__)\       )\/\
+                      ||----w |
+                      ||     ||
+    v}
+*)
 
 open! Core
 open! Import

@@ -1,7 +1,7 @@
 open Core
 module Unix = Core_unix
 module Thread = Core_thread
-module Time = Time_unix
+module Time = Time_float_unix
 module Time_ns = Time_ns_unix
 include Int.Replace_polymorphic_compare
 include Async_kernel

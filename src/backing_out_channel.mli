@@ -8,7 +8,7 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-type output_chars = bigstring -> len:int -> unit
+type output_chars := bigstring -> len:int -> unit
 
 val of_out_channel : Out_channel.t -> t
 val of_output_char : (char -> unit) -> t

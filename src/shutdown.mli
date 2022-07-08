@@ -16,6 +16,12 @@ open! Import
     raise. *)
 val shutdown : ?force:unit Deferred.t -> int -> unit
 
+(** Like [shutdown], except that the process dies with a signal instead of an error code.
+    Raises unless [Signal.default_sys_behavior] of the signal is [`Terminate] or
+    [`Dump_core]. Instead of exiting, the process restores the default behavior of the
+    signal and sends the signal to itself. *)
+val shutdown_with_signal_exn : ?force:unit Deferred.t -> Signal.t -> unit
+
 (** [shutdown_on_unhandled_exn ()] arranges things so that whenever there is an
     asynchronous unhandled exception, an error message is printed to stderr and [shutdown
     1] is called.  This is useful when one wants to ensure that [at_shutdown] handlers run
@@ -57,9 +63,23 @@ val default_force : unit -> unit -> unit Deferred.t
     a library, yet want to modify its behavior.  *)
 val set_default_force : (unit -> unit Deferred.t) -> unit
 
+module Status : sig
+  type t =
+    | Exit of int
+    | Signal of Signal.t
+  [@@deriving sexp_of]
+end
+
+module Maybe_status : sig
+  type t =
+    | No
+    | Yes of Status.t
+  [@@deriving sexp_of]
+end
+
 (** [shutting_down ()] reports whether we are currently shutting down, and if so, with
     what status. *)
-val shutting_down : unit -> [ `No | `Yes of int ]
+val shutting_down : unit -> Maybe_status.t
 
 val is_shutting_down : unit -> bool
 

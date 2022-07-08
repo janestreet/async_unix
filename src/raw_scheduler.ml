@@ -47,6 +47,9 @@ type t =
        the last time their desired state was set in the [file_descr_watcher]. *)
     fds_whose_watching_has_changed : Fd.t Stack.t
   ; file_descr_watcher : File_descr_watcher.t
+  ; (* Returns how many events the poll has processed. *)
+    busy_pollers : (unit -> int) Uniform_array.t
+  ; mutable num_busy_pollers : int
   ; mutable time_spent_waiting_for_io : Tsc.Span.t
   ; (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
        when they are created, and removed when they transition to [Closed]. *)
@@ -99,22 +102,6 @@ let current_execution_context t =
 
 let with_execution_context t context ~f =
   Kernel_scheduler.with_execution_context t.kernel_scheduler context ~f
-;;
-
-let create_fd ?avoid_setting_nonblock t kind file_descr info =
-  let fd = Fd.create ?avoid_setting_nonblock kind file_descr info in
-  match Fd_by_descr.add t.fd_by_descr fd with
-  | Ok () -> fd
-  | Error error ->
-    let backtrace = if am_running_inline_test then None else Some (Backtrace.get ()) in
-    raise_s
-      [%message
-        "Async was unable to add a file descriptor to its table of open file descriptors"
-          (file_descr : File_descr.t)
-          (error : Error.t)
-          (backtrace : (Backtrace.t option[@sexp.option]))
-          ~scheduler:
-            (if am_running_inline_test then None else Some t : (t option[@sexp.option]))]
 ;;
 
 let thread_pool_cpu_affinity t = Thread_pool.cpu_affinity t.thread_pool
@@ -187,6 +174,37 @@ let the_one_and_only () =
   | Not_ready_to_initialize | Ready_to_initialize _ -> the_one_and_only_uncommon_case ()
 ;;
 
+let fds_created_before_initialization = ref []
+
+let create_fd_registration t fd =
+  match Fd_by_descr.add t.fd_by_descr fd with
+  | Ok () -> ()
+  | Error error ->
+    let backtrace = if am_running_inline_test then None else Some (Backtrace.get ()) in
+    raise_s
+      [%message
+        "Async was unable to add a file descriptor to its table of open file descriptors"
+          ~file_descr:(Fd.file_descr fd : File_descr.t)
+          (error : Error.t)
+          (backtrace : (Backtrace.t option[@sexp.option]))
+          ~scheduler:
+            (if am_running_inline_test then None else Some t : (t option[@sexp.option]))]
+;;
+
+let create_fd ?avoid_setting_nonblock kind file_descr info =
+  (* We make it possible to create a writer without initializing the async scheduler, as
+     this is something that happens a fair amount at toplevel of programs. *)
+  let fd = Fd.create ?avoid_setting_nonblock kind file_descr info in
+  if is_initialized ()
+  then create_fd_registration (the_one_and_only ()) fd
+  else
+    Nano_mutex.critical_section mutex_for_initializing_the_one_and_only_ref ~f:(fun () ->
+      if is_initialized ()
+      then create_fd_registration (the_one_and_only ()) fd
+      else fds_created_before_initialization := fd :: !fds_created_before_initialization);
+  fd
+;;
+
 let current_thread_id () = Core_thread.(id (self ()))
 
 (* OCaml runtime happens to assign the thread id of [0] to the main thread
@@ -240,6 +258,8 @@ let invariant t : unit =
              with
              | exn ->
                raise_s [%message "fd problem" (exn : exn) (file_descr : File_descr.t)])))
+      ~busy_pollers:ignore
+      ~num_busy_pollers:ignore
       ~time_spent_waiting_for_io:ignore
       ~fd_by_descr:
         (check (fun fd_by_descr ->
@@ -476,6 +496,63 @@ let post_check_handle_fd t file_descr read_or_write value =
     | _ -> post_check_invalid_fd file_descr)
 ;;
 
+external magic_trace_long_async_cycle : unit -> unit = "magic_trace_long_async_cycle"
+[@@noalloc]
+
+let cycle_took_longer_than_100us =
+  let open Bool.Non_short_circuiting in
+  let ( > ) = Time_ns.Span.( > ) in
+  let too_long = ref false in
+  let[@inline] too_long_if bool = too_long := !too_long || bool in
+  fun [@inline never] ~cycle_time ->
+    too_long := false;
+    [%probe "magic_trace_async_cycle_longer_than_100us" (too_long := true)];
+    [%probe
+      "magic_trace_async_cycle_longer_than_1ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 1))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_10ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 10))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_100ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 100))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_1s"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 1))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_10s"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 10))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_30s"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 30))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_1m"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 60))];
+    if !too_long then magic_trace_long_async_cycle ()
+;;
+
+let[@inline] maybe_report_long_async_cycles_to_magic_trace ~cycle_time =
+  let ( > ) = Time_ns.Span.( > ) in
+  (* This first check is lifted out to avoid the linear scan through each probe during
+     short async cycles. *)
+  if cycle_time > Time_ns.Span.of_int_us 100 then cycle_took_longer_than_100us ~cycle_time
+;;
+
+let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate" [@tags
+                 "64-bits-only"])
+  =
+  let cycle_time = Time_ns.Span.of_int_sec 15 in
+  let words_before = Gc.major_plus_minor_words () in
+  maybe_report_long_async_cycles_to_magic_trace ~cycle_time;
+  let words_after = Gc.major_plus_minor_words () in
+  [%test_result: int] (words_after - words_before) ~expect:0
+;;
+
+let[@inline] maybe_report_long_async_cycles_to_magic_trace t : unit =
+  maybe_report_long_async_cycles_to_magic_trace
+    ~cycle_time:t.kernel_scheduler.last_cycle_time
+;;
+
 let create
       ~mutex
       ?(thread_pool_cpu_affinity = Config.thread_pool_cpu_affinity)
@@ -561,6 +638,8 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; have_called_go = false
     ; fds_whose_watching_has_changed = Stack.create ()
     ; file_descr_watcher
+    ; busy_pollers = Uniform_array.create ~len:256 (fun () -> 0)
+    ; num_busy_pollers = 0
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
     ; timerfd
@@ -583,6 +662,8 @@ Async will be unable to timeout with sub-millisecond precision.|}]
   t_ref := Some t;
   detect_stuck_thread_pool t;
   update_check_access t Config.detect_invalid_access_from_thread;
+  List.iter (List.rev !fds_created_before_initialization) ~f:(create_fd_registration t);
+  fds_created_before_initialization := [];
   t
 ;;
 
@@ -612,6 +693,7 @@ let reset_in_forked_process ~take_the_lock =
       | None -> ()
       | Some tfd -> Unix.close (tfd :> Unix.File_descr.t)));
   Kernel_scheduler.reset_in_forked_process ();
+  fds_created_before_initialization := [];
   init ~take_the_lock
 ;;
 
@@ -664,6 +746,7 @@ let have_lock_do_cycle t =
   | Some f -> f ()
   | None ->
     Kernel_scheduler.run_cycle t.kernel_scheduler;
+    maybe_report_long_async_cycles_to_magic_trace t;
     (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
        events, or an unhandled exception. *)
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
@@ -752,6 +835,18 @@ let dump_core_on_job_delay () =
     Dump_core_on_job_delay.start_watching
       ~dump_if_delayed_by:(Time_ns.Span.to_span_float_round_nearest dump_if_delayed_by)
       ~how_to_dump
+;;
+
+let add_busy_poller t ~max_busy_wait_duration f =
+  if t.num_busy_pollers = Uniform_array.length t.busy_pollers
+  then raise_s [%message "[add_busy_poller] maximum number of pollers exceeded"];
+  Uniform_array.set t.busy_pollers t.num_busy_pollers f;
+  t.num_busy_pollers <- t.num_busy_pollers + 1;
+  t.max_inter_cycle_timeout
+  <- Max_inter_cycle_timeout.create_exn
+       (Time_ns.Span.min
+          (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
+          max_busy_wait_duration)
 ;;
 
 let init t =
@@ -848,6 +943,44 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   F.post_check F.watcher check_result
 ;;
 
+let[@inline always] run_busy_pollers_once t =
+  let did_work = ref false in
+  (try
+     for i = 0 to t.num_busy_pollers - 1 do
+       let poll = Uniform_array.unsafe_get t.busy_pollers i in
+       if poll () > 0 then did_work := true
+     done
+   with
+   | exn -> Monitor.send_exn Monitor.main exn);
+  !did_work
+;;
+
+let run_busy_pollers t ~timeout =
+  let calibrator = force Tsc.calibrator in
+  let timeout =
+    ref (Tsc.add (Tsc.now ()) (Tsc.Span.of_time_ns_span timeout ~calibrator))
+  in
+  let rec loop () =
+    let pollers_did_something = run_busy_pollers_once t in
+    let now = Tsc.now () in
+    if pollers_did_something
+    then
+      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+      then timeout := now
+      else if Kernel_scheduler.has_upcoming_event t.kernel_scheduler
+      then (
+        let new_timeout =
+          Time_ns.diff
+            (Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler)
+            (Time_ns.now ())
+          |> Tsc.Span.of_time_ns_span ~calibrator
+        in
+        timeout := Tsc.min !timeout (Tsc.add now new_timeout));
+    if Tsc.( < ) now !timeout then loop ()
+  in
+  loop ()
+;;
+
 (* We compute the timeout as the last thing before [check_file_descr_watcher], because
    we want to make sure the timeout is zero if there are any scheduled jobs.  The code
    is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
@@ -857,9 +990,10 @@ let check_file_descr_watcher t ~timeout span_or_unit =
 let compute_timeout_and_check_file_descr_watcher t =
   let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
   let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
+  let have_busy_pollers = t.num_busy_pollers > 0 in
   let file_descr_watcher_timeout =
-    match t.timerfd with
-    | None ->
+    match t.timerfd, have_busy_pollers with
+    | None, _ | Some _, true ->
       (* Since there is no timerfd, use the file descriptor watcher timeout. *)
       if Kernel_scheduler.can_run_a_job t.kernel_scheduler
       then min_inter_cycle_timeout
@@ -872,7 +1006,7 @@ let compute_timeout_and_check_file_descr_watcher t =
           (Time_ns.Span.max
              min_inter_cycle_timeout
              (Time_ns.diff next_event_at (Time_ns.now ()))))
-    | Some timerfd ->
+    | Some timerfd, false ->
       (* Set [timerfd] to fire if necessary, taking into account [can_run_a_job],
          [min_inter_cycle_timeout], and [next_event_at]. *)
       let have_min_inter_cycle_timeout =
@@ -905,7 +1039,13 @@ let compute_timeout_and_check_file_descr_watcher t =
         max_inter_cycle_timeout)
   in
   if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
-  then check_file_descr_watcher t ~timeout:Immediately ()
+  then (
+    ignore (run_busy_pollers_once t : bool);
+    check_file_descr_watcher t ~timeout:Immediately ())
+  else if have_busy_pollers
+  then (
+    run_busy_pollers t ~timeout:file_descr_watcher_timeout;
+    check_file_descr_watcher t ~timeout:Immediately ())
   else check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout
 ;;
 
@@ -972,6 +1112,17 @@ let set_task_id () =
     let thread_id = Thread.id (Thread.self ()) in
     [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]]
       (`pid pid, `thread_id thread_id)
+;;
+
+let raise_if_any_jobs_were_scheduled () =
+  match Kernel_scheduler.backtrace_of_first_job (Kernel_scheduler.t ()) with
+  | None -> ()
+  | Some bt ->
+    raise_s
+      [%sexp
+        "error: program is attempting to schedule async work too soon (at toplevel of a \
+         library, usually)"
+      , (bt : Backtrace.t)]
 ;;
 
 let go ?raise_unhandled_exn () =
@@ -1065,6 +1216,8 @@ let fold_fields (type a) ~init folder : a =
     ~have_called_go:f
     ~fds_whose_watching_has_changed:f
     ~file_descr_watcher:f
+    ~busy_pollers:f
+    ~num_busy_pollers:f
     ~time_spent_waiting_for_io:f
     ~fd_by_descr:f
     ~timerfd:f

@@ -63,28 +63,25 @@ let clear t =
      common case. *)
   if t.already_interrupted
   then
-    Fd.syscall_exn
-      (Read_write_pair.get t.pipe `Read)
-      ~nonblocking:true
-      (fun file_descr ->
-         let rec loop () =
-           let read_again =
-             try
-               let bytes_read =
-                 Unix.read_assume_fd_is_nonblocking
-                   file_descr
-                   t.clearbuffer
-                   ~pos:0
-                   ~len:(Bytes.length t.clearbuffer)
-               in
-               ignore (bytes_read : int);
-               true
-             with
-             | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> false
-           in
-           if read_again then loop ()
-         in
-         loop ());
+    Fd.syscall_exn (Read_write_pair.get t.pipe `Read) ~nonblocking:true (fun file_descr ->
+      let rec loop () =
+        let read_again =
+          try
+            let bytes_read =
+              Unix.read_assume_fd_is_nonblocking
+                file_descr
+                t.clearbuffer
+                ~pos:0
+                ~len:(Bytes.length t.clearbuffer)
+            in
+            ignore (bytes_read : int);
+            true
+          with
+          | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> false
+        in
+        if read_again then loop ()
+      in
+      loop ());
   (* We must clear [already_interrupted] after emptying the pipe.  If we did it before,
      a [thread_safe_interrupt] could come along in between.  We would then be left with
      [already_interrupted = true] and an empty pipe, which would then cause a

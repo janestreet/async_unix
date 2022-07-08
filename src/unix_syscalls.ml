@@ -350,8 +350,7 @@ let fchown fd ~uid ~gid =
 let access filename perm =
   match%map
     Monitor.try_with
-      ~run:
-        `Schedule
+      ~run:`Schedule
       ~rest:`Log
       (fun () ->
          In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
@@ -852,6 +851,7 @@ module Socket = struct
     let debug = bool "debug" SO_DEBUG
     let broadcast = bool "broadcast" SO_BROADCAST
     let reuseaddr = bool "reuseaddr" SO_REUSEADDR
+    let reuseport = bool "reuseport" SO_REUSEPORT
     let keepalive = bool "keepalive" SO_KEEPALIVE
     let dontroute = bool "dontroute" SO_DONTROUTE
     let oobinline = bool "oobinline" SO_OOBINLINE

@@ -105,7 +105,7 @@ type t =
   ; background_writer_stopped : unit Ivar.t
   ; (* [syscall] determines the batching approach that the writer uses to batch data
        together and flush it using the underlying write syscall. *)
-    syscall : [ `Per_cycle | `Periodic of Time.Span.t ]
+    syscall : [ `Per_cycle | `Periodic of Time_float.Span.t ]
   ; (* Counts since the writer was created. *)
     mutable bytes_received : Int63.t
   ; mutable bytes_written : Int63.t
@@ -151,7 +151,9 @@ type t =
        [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the
        close finishes, at which point it transitions to[None]. *)
     mutable flush_at_shutdown_elt : t Bag.Elt.t option
-  ; mutable check_buffer_age : t Check_buffer_age'.t Bag.Elt.t option
+  ; (* Lazy buffer age check so that forcing either [Writer.stdout] and [Writer.stderr]
+       doesn't schedule async work. *)
+    mutable check_buffer_age : t Check_buffer_age'.t Bag.Elt.t option Lazy.t
   ; (* The "consumer" of a writer is whomever is reading the bytes that the writer
        is writing.  E.g. if the writer's file descriptor is a socket, then it is whomever
        is on the other side of the socket connection.  If the consumer leaves, Unix will
@@ -226,7 +228,7 @@ let sexp_of_t_internals
                                 | `Stopped_permanently of Stop_reason.t
                                 ]
     ; background_writer_stopped : unit Ivar.t
-    ; syscall : [ `Per_cycle | `Periodic of Time.Span.t ]
+    ; syscall : [ `Per_cycle | `Periodic of Time_float.Span.t ]
     ; bytes_received : Int63.t
     ; bytes_written : Int63.t
     ; scheduled_bytes : int
@@ -245,6 +247,7 @@ let sexp_of_t_internals
         (suppress_in_test check_buffer_age : ((t[@sexp.opaque]) Check_buffer_age'.t
                                                 Bag.Elt.t
                                                 option
+                                                Lazy.t
                                                 option
                                               [@sexp.option]))
     ; consumer_left : unit Ivar.t
@@ -345,7 +348,7 @@ module Check_buffer_age : sig
   type t = writer Check_buffer_age'.t Bag.Elt.t option
 
   val dummy : t
-  val create : writer -> maximum_age:[ `At_most of Time.Span.t | `Unlimited ] -> t
+  val create : writer -> maximum_age:[ `At_most of Time_float.Span.t | `Unlimited ] -> t
   val destroy : t -> unit
   val too_old : t -> unit Deferred.t
 
@@ -699,27 +702,34 @@ let final_flush ?force t =
     ; Deferred.all_unit [ producers_flushed; flushed t ]
     ; force
       ; (* The buffer-age check might fire while we're waiting. *)
-      Check_buffer_age.too_old t.check_buffer_age
+      Check_buffer_age.too_old (Lazy.force t.check_buffer_age)
     ]
 ;;
 
-let close ?force_close t =
+let close_internal ~flush t =
   if debug then Debug.log "Writer.close" t [%sexp_of: t];
   (match t.close_state with
-   | `Closed_and_flushing | `Closed -> ()
+   | `Closed_and_flushing | `Closed ->
+     ()
    | `Open ->
      t.close_state <- `Closed_and_flushing;
      Ivar.fill t.close_started ();
-     final_flush t ?force:force_close
+     (match flush with
+      | `Flush force -> final_flush t ?force
+      | `No_flush -> return ())
      >>> fun () ->
      t.close_state <- `Closed;
-     Check_buffer_age.destroy t.check_buffer_age;
+     if Lazy.is_val t.check_buffer_age
+     then Check_buffer_age.destroy (force t.check_buffer_age);
      (match t.flush_at_shutdown_elt with
       | None -> assert false
       | Some elt -> Bag.remove writers_to_flush_at_shutdown elt);
      Unix.close t.fd >>> fun () -> Ivar.fill t.close_finished ());
   close_finished t
 ;;
+
+let close ?force_close t = close_internal ~flush:(`Flush force_close) t
+let close_noflush t = close_internal ~flush:`No_flush t
 
 let () =
   Shutdown.at_shutdown (fun () ->
@@ -772,7 +782,7 @@ let die t sexp =
 ;;
 
 type buffer_age_limit =
-  [ `At_most of Time.Span.t
+  [ `At_most of Time_float.Span.t
   | `Unlimited
   ]
 [@@deriving bin_io, sexp]
@@ -797,7 +807,7 @@ let create
     | None ->
       (match Fd.kind fd with
        | File -> `Unlimited
-       | Char | Fifo | Socket _ -> `At_most (Time.Span.of_min 2.))
+       | Char | Fifo | Socket _ -> `At_most (Time_float.Span.of_min 2.))
   in
   let buf_len =
     match buf_len with
@@ -840,7 +850,7 @@ let create
     ; close_started = Ivar.create ()
     ; producers_to_flush_at_close = Bag.create ()
     ; flush_at_shutdown_elt = None
-    ; check_buffer_age = Check_buffer_age.dummy
+    ; check_buffer_age = lazy Check_buffer_age.dummy
     ; consumer_left
     ; raise_when_consumer_leaves
     ; open_flags
@@ -856,14 +866,15 @@ let create
            "Writer error from inner_monitor"
              ~_:(Monitor.extract_exn exn : Exn.t)
              ~writer:(t : t)]));
-  t.check_buffer_age <- Check_buffer_age.create t ~maximum_age:buffer_age_limit;
+  t.check_buffer_age <- lazy (Check_buffer_age.create t ~maximum_age:buffer_age_limit);
   t.flush_at_shutdown_elt <- Some (Bag.add writers_to_flush_at_shutdown t);
   t
 ;;
 
 let set_buffer_age_limit t maximum_age =
-  Check_buffer_age.destroy t.check_buffer_age;
-  t.check_buffer_age <- Check_buffer_age.create t ~maximum_age
+  if Lazy.is_val t.check_buffer_age
+  then Check_buffer_age.destroy (force t.check_buffer_age);
+  t.check_buffer_age <- lazy (Check_buffer_age.create t ~maximum_age)
 ;;
 
 let of_out_channel oc kind = create (Fd.of_out_channel oc kind)
@@ -900,8 +911,11 @@ let with_close t ~f =
   Monitor.protect
     ~run:`Schedule
     ~rest:`Log
-    f
-    ~finally:(fun () -> close t)
+    (fun () ->
+       let%bind res = f () in
+       let%map () = final_flush t in
+       res)
+    ~finally:(fun () -> close_noflush t)
 ;;
 
 let with_writer_exclusive t f =
@@ -1110,6 +1124,8 @@ let maybe_start_writer t =
   | `Not_running ->
     if bytes_to_write t > 0
     then (
+      (* since we're writing, ensure the buffer age check is running *)
+      let (_ : _) = force t.check_buffer_age in
       t.background_writer_state <- `Running;
       (* We schedule the background writer thread to run with low priority, so that it
          runs at the end of the cycle and that all of the calls to Writer.write will
@@ -1692,7 +1708,7 @@ let make_writer_behave_nicely_in_pipeline writer =
   set_raise_when_consumer_leaves writer false;
   don't_wait_for
     (let%map () = consumer_left writer in
-     Shutdown.shutdown 0)
+     Shutdown.shutdown_with_signal_exn Signal.pipe)
 ;;
 
 let behave_nicely_in_pipeline ?writers () =

@@ -35,7 +35,7 @@ module Where_to_connect : sig
   val of_unix_address : Socket.Address.Unix.t -> unix
 end
 
-type 'a with_connect_options =
+type 'a with_connect_options :=
   ?buffer_age_limit:[ `At_most of Time.Span.t | `Unlimited ]
   -> ?interrupt:unit Deferred.t
   -> ?reader_buffer_size:int
@@ -323,6 +323,12 @@ module Server : sig
   module Private : sig
     val fd : _ t -> Fd.t
   end
+end
+
+(** Aliases exposed for other libraries that want to match TCP's style of connection
+    options, but it's not really part of TCP's proper interface. *)
+module Aliases : sig
+  type nonrec 'a with_connect_options = 'a with_connect_options
 end
 
 (**/**)

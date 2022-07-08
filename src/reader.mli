@@ -287,7 +287,7 @@ val read_line : t -> string Read_result.t Deferred.t
     operation is retried.  If the descriptor is closed, [None] will be returned. *)
 val really_read_line : wait_time:Time.Span.t -> t -> string option Deferred.t
 
-type 'a read = ?parse_pos:Sexp.Parse_pos.t -> 'a
+type 'a read := ?parse_pos:Sexp.Parse_pos.t -> 'a
 
 (** [read_sexp t] reads the next sexp. *)
 val read_sexp : (t -> Sexp.t Read_result.t Deferred.t) read
@@ -333,9 +333,17 @@ val read_marshal : t -> _ Read_result.t Deferred.t
 val recv : t -> Bytes.t Read_result.t Deferred.t
 
 (** [read_all t read_one] returns a pipe that receives all values read from [t] by
-    repeatedly using [read_one t].  When the reader reaches EOF, it closes the reader,
-    and then after the reader close is finished, closes the pipe. *)
-val read_all : t -> (t -> 'a Read_result.t Deferred.t) -> 'a Pipe.Reader.t
+    repeatedly using [read_one t].
+
+    When [close_when_finished] is [true], the reader is automatically closed when it
+    reaches EOF. Otherwise, the caller is responsible for closing the reader.
+
+    The returned pipe is closed when the reader reaches EOF. *)
+val read_all
+  :  ?close_when_finished:bool (** default: true *)
+  -> t
+  -> (t -> 'a Read_result.t Deferred.t)
+  -> 'a Pipe.Reader.t
 
 (** [lseek t offset ~mode] clears [t]'s buffer and calls [Unix.lseek] on [t]'s file
     descriptor.  The [`Cur] mode is not exposed because seeking relative to the current
@@ -372,7 +380,7 @@ val file_lines : string -> string list Deferred.t
 
     [load_sexps] is similar, but converts a sequence of sexps. *)
 
-type ('sexp, 'a, 'b) load =
+type ('sexp, 'a, 'b) load :=
   ?exclusive:bool (** default is [false] *) -> string -> ('sexp -> 'a) -> 'b Deferred.t
 
 val load_sexp : (Sexp.t, 'a, 'a Or_error.t) load
@@ -384,9 +392,12 @@ val load_annotated_sexp_exn : (Sexp.Annotated.t, 'a, 'a) load
 val load_annotated_sexps : (Sexp.Annotated.t, 'a, 'a list Or_error.t) load
 val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list) load
 
-type ('a, 'b) load_bin_prot =
+type ('a, 'b) load_bin_prot :=
   ?exclusive:bool (** default is [false] *)
   -> ?max_len:int
+  (** default is 100 MiB. This is only used to save you from accidentally loading a giant
+      file and is not used to size any internal buffers. So it's safe to pass a
+      arbitrarily large number if you're loading large files. *)
   -> string
   -> 'a Bin_prot.Type_class.reader
   -> 'b Deferred.t

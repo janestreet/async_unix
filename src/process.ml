@@ -17,19 +17,6 @@ type t =
   }
 [@@deriving fields, sexp_of]
 
-type 'a create =
-  ?argv0:string
-  -> ?buf_len:int
-  -> ?env:env
-  -> ?prog_search_path:string list
-  -> ?stdin:string
-  -> ?working_dir:string
-  -> ?setpgid:Core_unix.Pgid.t
-  -> prog:string
-  -> args:string list
-  -> unit
-  -> 'a Deferred.t
-
 let create
       ?argv0
       ?buf_len
@@ -193,14 +180,16 @@ module Failure = struct
   [@@deriving sexp_of]
 end
 
-type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
+let handle_exit_status ?(accept_nonzero_exit = []) = function
+  | Ok _ as ok -> ok
+  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n ~equal:Int.equal -> Ok ()
+  | Error _ as e -> e
+;;
 
-let collect_stdout_and_wait ?(accept_nonzero_exit = []) t =
+let collect_stdout_and_wait ?accept_nonzero_exit t =
   let%map { stdout; stderr; exit_status } = collect_output_and_wait t in
-  match exit_status with
+  match handle_exit_status ?accept_nonzero_exit exit_status with
   | Ok () -> Ok stdout
-  | Error (`Exit_non_zero n) when List.mem accept_nonzero_exit n ~equal:Int.equal ->
-    Ok stdout
   | Error exit_status ->
     let { prog; args; working_dir; env; _ } = t in
     Or_error.error
@@ -228,18 +217,6 @@ let collect_stdout_lines_and_wait =
 ;;
 
 let collect_stdout_lines_and_wait_exn = map_collect collect_stdout_lines_and_wait ok_exn
-
-type 'a run =
-  ?accept_nonzero_exit:int list
-  -> ?argv0:string
-  -> ?env:env
-  -> ?prog_search_path:string list
-  -> ?stdin:string
-  -> ?working_dir:string
-  -> prog:string
-  -> args:string list
-  -> unit
-  -> 'a Deferred.t
 
 let run
       ?accept_nonzero_exit
@@ -322,6 +299,50 @@ let run_expect_no_output
 
 let run_expect_no_output_exn = map_run run_expect_no_output ok_exn
 
+let transfer_and_close reader writer =
+  let%bind () = Reader.transfer reader (writer |> Writer.pipe) in
+  Reader.close reader
+;;
+
+let forward_output_and_wait ?accept_nonzero_exit t =
+  let%map () = Writer.close t.stdin ~force_close:(Deferred.never ())
+  and () = transfer_and_close t.stdout (Lazy.force Writer.stdout)
+  and () = transfer_and_close t.stderr (Lazy.force Writer.stderr)
+  and exit_status = wait t in
+  match handle_exit_status ?accept_nonzero_exit exit_status with
+  | Ok _ as ok -> ok
+  | Error exit_status ->
+    let { prog; args; working_dir; env; _ } = t in
+    Or_error.error_s
+      [%message
+        "Process.run failed"
+          (prog : string)
+          (args : string list)
+          (working_dir : string option)
+          (env : env)
+          (exit_status : Unix.Exit_or_signal.error)]
+;;
+
+let forward_output_and_wait_exn = map_collect forward_output_and_wait ok_exn
+
+let run_forwarding
+      ?accept_nonzero_exit
+      ?argv0
+      ?env
+      ?prog_search_path
+      ?stdin
+      ?working_dir
+      ~prog
+      ~args
+      ()
+  =
+  match%bind create ?argv0 ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () with
+  | Error _ as e -> return e
+  | Ok t -> forward_output_and_wait ?accept_nonzero_exit t
+;;
+
+let run_forwarding_exn = map_run run_forwarding ok_exn
+
 let send_signal_compat t signal =
   (* We don't force the lazy (and therefore we don't reap the PID) here. We only do
      that if the user calls [wait] explicitly. *)
@@ -360,3 +381,32 @@ let send_signal_compat_exn t signal =
 let send_signal t signal =
   ignore (send_signal_compat t signal : [ `Ok | `No_such_process ])
 ;;
+
+module Aliases = struct
+  type 'a create =
+    ?argv0:string
+    -> ?buf_len:int
+    -> ?env:env
+    -> ?prog_search_path:string list
+    -> ?stdin:string
+    -> ?working_dir:string
+    -> ?setpgid:Core_unix.Pgid.t
+    -> prog:string
+    -> args:string list
+    -> unit
+    -> 'a Deferred.t
+
+  type 'a run =
+    ?accept_nonzero_exit:int list
+    -> ?argv0:string
+    -> ?env:env
+    -> ?prog_search_path:string list
+    -> ?stdin:string
+    -> ?working_dir:string
+    -> prog:string
+    -> args:string list
+    -> unit
+    -> 'a Deferred.t
+
+  type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
+end

@@ -17,8 +17,7 @@ let when_file_changes
   let reader, writer = Pipe.create () in
   let rec loop () =
     Monitor.try_with
-      ~run:
-        `Schedule
+      ~run:`Schedule
       ~rest:`Log
       ~extract_exn:true
       (fun () -> Unix.stat file)

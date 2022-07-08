@@ -29,7 +29,11 @@ let of_pipe ?time_source info pipe_w =
 ;;
 
 module Private = struct
-  let set_bytes_received t i = t.bytes_received <- i
+  let set_bytes_received t i =
+    let (_ : _) = force t.check_buffer_age in
+    t.bytes_received <- i
+  ;;
+
   let set_bytes_written t i = t.bytes_written <- i
 
   module Check_buffer_age = Check_buffer_age

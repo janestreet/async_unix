@@ -201,8 +201,7 @@ module Internal = struct
 
   let with_close t ~f =
     Monitor.protect
-      ~run:
-        `Schedule
+      ~run:`Schedule
       ~rest:`Log
       f
       ~finally:(fun () -> close t)
@@ -211,8 +210,7 @@ module Internal = struct
   let with_reader_exclusive t f =
     let%bind () = Unix.lockf t.fd Shared in
     Monitor.protect
-      ~run:
-        `Schedule
+      ~run:`Schedule
       ~rest:`Log
       f
       ~finally:(fun () ->
@@ -956,7 +954,7 @@ module Internal = struct
     | `Ok buf -> `Ok (Marshal.from_bytes buf 0)
   ;;
 
-  let read_all t read_one =
+  let read_all ?(close_when_finished = true) t read_one =
     let pipe_r, pipe_w = Pipe.create () in
     let finished =
       Deferred.repeat_until_finished () (fun () ->
@@ -969,7 +967,8 @@ module Internal = struct
             let%map () = Pipe.write pipe_w one in
             `Repeat ()))
     in
-    upon finished (fun () -> close t >>> fun () -> Pipe.close pipe_w);
+    let maybe_close t = if close_when_finished then close t else return () in
+    upon finished (fun () -> maybe_close t >>> fun () -> Pipe.close pipe_w);
     pipe_r
   ;;
 
@@ -1178,7 +1177,7 @@ let recv t = do_read t (fun () -> recv t)
 
 (* [read_all] does not call [use t], because [read_one] will do so each time it is using
    [t]. *)
-let read_all t read_one = read_all t read_one
+let read_all ?close_when_finished t read_one = read_all ?close_when_finished t read_one
 
 let lines t =
   use t;
@@ -1261,8 +1260,7 @@ let gen_load_exn
   let load ~sexp_kind =
     match%map
       Monitor.try_with
-        ~run:
-          `Schedule
+        ~run:`Schedule
         ~rest:`Log
         ~extract_exn:true
         (fun () ->

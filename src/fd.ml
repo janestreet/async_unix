@@ -36,7 +36,7 @@ let to_string t = Sexp.to_string_hum (sexp_of_t t)
 let the_one_and_only () = Scheduler.the_one_and_only ()
 
 let create ?avoid_setting_nonblock kind file_descr info =
-  Scheduler.create_fd ?avoid_setting_nonblock (the_one_and_only ()) kind file_descr info
+  Scheduler.create_fd ?avoid_setting_nonblock kind file_descr info
 ;;
 
 (* We do not make [stdin], [stdout], or [stderr] nonblocking so that
@@ -96,8 +96,7 @@ module Close = struct
               | Do_not_close_file_descriptor -> return ()
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
-                  ~run:
-                    `Schedule
+                  ~run:`Schedule
                   ~rest:`Log
                   ~finally:(fun () ->
                     In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
@@ -159,8 +158,7 @@ let with_file_descr_deferred t f =
   | `Ok ->
     let%map result =
       Monitor.try_with
-        ~run:
-          `Schedule
+        ~run:`Schedule
         ~rest:`Log
         (fun () -> f t.file_descr)
     in

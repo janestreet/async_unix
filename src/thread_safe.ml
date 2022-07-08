@@ -88,8 +88,7 @@ let block_on_async t f =
       t
       (fun () ->
          Monitor.try_with
-           ~run:
-             `Schedule
+           ~run:`Schedule
            ~rest:`Log
            f
            ~name:"block_on_async")
