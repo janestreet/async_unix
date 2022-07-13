@@ -429,7 +429,17 @@ module Server = struct
       | `Socket_closed -> ()
       | `Ok conns ->
         (* It is possible that someone called [close t] after the [accept] returned but
-           before we got here.  In that case, we just close the clients. *)
+           before we got here.  In that case, we just close the clients.  One might argue
+           that if [close] was called with [close_existing_connections = false], then we
+           should not close these, but instead let the clients finish their business. One
+           may want this for example to arrange a smooth handover when using
+           [SO_REUSEPORT].
+           Unfortunately, even if we make this fix, a smooth handover
+           does not seem to be possible on Linux, since Linux assigns a connection to a
+           process before [accept] is called, which creates an inherent race between that
+           and [close]: any connections assigned to a listening socket at the time of
+           [close] will be dropped.
+           *)
         if is_closed t || t.drop_incoming_connections
         then
           List.iter conns ~f:(fun (sock, _) -> don't_wait_for (Fd.close (Socket.fd sock)))
