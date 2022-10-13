@@ -5,7 +5,6 @@ module Unix = Unix_syscalls
 module IOVec = Core_unix.IOVec
 module Id = Unique_id.Int63 ()
 
-let io_stats = Io_stats.create ()
 let debug = Debug.writer
 
 module Time_ns_suppress_sexp_in_test = struct
@@ -635,7 +634,6 @@ let with_synchronous_backing_out_channel t backing_out_channel ~f =
      could happen but in practice is exceedingly unlikely. *)
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     (fun () ->
        let%bind () = set_synchronous_backing_out_channel t backing_out_channel in
        f ())
@@ -910,7 +908,6 @@ let open_file
 let with_close t ~f =
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     (fun () ->
        let%bind res = f () in
        let%map () = final_flush t in
@@ -922,7 +919,6 @@ let with_writer_exclusive t f =
   let%bind () = Unix.lockf t.fd Exclusive in
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     f
     ~finally:(fun () ->
       let%map () = flushed t in
@@ -1072,9 +1068,7 @@ and write_when_ready t =
 and write_finished t bytes_written =
   if debug then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
   assert (is_running t.background_writer_state);
-  let int63_bytes_written = Int63.of_int bytes_written in
-  Io_stats.update io_stats ~kind:(Fd.kind t.fd) ~bytes:int63_bytes_written;
-  t.bytes_written <- Int63.(int63_bytes_written + t.bytes_written);
+  t.bytes_written <- Int63.(t.bytes_written + of_int bytes_written);
   if Int63.(t.bytes_written > t.bytes_received)
   then die t [%message "writer wrote more bytes than it received"];
   fill_flushes t;
@@ -1882,7 +1876,6 @@ let with_flushed_at_close t ~flushed ~f =
   let producers_to_flush_at_close_elt = Bag.add t.producers_to_flush_at_close flushed in
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     f
     ~finally:(fun () ->
       Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;

@@ -57,6 +57,7 @@ module Internal = struct
   type t =
     { fd : Fd.t
     ; id : Id.t
+    ; mutable bytes_read : Int63.t
     ; (* [buf] holds data read by the reader from the OS, but not yet read by user code.
          When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
          any code that accesses [buf] that [t] has not been closed.  In particular, after
@@ -98,6 +99,7 @@ module Internal = struct
         ; close_may_destroy_buf
         ; id
         ; fd
+        ; bytes_read
         ; last_read_time
         ; open_flags
         ; pos
@@ -116,10 +118,9 @@ module Internal = struct
       ; close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
       ; close_finished : unit Ivar.t
       ; fd = (fd |> unless_testing : (Fd.t option[@sexp.option]))
+      ; bytes_read : Int63.t
       }]
   ;;
-
-  let io_stats = Io_stats.create ()
 
   let invariant t : unit =
     assert (0 <= t.pos);
@@ -149,6 +150,7 @@ module Internal = struct
     in
     { fd
     ; id = Id.create ()
+    ; bytes_read = Int63.zero
     ; buf = Bigstring.create buf_len
     ; close_may_destroy_buf = `Yes
     ; pos = 0
@@ -202,7 +204,6 @@ module Internal = struct
   let with_close t ~f =
     Monitor.protect
       ~run:`Schedule
-      ~rest:`Log
       f
       ~finally:(fun () -> close t)
   ;;
@@ -211,7 +212,6 @@ module Internal = struct
     let%bind () = Unix.lockf t.fd Shared in
     Monitor.protect
       ~run:`Schedule
-      ~rest:`Log
       f
       ~finally:(fun () ->
         if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
@@ -274,10 +274,7 @@ module Internal = struct
              | Unix.Unix_error (EBADF, _, _) -> ebadf ()
              | _ -> handle exn)
           | `Ok (bytes_read, read_time) ->
-            Io_stats.update
-              io_stats
-              ~kind:(Fd.kind t.fd)
-              ~bytes:(Int63.of_int bytes_read);
+            t.bytes_read <- Int63.(t.bytes_read + of_int bytes_read);
             if bytes_read = 0
             then eof ()
             else (
@@ -854,6 +851,65 @@ module Internal = struct
   let read_sexps ?parse_pos t = gen_read_sexps t ~sexp_kind:Plain ?parse_pos
   let read_annotated_sexps ?parse_pos t = gen_read_sexps t ~sexp_kind:Annotated ?parse_pos
 
+  module Read_bin_prot = struct
+    type 'a result =
+      | Ok of 'a
+      | Need_bytes of int
+      | Error of Error.t
+
+    let[@cold] unexpected_pos bin_type t ~old_pos ~read_len ~new_pos =
+      Error
+        (Error.create_s
+           [%message
+             "Unexpected reader position after read"
+               (bin_type : string)
+               ~reader:(t : t)
+               (old_pos : int)
+               (read_len : int)
+               (new_pos : int)])
+    ;;
+
+    let[@cold] size_error message t ~size ~pos =
+      Error (Error.create_s [%message message ~reader:(t : t) (size : int) (pos : int)])
+    ;;
+
+    let read_raw t buf ~pos_ref ~len ~bin_prot_reader =
+      if len < Bin_prot.Utils.size_header_length
+      then Need_bytes Bin_prot.Utils.size_header_length
+      else (
+        let header_pos = !pos_ref in
+        let message_size = Bin_prot.Utils.bin_read_size_header buf ~pos_ref in
+        if !pos_ref <> header_pos + Bin_prot.Utils.size_header_length
+        then
+          unexpected_pos
+            "header"
+            t
+            ~old_pos:header_pos
+            ~read_len:Bin_prot.Utils.size_header_length
+            ~new_pos:!pos_ref
+        else if len - Bin_prot.Utils.size_header_length < message_size
+        then (
+          let bytes_needed = Bin_prot.Utils.size_header_length + message_size in
+          if message_size < 0
+          then size_error "Negative message size" t ~size:message_size ~pos:header_pos
+          else if bytes_needed < 0
+          then size_error "Bytes needed overflowed" t ~size:bytes_needed ~pos:header_pos
+          else Need_bytes bytes_needed)
+        else (
+          let message_pos = !pos_ref in
+          let message = bin_prot_reader.Bin_prot.Type_class.read buf ~pos_ref in
+          if !pos_ref <> message_pos + message_size
+          then
+            unexpected_pos
+              "message"
+              t
+              ~old_pos:message_pos
+              ~read_len:message_size
+              ~new_pos:!pos_ref
+          else Ok message))
+    ;;
+  end
+
   module Peek_or_read = struct
     type t =
       | Peek
@@ -879,53 +935,76 @@ module Internal = struct
     let handle_eof n =
       if n = 0 then k (Ok `Eof) else error "got Eof with %d bytes left over" n ()
     in
-    get_data_until t ~available_at_least:Bin_prot.Utils.size_header_length
-    >>> function
-    | `Eof n -> handle_eof n
-    | `Ok ->
-      (match t.state with
-       | `Not_in_use -> assert false
-       | `Closed -> error "Reader.read_bin_prot got closed reader" ()
-       | `In_use ->
-         let pos = t.pos in
-         let pos_ref = ref pos in
-         (match
-            Or_error.try_with (fun () ->
-              Bin_prot.Utils.bin_read_size_header t.buf ~pos_ref)
-          with
-          | Error _ as e -> k e
-          | Ok len ->
-            if !pos_ref - pos <> Bin_prot.Utils.size_header_length
-            then
-              error
-                "pos_ref <> len, (%d <> %d)"
-                (!pos_ref - pos)
-                Bin_prot.Utils.size_header_length
-                ();
-            if len > max_len then error "max read length exceeded: %d > %d" len max_len ();
-            if len < 0 then error "negative length %d" len ();
-            let need = Bin_prot.Utils.size_header_length + len in
-            get_data_until t ~available_at_least:need
-            >>> (function
-              | `Eof n -> handle_eof n
-              | `Ok ->
-                (match t.state with
-                 | `Not_in_use -> assert false
-                 | `Closed -> error "Reader.read_bin_prot got closed reader" ()
-                 | `In_use ->
-                   let pos = t.pos + Bin_prot.Utils.size_header_length in
-                   pos_ref := pos;
-                   (match
-                      Or_error.try_with (fun () -> bin_prot_reader.read t.buf ~pos_ref)
-                    with
-                    | Error _ as e -> k e
-                    | Ok v ->
-                      if !pos_ref - pos <> len
-                      then error "pos_ref <> len, (%d <> %d)" (!pos_ref - pos) len ();
-                      (match peek_or_read with
-                       | Peek -> ()
-                       | Read -> consume t need);
-                      k (Ok (`Ok v)))))))
+    if max_len < 0
+    then error "max read length is negative: %d" max_len ()
+    else (
+      let max_len_with_header =
+        let len_with_header = max_len + Bin_prot.Utils.size_header_length in
+        if len_with_header < max_len then Int.max_value else len_with_header
+      in
+      let rec read_loop () =
+        match t.state with
+        | `Not_in_use -> assert false
+        | `Closed -> error "Reader.read_bin_prot got closed reader" ()
+        | `In_use ->
+          let pos = t.pos in
+          let pos_ref = ref pos in
+          let len = min max_len_with_header t.available in
+          (match Read_bin_prot.read_raw t t.buf ~pos_ref ~len ~bin_prot_reader with
+           | Ok message ->
+             (match peek_or_read with
+              | Peek -> ()
+              | Read -> consume t (!pos_ref - pos));
+             k (Ok (`Ok message))
+           | Need_bytes need ->
+             let need_message = need - Bin_prot.Utils.size_header_length in
+             if need_message > max_len
+             then error "max read length exceeded: %d > %d" need_message max_len ()
+             else
+               get_data_until t ~available_at_least:need
+               >>> (function
+                 | `Eof n -> handle_eof n
+                 | `Ok -> read_loop ())
+           | Error error -> k (Error error)
+           | exception exn -> k (Or_error.of_exn exn))
+      in
+      read_loop ())
+  ;;
+
+  let iter_bin_prot t bin_prot_reader ~f =
+    let open Eager_deferred.Let_syntax in
+    let handle_chunk buf ~pos:chunk_pos ~len =
+      let limit = chunk_pos + len in
+      let pos_ref = ref chunk_pos in
+      let rec read_loop () =
+        let header_pos = !pos_ref in
+        let len = limit - header_pos in
+        match Read_bin_prot.read_raw t buf ~pos_ref ~len ~bin_prot_reader with
+        | Ok message ->
+          let%bind () = f message in
+          read_loop ()
+        | Need_bytes bytes ->
+          if header_pos = limit
+          then return `Continue
+          else return (`Consumed (header_pos - chunk_pos, `Need bytes))
+        | Error error -> return (`Stop error)
+      in
+      match%map try_with ~run:`Now read_loop with
+      | Ok result -> result
+      | Error exn ->
+        `Stop
+          (Error.of_exn exn
+           |> Error.tag_s ~tag:[%message "Error deserializing reader" ~reader:(t : t)])
+    in
+    let%bind result = read_one_chunk_at_a_time t ~handle_chunk in
+    let%bind () = close t in
+    match result with
+    | `Eof -> Deferred.Or_error.ok_unit
+    | `Stopped error -> return (Error error)
+    | `Eof_with_unconsumed_data data ->
+      let length = String.length data in
+      Deferred.Or_error.error_s
+        [%message "Unconsumed data" (length : int) (data : string)]
   ;;
 
   let read_marshal_raw t =
@@ -1052,7 +1131,7 @@ let create = create
 let fd = fd
 let id = id
 let invariant = invariant
-let io_stats = io_stats
+let bytes_read = bytes_read
 let is_closed = is_closed
 let last_read_time = last_read_time
 let of_in_channel = of_in_channel
@@ -1169,6 +1248,20 @@ let peek_bin_prot ?max_len t reader =
 
 let read_bin_prot ?max_len t reader =
   peek_or_read_bin_prot ?max_len t reader ~peek_or_read:Read
+;;
+
+let iter_bin_prot t reader ~f =
+  use t;
+  iter_bin_prot t reader ~f
+;;
+
+let iter_bin_prot_exn t reader ~f = iter_bin_prot t reader ~f >>| ok_exn
+
+let read_bin_prot_into_pipe t reader ~f =
+  Pipe.create_reader ~close_on_exception:false (fun writer ->
+    upon (Pipe.closed writer) (fun () -> don't_wait_for (close t));
+    iter_bin_prot_exn t reader ~f:(fun element ->
+      Eager_deferred.(f element >>= Pipe.write_if_open writer)))
 ;;
 
 let read_marshal_raw t = do_read t (fun () -> read_marshal_raw t)

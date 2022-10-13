@@ -29,6 +29,23 @@ module File_descr_watcher = struct
   ;;
 end
 
+module Which_watcher = struct
+  module Custom = struct
+    module type S =
+      File_descr_watcher_intf.S
+      with type 'a additional_create_args =
+             handle_fd_read_bad:(File_descr.t -> unit)
+             -> handle_fd_write_bad:(File_descr.t -> unit)
+             -> 'a
+
+    type t = (module S)
+  end
+
+  type t =
+    | Config of Config.File_descr_watcher.t
+    | Custom of Custom.t
+end
+
 include Async_kernel_scheduler
 
 type t =
@@ -556,7 +573,7 @@ let[@inline] maybe_report_long_async_cycles_to_magic_trace t : unit =
 let create
       ~mutex
       ?(thread_pool_cpu_affinity = Config.thread_pool_cpu_affinity)
-      ?(file_descr_watcher = Config.file_descr_watcher)
+      ?(file_descr_watcher = Which_watcher.Config Config.file_descr_watcher)
       ?(max_num_open_file_descrs = Config.max_num_open_file_descrs)
       ?(max_num_threads = Config.max_num_threads)
       ()
@@ -590,7 +607,23 @@ let create
   let handle_fd_write_bad = handle_fd `Write `Bad_fd in
   let file_descr_watcher, timerfd =
     match file_descr_watcher with
-    | Select ->
+    | Custom (module Custom) ->
+      let watcher =
+        Custom.create
+          ~num_file_descrs
+          ~handle_fd_read_ready
+          ~handle_fd_read_bad
+          ~handle_fd_write_ready
+          ~handle_fd_write_bad
+      in
+      let module W = struct
+        include Custom
+
+        let watcher = watcher
+      end
+      in
+      (module W : File_descr_watcher.S), None
+    | Config Select ->
       let watcher =
         Select_file_descr_watcher.create
           ~num_file_descrs
@@ -606,7 +639,7 @@ let create
       end
       in
       (module W : File_descr_watcher.S), None
-    | Epoll | Epoll_if_timerfd ->
+    | Config (Epoll | Epoll_if_timerfd) ->
       let timerfd =
         match try_create_timerfd () with
         | None ->

@@ -38,8 +38,10 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-(** Overall IO statistics for all readers. *)
-val io_stats : Io_stats.t
+(** [bytes_read t] returns how many bytes have been read by this reader
+    from the underlying file descriptor. This includes bytes that have not been read
+    by the user from the reader yet (sitting in the internal buffer).  *)
+val bytes_read : t -> Int63.t
 
 (** Returns time of the most recent [read] system call that returned data. *)
 val last_read_time : t -> Time.t
@@ -304,7 +306,7 @@ val read_annotated_sexps : (t -> Sexp.Annotated.t Pipe.Reader.t) read
     protocol", in which the length of the data is prefixed as a 64-bit integer to the
     data.  This is the format that [Writer.write_bin_prot] writes.
 
-    For higher performance, consider [Unpack_sequence.unpack_bin_prot_from_reader]. *)
+    For higher performance, consider [iter_bin_prot] or [read_bin_prot_into_pipe]. *)
 val read_bin_prot
   :  ?max_len:int
   -> t
@@ -317,6 +319,29 @@ val peek_bin_prot
   -> t
   -> 'a Bin_prot.Type_class.reader
   -> 'a Read_result.t Deferred.t
+
+(** [iter_bin_prot t bp_reader ~f] reads all size-prefixed binary protocol messages in [t]
+    using binary protocol reader [bp_reader], calling [f] for each message. Closes [t]
+    after reaching EOF or an error. *)
+val iter_bin_prot
+  :  t
+  -> 'a Bin_prot.Type_class.reader
+  -> f:('a -> unit Deferred.t)
+  -> unit Deferred.Or_error.t
+
+val iter_bin_prot_exn
+  :  t
+  -> 'a Bin_prot.Type_class.reader
+  -> f:('a -> unit Deferred.t)
+  -> unit Deferred.t
+
+(** Similar to [iter_bin_prot], but returns messages as a pipe. The reader will be closed
+    when EOF is reached or when the pipe is closed. *)
+val read_bin_prot_into_pipe
+  :  t
+  -> 'a Bin_prot.Type_class.reader
+  -> f:('a -> 'b Deferred.t)
+  -> 'b Pipe.Reader.t
 
 (** [read_marshal_raw] reads and returns a buffer containing one marshaled value, but
     doesn't unmarshal it.  You can just call [Marshal.from_string] on the string, and cast

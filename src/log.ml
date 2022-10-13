@@ -27,7 +27,7 @@ module Stable = struct
         | `Info
         | `Error
         ]
-      [@@deriving bin_io, sexp]
+      [@@deriving bin_io, compare, sexp]
 
       let%expect_test "bin_digest Level.V1" =
         print_endline [%bin_digest: t];
@@ -44,13 +44,13 @@ module Stable = struct
           | `Sexp_hum
           | `Bin_prot
           ]
-        [@@deriving sexp]
+        [@@deriving bin_io, sexp]
 
         type t =
           [ machine_readable
           | `Text
           ]
-        [@@deriving sexp]
+        [@@deriving bin_io, sexp]
       end
     end
   end
@@ -518,17 +518,17 @@ module Output : sig
       | `Sexp_hum
       | `Bin_prot
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     type t =
       [ machine_readable
       | `Text
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     module Stable : sig
       module V1 : sig
-        type nonrec t = t [@@deriving sexp]
+        type nonrec t = t [@@deriving bin_io, sexp]
       end
     end
   end
@@ -581,13 +581,13 @@ end = struct
       | `Sexp_hum
       | `Bin_prot
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     type t =
       [ machine_readable
       | `Text
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     module Stable = Stable.Output.Format
   end
@@ -1412,26 +1412,26 @@ let surroundf_gen
         Exn.reraise exn msg))
 ;;
 
-let surround_s ?level ?time ?tags t msg f =
+let surround_s ~on_subsequent_errors ?level ?time ?tags t msg f =
   surround_s_gen
     ?tags
     ~try_with:
       (Monitor.try_with
          ~run:`Schedule
-         ~rest:`Log )
+         ~rest:on_subsequent_errors)
     ~map_return:Deferred.map
     ~log_sexp:(fun ?tags s -> sexp ?tags ?level ?time t s)
     ~f
     msg
 ;;
 
-let surroundf ?level ?time ?tags t fmt =
+let surroundf ~on_subsequent_errors ?level ?time ?tags t fmt =
   surroundf_gen
     ?tags
     ~try_with:
       (Monitor.try_with
          ~run:`Schedule
-         ~rest:`Log )
+         ~rest:on_subsequent_errors)
     ~map_return:Deferred.map
     ~log_string:(fun ?tags -> string ?tags ?level ?time t)
     fmt
@@ -1547,7 +1547,8 @@ module type Global_intf = sig
   val message : Message.t -> unit
 
   val surround_s
-    :  ?level:Level.t
+    :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+    -> ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
     -> Sexp.t
@@ -1555,7 +1556,8 @@ module type Global_intf = sig
     -> 'a Deferred.t
 
   val surroundf
-    :  ?level:Level.t
+    :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+    -> ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
@@ -1620,11 +1622,14 @@ module Make_global () : Global_intf = struct
   let string ?level ?time ?tags s = string ?level ?time ?tags (Lazy.force log) s
   let message msg = message (Lazy.force log) msg
 
-  let surround_s ?level ?time ?tags msg f =
-    surround_s ?level ?time ?tags (Lazy.force log) msg f
+  let surround_s ~on_subsequent_errors ?level ?time ?tags msg f =
+    surround_s ~on_subsequent_errors ?level ?time ?tags (Lazy.force log) msg f
   ;;
 
-  let surroundf ?level ?time ?tags fmt = surroundf ?level ?time ?tags (Lazy.force log) fmt
+  let surroundf ~on_subsequent_errors ?level ?time ?tags fmt =
+    surroundf ~on_subsequent_errors ?level ?time ?tags (Lazy.force log) fmt
+  ;;
+
   let set_level_via_param () = set_level_via_param_lazy log
 
   module For_testing = struct
@@ -1779,7 +1784,7 @@ end = struct
   let surround_s ?level ?time ?tags msg f =
     surround_s_gen
       ?tags
-      ~try_with:Result.try_with
+      ~try_with:(Result.try_with :> _ -> _)
       ~map_return:(fun x ~f -> f x)
       ~log_sexp:(sexp ?level ?time)
       ~f
@@ -1789,7 +1794,7 @@ end = struct
   let surroundf ?level ?time ?tags fmt =
     surroundf_gen
       ?tags
-      ~try_with:Result.try_with
+      ~try_with:(Result.try_with :> _ -> _)
       ~map_return:(fun x ~f -> f x)
       ~log_string:(string ?level ?time)
       fmt

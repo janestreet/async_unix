@@ -387,7 +387,7 @@ let%test_module _ =
       type t = Int.Set.t [@@deriving sexp_of]
 
       let quickcheck_generator =
-        let cpuids = ok_exn Thread.getaffinity_self_exn () |> Int.Set.to_list in
+        let cpuids = ok_exn Thread.getaffinity_self_exn () |> Set.to_list in
         (* Fail if it's not possible to test on more than one CPU. We already
            have a test above to cover that case, so the rest of this would be
            pointless. *)

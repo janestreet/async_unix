@@ -97,7 +97,6 @@ module Close = struct
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
                   ~run:`Schedule
-                  ~rest:`Log
                   ~finally:(fun () ->
                     In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
                   (fun () ->
@@ -138,7 +137,6 @@ let create_borrowed ?avoid_setting_nonblock kind file_descr info ~f =
   let fd = create ?avoid_setting_nonblock kind file_descr info in
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     ~name:"Fd.create_borrowed"
     (fun () -> f fd)
     ~finally:(fun () -> close ~file_descriptor_handling:Do_not_close_file_descriptor fd)
@@ -147,7 +145,6 @@ let create_borrowed ?avoid_setting_nonblock kind file_descr info ~f =
 let with_close t ~f =
   Monitor.protect
     ~run:`Schedule
-    ~rest:`Log
     (fun () -> f t)
     ~finally:(fun () -> close t)
 ;;

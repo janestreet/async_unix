@@ -16,6 +16,23 @@ include module type of struct
   include Async_kernel_scheduler
 end
 
+module Which_watcher : sig
+  module Custom : sig
+    module type S =
+      File_descr_watcher_intf.S
+      with type 'a additional_create_args =
+             handle_fd_read_bad:(File_descr.t -> unit)
+             -> handle_fd_write_bad:(File_descr.t -> unit)
+             -> 'a
+
+    type t = (module S)
+  end
+
+  type t =
+    | Config of Config.File_descr_watcher.t
+    | Custom of Custom.t
+end
+
 (** [t ()] returns the Async scheduler.  If the scheduler hasn't been created yet, this
     will create it and acquire the Async lock. *)
 val t : unit -> t
@@ -45,7 +62,8 @@ val go : ?raise_unhandled_exn:bool (** default is [false] *) -> unit -> never_re
     options of the scheduler. *)
 val go_main
   :  ?raise_unhandled_exn:bool (** default is [false] *)
-  -> ?file_descr_watcher:Config.File_descr_watcher.t (** default is [Config] *)
+  -> ?file_descr_watcher:Which_watcher.t
+  (** default is [Config Config.file_descr_watcher] *)
   -> ?max_num_open_file_descrs:int (** default is [Config] *)
   -> ?max_num_threads:int (** default is [Config] *)
   -> main:(unit -> unit)

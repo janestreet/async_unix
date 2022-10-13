@@ -30,7 +30,7 @@ module Level : sig
 
   module Stable : sig
     module V1 : sig
-      type nonrec t = t [@@deriving bin_io, sexp]
+      type nonrec t = t [@@deriving bin_io, compare, sexp]
     end
   end
 end
@@ -144,17 +144,17 @@ module Output : sig
       | `Sexp_hum
       | `Bin_prot
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     type t =
       [ machine_readable
       | `Text
       ]
-    [@@deriving sexp]
+    [@@deriving bin_io, sexp]
 
     module Stable : sig
       module V1 : sig
-        type nonrec t = t [@@deriving sexp]
+        type nonrec t = t [@@deriving bin_io, sexp]
       end
     end
   end
@@ -403,7 +403,8 @@ module type Global_intf = sig
   val message : Message.t -> unit
 
   val surround_s
-    :  ?level:Level.t
+    :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+    -> ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
     -> Sexp.t
@@ -411,7 +412,8 @@ module type Global_intf = sig
     -> 'a Deferred.t
 
   val surroundf
-    :  ?level:Level.t
+    :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+    -> ?level:Level.t
     -> ?time:Time.t
     -> ?tags:(string * string) list
     -> ('a, unit, string, (unit -> 'b Deferred.t) -> 'b Deferred.t) format4
@@ -576,10 +578,12 @@ val message : t -> Message.t -> unit
 
 (** [surround t message f] logs [message] and a UUID once before calling [f] and again
     after [f] returns or raises. If [f] raises, the second message will include the
-    exception, and [surround] itself will re-raise the exception tagged with [message]. As
-    usual, the logging happens only if [level] exceeds the minimum level of [t]. *)
+    exception, and [surround] itself will re-raise the exception tagged with [message].
+    [on_subsequent_errors] is passed to the internal monitor as [rest] argument. As usual,
+    the logging happens only if [level] exceeds the minimum level of [t].*)
 val surround_s
-  :  ?level:Level.t
+  :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+  -> ?level:Level.t
   -> ?time:Time.t
   -> ?tags:(string * string) list
   -> t
@@ -588,7 +592,8 @@ val surround_s
   -> 'a Deferred.t
 
 val surroundf
-  :  ?level:Level.t
+  :  on_subsequent_errors:[ `Call of exn -> unit | `Log | `Raise ]
+  -> ?level:Level.t
   -> ?time:Time.t
   -> ?tags:(string * string) list
   -> t

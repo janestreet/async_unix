@@ -38,9 +38,6 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-(** Overall IO statistics for all writers. *)
-val io_stats : Io_stats.t
-
 (** [stdout] and [stderr] are writers for file descriptors 1 and 2.  They are lazy because
     we don't want to create them in all programs that happen to link with Async.
 
