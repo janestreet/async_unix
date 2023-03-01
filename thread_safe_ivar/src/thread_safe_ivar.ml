@@ -33,13 +33,16 @@ let read t =
   | Some v -> v
   | None ->
     critical_section t ~f:(fun () ->
-      match t.value with
-      | Some v -> v
-      | None ->
-        t.num_waiting <- t.num_waiting + 1;
-        Condition.wait t.full t.mutex;
-        t.num_waiting <- t.num_waiting - 1;
-        (match t.value with
-         | Some v -> v
-         | None -> assert false))
+      let rec loop () =
+        match t.value with
+        | Some v -> v
+        | None ->
+          t.num_waiting <- t.num_waiting + 1;
+          Condition.wait t.full t.mutex;
+          t.num_waiting <- t.num_waiting - 1;
+          (match t.value with
+           | Some v -> v
+           | None -> loop ())
+      in
+      loop ())
 ;;

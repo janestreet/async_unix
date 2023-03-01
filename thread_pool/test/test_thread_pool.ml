@@ -96,7 +96,7 @@ let%test_module _ =
                          , worker_threads_should_continue )
                          [%sexp_of:
                            t * unit Thread_safe_ivar.t * unit Thread_safe_ivar.t];
-                       Caml.exit 1)
+                       Stdlib.exit 1)
                      else (
                        Time_ns.pause (sec 0.1);
                        loop ()))

@@ -149,7 +149,10 @@ let with_lock t f =
 let am_holding_lock t = Nano_mutex.current_thread_has_lock t.mutex
 
 type the_one_and_only =
-  | Not_ready_to_initialize
+  | Not_ready_to_initialize of
+      (* this [unit] makes the representation always be a pointer, thus
+         making the pattern-match faster *)
+      unit
   | Ready_to_initialize of (unit -> t)
   | Initialized of t
 
@@ -157,27 +160,28 @@ type the_one_and_only =
    multiple threads attempt to call [the_one_and_only] simultaneously, which can
    happen in programs that are using [Thread_safe.run_in_async]. *)
 let mutex_for_initializing_the_one_and_only_ref = Nano_mutex.create ()
-let the_one_and_only_ref : the_one_and_only ref = ref Not_ready_to_initialize
+let the_one_and_only_ref : the_one_and_only ref = ref (Not_ready_to_initialize ())
 
 let is_ready_to_initialize () =
   match !the_one_and_only_ref with
-  | Not_ready_to_initialize | Initialized _ -> false
+  | Not_ready_to_initialize () | Initialized _ -> false
   | Ready_to_initialize _ -> true
 ;;
 
 let is_initialized () =
   match !the_one_and_only_ref with
   | Initialized _ -> true
-  | Not_ready_to_initialize | Ready_to_initialize _ -> false
+  | Not_ready_to_initialize () | Ready_to_initialize _ -> false
 ;;
 
 (* Handling the uncommon cases in this function allows [the_one_and_only] to be inlined.
-   The presence of a string constant keeps this function from being inlined. *)
-let the_one_and_only_uncommon_case () =
+   The presence of a string constant (and the cold annotation) keeps this function from
+   being inlined. *)
+let[@cold] the_one_and_only_uncommon_case () =
   Nano_mutex.critical_section mutex_for_initializing_the_one_and_only_ref ~f:(fun () ->
     match !the_one_and_only_ref with
     | Initialized t -> t
-    | Not_ready_to_initialize ->
+    | Not_ready_to_initialize () ->
       raise_s [%message "Async the_one_and_only not ready to initialize"]
     | Ready_to_initialize f ->
       let t = f () in
@@ -188,7 +192,8 @@ let the_one_and_only_uncommon_case () =
 let the_one_and_only () =
   match !the_one_and_only_ref with
   | Initialized t -> t
-  | Not_ready_to_initialize | Ready_to_initialize _ -> the_one_and_only_uncommon_case ()
+  | Not_ready_to_initialize () | Ready_to_initialize _ ->
+    the_one_and_only_uncommon_case ()
 ;;
 
 let fds_created_before_initialization = ref []
@@ -197,7 +202,9 @@ let create_fd_registration t fd =
   match Fd_by_descr.add t.fd_by_descr fd with
   | Ok () -> ()
   | Error error ->
-    let backtrace = if am_running_inline_test then None else Some (Backtrace.get ()) in
+    let backtrace =
+      if Ppx_inline_test_lib.am_running then None else Some (Backtrace.get ())
+    in
     raise_s
       [%message
         "Async was unable to add a file descriptor to its table of open file descriptors"
@@ -205,7 +212,8 @@ let create_fd_registration t fd =
           (error : Error.t)
           (backtrace : (Backtrace.t option[@sexp.option]))
           ~scheduler:
-            (if am_running_inline_test then None else Some t : (t option[@sexp.option]))]
+            (if Ppx_inline_test_lib.am_running then None else Some t
+                                                              : (t option[@sexp.option]))]
 ;;
 
 let create_fd ?avoid_setting_nonblock kind file_descr info =
@@ -718,7 +726,7 @@ let () = init ~take_the_lock:true
 
 let reset_in_forked_process ~take_the_lock =
   (match !the_one_and_only_ref with
-   | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+   | Not_ready_to_initialize () | Ready_to_initialize _ -> ()
    | Initialized { file_descr_watcher; timerfd; _ } ->
      let module F = (val file_descr_watcher : File_descr_watcher.S) in
      F.reset_in_forked_process F.watcher;
@@ -743,7 +751,7 @@ let reset_in_forked_process () = reset_in_forked_process ~take_the_lock:true
    thread. *)
 let thread_safe_reset () =
   match !the_one_and_only_ref with
-  | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+  | Not_ready_to_initialize () | Ready_to_initialize _ -> ()
   | Initialized t ->
     assert (not (am_holding_lock t));
     Thread_pool.finished_with t.thread_pool;
@@ -993,7 +1001,7 @@ let run_busy_pollers t ~timeout =
   let timeout =
     ref (Tsc.add (Tsc.now ()) (Tsc.Span.of_time_ns_span timeout ~calibrator))
   in
-  let rec loop () =
+  while
     let pollers_did_something = run_busy_pollers_once t in
     let now = Tsc.now () in
     if pollers_did_something
@@ -1009,9 +1017,10 @@ let run_busy_pollers t ~timeout =
           |> Tsc.Span.of_time_ns_span ~calibrator
         in
         timeout := Tsc.min !timeout (Tsc.add now new_timeout));
-    if Tsc.( < ) now !timeout then loop ()
-  in
-  loop ()
+    Tsc.( < ) now !timeout
+  do
+    ()
+  done
 ;;
 
 (* We compute the timeout as the last thing before [check_file_descr_watcher], because
@@ -1116,7 +1125,7 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
        that it helps curses applications bring the terminal in a good state, otherwise
        the error message might get corrupted.  Also, the OCaml top-level uncaught
        exception handler does the same. *)
-    (try Caml.do_at_exit () with
+    (try Stdlib.do_at_exit () with
      | _ -> ());
     (match error_kind with
      | `User_uncaught ->
@@ -1190,7 +1199,7 @@ let go_main
       ()
   =
   (match !the_one_and_only_ref with
-   | Not_ready_to_initialize | Ready_to_initialize _ -> ()
+   | Not_ready_to_initialize () | Ready_to_initialize _ -> ()
    | Initialized { initialized_at; _ } ->
      raise_s
        [%message

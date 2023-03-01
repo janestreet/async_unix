@@ -1,6 +1,7 @@
 open Core
 open Import
 include Writer0
+module Unix = Unix_syscalls
 
 let of_pipe ?time_source info pipe_w =
   let%map `Reader reader_fd, `Writer writer_fd = Unix.pipe info in
@@ -27,14 +28,3 @@ let of_pipe ?time_source info pipe_w =
   in
   writer, `Closed_and_flushed_downstream closed_and_flushed_downstream
 ;;
-
-module Private = struct
-  let set_bytes_received t i =
-    let (_ : _) = force t.check_buffer_age in
-    t.bytes_received <- i
-  ;;
-
-  let set_bytes_written t i = t.bytes_written <- i
-
-  module Check_buffer_age = Check_buffer_age
-end

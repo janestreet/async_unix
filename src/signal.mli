@@ -24,7 +24,10 @@ val ignore : [ `Do_not_use_with_async ] -> _
     [handle].
 
     The first time [handle] is called for a signal, it will install a C signal handler for
-    it, replacing the existing C signal handler for that signal. *)
+    it, replacing the existing C signal handler for that signal.
+
+    If [stop] is passed, the signal handler will be uninstalled when [stop] resolves.
+*)
 val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
 
 (** [terminating] is a list of signals that can be supplied to [handle] and whose default

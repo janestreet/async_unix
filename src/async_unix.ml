@@ -128,11 +128,13 @@ include struct
   let write_lines = overwrite2
   let write_wrap ?binary:_ ~f:_ = overwrite1
 
-  let eprint_s = overwrite1
-  [@@deprecated
-    "[since 2019-12] If you want to the blocking version, use [Core.eprint_s] (this \
-     preserves behavior, but is discouraged). If you want the nonblocking version, use \
-     [eprint_s_nonblocking] or [Print.eprint_s]"]
+  let (eprint_s [@deprecated
+         "[since 2019-12] If you want to the blocking version, use \
+          [Core.eprint_s] (this preserves behavior, but is discouraged). If you \
+          want the nonblocking version, use [eprint_s_nonblocking] or \
+          [Print.eprint_s]"])
+    =
+    overwrite1
   ;;
 
   let eprint_s_nonblocking = Print.eprint_s
@@ -183,5 +185,3 @@ module Async_unix_private = struct
   module Raw_scheduler = Raw_scheduler
   module Syscall = Syscall
 end
-
-(**/**)

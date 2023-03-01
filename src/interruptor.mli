@@ -42,3 +42,7 @@ val thread_safe_interrupt : t -> unit
     any calls to [thread_safe_interrupt] after [clear t] returns (and prior to another
     call to [clear t]) will cause [read_fd] to become ready for reading. *)
 val clear : t -> unit
+
+(** [already_interrupted t] is true if [thread_safe_interrupt t] has completed since the
+    last call to [clear t]. *)
+val already_interrupted : t -> bool

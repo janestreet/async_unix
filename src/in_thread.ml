@@ -13,6 +13,17 @@ module When_finished = struct
   let default = ref Try_to_take_the_async_lock
 end
 
+let try_to_lock_for_cycle_if_scheduler_sleeping t =
+  if try_lock t
+  then
+    if not (Interruptor.already_interrupted t.interruptor)
+    then true
+    else (
+      unlock t;
+      false)
+  else false
+;;
+
 let run_after_scheduler_is_started
       ~priority
       ~thread
@@ -33,7 +44,7 @@ let run_after_scheduler_is_started
       | Notify_the_scheduler -> false
       | Try_to_take_the_async_lock ->
         (match thread_pool_cpu_affinity t with
-         | Inherit -> try_lock t
+         | Inherit -> try_to_lock_for_cycle_if_scheduler_sleeping t
          | Cpuset _ ->
            (* If the user specified an affinity for the thread pool, they presumably intend
               for Async jobs to be affinitized differently from thread-pool threads, so we

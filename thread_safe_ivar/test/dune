@@ -1,0 +1,3 @@
+(library (name thread_safe_ivar_tests)
+ (libraries core_kernel.caml_threads core_kernel.caml_unix thread_safe_ivar)
+ (preprocess (pps ppx_jane)))

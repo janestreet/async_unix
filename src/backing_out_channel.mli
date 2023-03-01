@@ -24,7 +24,8 @@ val output_char : t -> char -> unit
 
 val output
   :  t
-  -> blit_to_bigstring:('a, Bigstring.t) Blit.blit
+  -> blit_to_bigstring:
+       (src:'a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
   -> src:'a
   -> src_len:int
   -> src_pos:int

@@ -115,7 +115,11 @@ val is_initialized : unit -> bool
     to fork, and would like the child to have a clean Async, i.e., not inherit any of the
     Async work that was done in the parent, it can call [reset_in_forked_process] at the
     start of execution in the child process.  After that, the child can do Async stuff and
-    then start the Async scheduler. *)
+    then start the Async scheduler.
+
+    [reset_in_forked_process ()] is a no-op if [is_initialized () = false] and has
+    undefined behavior if [is_running () = true].
+*)
 val reset_in_forked_process : unit -> unit
 
 (** [reset_in_forked_process_without_taking_lock] is similar to [reset_in_forked_process],

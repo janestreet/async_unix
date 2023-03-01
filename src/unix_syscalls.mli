@@ -473,6 +473,12 @@ module Socket : sig
     -> interrupt:unit Deferred.t
     -> [ `Ok of ([ `Active ], 'addr) t | `Interrupted ] Deferred.t
 
+  (** Like [bind], but preserves the existing socket options and the CLOEXEC flag. *)
+  val bind_keep_opts
+    :  ([ `Unconnected ], 'addr) t
+    -> 'addr
+    -> ([ `Bound ], 'addr) t Deferred.t
+
 
   (** [bind socket addr] sets close_on_exec for the fd of [socket]. *)
   val bind
@@ -480,6 +486,12 @@ module Socket : sig
     -> ([ `Unconnected ], 'addr) t
     -> 'addr
     -> ([ `Bound ], 'addr) t Deferred.t
+
+  (** Like [bind_inet], but preserves the existing socket options and the CLOEXEC flag. *)
+  val bind_inet_keep_opts
+    :  ([ `Unconnected ], Address.Inet.t) t
+    -> Address.Inet.t
+    -> ([ `Bound ], Address.Inet.t) t
 
   (** [bind_inet socket addr] is just like [bind] but is restricted to [Inet.t] addresses
       and is therefore guaranteed not to block. *)
@@ -782,10 +794,14 @@ module Ifaddr = Core_unix.Ifaddr
     https://www.infradead.org/~tgr/libnl/doc/core.html. *)
 val getifaddrs : unit -> Ifaddr.t list Deferred.t
 
-(** Returns the login name of the user executing the process.
+(** Returns the name of the user executing the process.
 
     This returns a deferred because the username may need to be looked up in what is
-    essentially a database elsewhere on the network (winbound user, or NIS). *)
+    essentially a database elsewhere on the network (winbound user, or NIS). This also
+    means that this function isn't guaranteed to succeed: it may raise instead. *)
+val username : unit -> string Deferred.t
+
+(** Same as [username]. *)
 val getlogin : unit -> string Deferred.t
 
 val wordexp

@@ -45,44 +45,62 @@ let run_in_async_with_optional_cycle ?wakeup_scheduler t f =
       Ok a)
 ;;
 
-let block_on_async t f =
-  if debug then Debug.log "block_on_async" t [%sexp_of: t];
-  (* We disallow calling [block_on_async] if the caller is running inside async.  This can
-     happen if one is the scheduler, or if one is in some other thread that has used, e.g.
-     [run_in_async] to call into async and run a cycle.  We do however, want to allow the
-     main thread to call [block_on_async], in which case it should release the lock and
-     allow the scheduler, which is running in another thread, to run. *)
-  if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
-  then raise_s [%message "called [block_on_async] from within async"];
-  (* While [block_on_async] is blocked, the Async scheduler may run and set the execution
-     context.  So we save and restore the execution context, if we're in the main thread.
-     The restoration is necessary because subsequent code in the main thread can do
-     operations that rely on the execution context. *)
-  let execution_context = Kernel_scheduler.current_execution_context t.kernel_scheduler in
-  (* Create a scheduler thread if the scheduler isn't already running. *)
+let with_async_lock t f =
+  if am_holding_lock t
+  then f ()
+  else (
+    lock t;
+    protect ~f ~finally:(fun () -> unlock t))
+;;
+
+let without_async_lock t f =
+  if am_holding_lock t
+  then (
+    unlock t;
+    protect ~f ~finally:(fun () -> lock t))
+  else f ()
+;;
+
+let ensure_the_scheduler_is_started t =
   if not t.is_running
   then (
-    t.is_running <- true;
-    (* Release the Async lock if necessary, so that the scheduler can acquire it. *)
-    if am_holding_lock t then unlock t;
-    let scheduler_ran_a_job = Thread_safe_ivar.create () in
-    upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
-    ignore
-      (Core_thread.create
-         ~on_uncaught_exn:`Print_to_stderr
-         (fun () ->
-            Exn.handle_uncaught ~exit:true (fun () ->
-              let () =
-                match Linux_ext.pr_set_name_first16 with
-                | Ok f -> f "async-scheduler"
-                | Error _ -> ()
-              in
-              lock t;
-              never_returns (be_the_scheduler t)))
-         ()
-       : Core_thread.t);
-    (* Block until the scheduler has run the above job. *)
-    Thread_safe_ivar.read scheduler_ran_a_job);
+    let starting =
+      (* Hold the lock when deciding if we're the first thread to start the scheduler. *)
+      with_async_lock t (fun () ->
+        if not t.is_running
+        then (
+          t.is_running <- true;
+          let scheduler_ran_a_job = Thread_safe_ivar.create () in
+          upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
+          `Yes scheduler_ran_a_job)
+        else `No)
+    in
+    match starting with
+    | `No -> ()
+    | `Yes scheduler_ran_a_job ->
+      (* Release the Async lock if necessary, so that the scheduler can acquire it. *)
+      without_async_lock t (fun () ->
+        ignore
+          (Core_thread.create
+             ~on_uncaught_exn:`Print_to_stderr
+             (fun () ->
+                Exn.handle_uncaught ~exit:true (fun () ->
+                  let () =
+                    match Linux_ext.pr_set_name_first16 with
+                    | Ok f -> f "async-scheduler"
+                    | Error _ -> ()
+                  in
+                  lock t;
+                  never_returns (be_the_scheduler t)))
+             ()
+           : Core_thread.t);
+        (* Block until the scheduler has run the above job. *)
+        Thread_safe_ivar.read scheduler_ran_a_job))
+;;
+
+let block_on_async_not_holding_async_lock t f =
+  (* Create a scheduler thread if the scheduler isn't already running. *)
+  ensure_the_scheduler_is_started t;
   let maybe_blocked =
     run_holding_async_lock
       t
@@ -108,33 +126,43 @@ let block_on_async t f =
                 (* Squeue.pop can block, so we have to do it outside async *)
                 `Blocked_wait_on_squeue q)))
   in
-  let res =
-    match maybe_blocked with
-    | `Available v -> v
-    | `Blocked_wait_on_squeue q ->
-      (* [run_holding_async_lock] released the lock.  If the scheduler wasn't already
-         running when [block_on_async] was called, then we started it above.  So, the
-         scheduler is running, and will eventually run the job to put something on the
-         squeue.  So, it's OK to block waiting for it. *)
-      Squeue.pop q
-  in
-  (* If we're the main thread, we should lock the scheduler for the rest of main, to
-     prevent the scheduler, which is now running in another thread, from interfering with
-     the main thread.  We also restore the execution context, so that the code in the main
-     thread will be in the same execution context as before it called [block_on_async].
-     The restored execution context will usually be [Execution_context.main], but need not
-     be, if the user has done operations that adjust the current execution context,
-     e.g. [Monitor.within].  If we're not in the main thread, the we don't need to
-     and cannot restore the execution context, because we do not hold the Async lock. *)
-  if is_main_thread ()
-  then (
+  match maybe_blocked with
+  | `Available v -> v
+  | `Blocked_wait_on_squeue q ->
+    (* [run_holding_async_lock] released the lock.  If the scheduler wasn't already
+       running when [block_on_async] was called, then we started it above.  So, the
+       scheduler is running, and will eventually run the job to put something on the
+       squeue.  So, it's OK to block waiting for it. *)
+    Squeue.pop q
+;;
+
+let block_on_async t f =
+  if debug then Debug.log "block_on_async" t [%sexp_of: t];
+  (* We disallow calling [block_on_async] if the caller is running inside async.  This can
+     happen if one is the scheduler, or if one is in some other thread that has used, e.g.
+     [run_in_async] to call into async and run a cycle.  We do however, want to allow the
+     main thread to call [block_on_async], in which case it should release the lock and
+     allow the scheduler, which is running in another thread, to run. *)
+  if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
+  then raise_s [%message "called [block_on_async] from within async"];
+  if not (am_holding_lock t)
+  then block_on_async_not_holding_async_lock t f
+  else (
+    let execution_context =
+      Kernel_scheduler.current_execution_context t.kernel_scheduler
+    in
+    unlock t;
+    let res = block_on_async_not_holding_async_lock t f in
+    (* If we're the main thread, we should lock the scheduler for the rest of main, to
+       prevent the scheduler, which is now running in another thread, from interfering
+       with the main thread.  We also restore the execution context, so that the code
+       in the main thread will be in the same execution context as before it called
+       [block_on_async].  The restored execution context will usually be
+       [Execution_context.main], but need not be, if the user has done operations that
+       adjust the current execution context, e.g. [Monitor.within]. *)
     lock t;
-    (* While [block_on_async] is blocked, Async can run and set the execution context.  So
-       we restore the execution context, if we're in the main thread.  The restoration is
-       necessary because subsequent code in the main thread can do operations that rely on
-       the execution context. *)
-    Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context);
-  res
+    Kernel_scheduler.set_execution_context t.kernel_scheduler execution_context;
+    res)
 ;;
 
 let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
@@ -201,9 +229,5 @@ let without_async_lock f =
   then
     raise_s
       [%message "called [become_helper_thread_and_block_on_async] from within async"]
-  else if am_holding_lock t
-  then (
-    unlock t;
-    protect ~f ~finally:(fun () -> lock t))
-  else f ()
+  else without_async_lock t f
 ;;

@@ -620,7 +620,7 @@ module Socket = struct
         sprintf
           "%s:%s"
           (Inet_addr.to_string a)
-          (if am_running_inline_test && not show_port_in_test
+          (if Ppx_inline_test_lib.am_running && not show_port_in_test
            then "PORT"
            else p |> Int.to_string)
       ;;
@@ -911,9 +911,7 @@ module Socket = struct
     Fd.Private.replace t.fd (Socket `Bound) info
   ;;
 
-  let bind ?(reuseaddr = true) t address =
-    setopt t Opt.reuseaddr reuseaddr;
-    set_close_on_exec t.fd;
+  let bind_keep_opts t address =
     let sockaddr = Address.to_sockaddr address in
     let%map () =
       Fd.syscall_in_thread_exn t.fd ~name:"bind" (fun file_descr ->
@@ -923,13 +921,23 @@ module Socket = struct
     t
   ;;
 
-  let bind_inet ?(reuseaddr = true) t address =
+  let bind ?(reuseaddr = true) t address =
     setopt t Opt.reuseaddr reuseaddr;
     set_close_on_exec t.fd;
+    bind_keep_opts t address
+  ;;
+
+  let bind_inet_keep_opts t address =
     let sockaddr = Address.to_sockaddr address in
     Fd.syscall_exn t.fd (fun file_descr -> Unix.bind file_descr ~addr:sockaddr);
     mark_bound t address;
     t
+  ;;
+
+  let bind_inet ?(reuseaddr = true) t address =
+    setopt t Opt.reuseaddr reuseaddr;
+    set_close_on_exec t.fd;
+    bind_inet_keep_opts t address
   ;;
 
   let listen ?(backlog = 64) t =
@@ -1032,7 +1040,8 @@ module Socket = struct
           | `Socket_closed | `Would_block -> connections
           | exception exn ->
             don't_wait_for
-              (Deferred.List.iter connections ~f:(fun (conn, _) -> Fd.close conn.fd));
+              (Deferred.List.iter ~how:`Sequential connections ~f:(fun (conn, _) ->
+                 Fd.close conn.fd));
             raise exn)
       in
       `Ok (List.rev (loop (limit - 1) [ connection ]))
@@ -1297,6 +1306,7 @@ module Group = struct
   let getbygid_exn gid = In_thread.run (fun () -> Unix.Group.getbygid_exn gid)
 end
 
+let username () = In_thread.syscall_exn ~name:"username" (fun () -> Unix.username ())
 let getlogin () = In_thread.syscall_exn ~name:"getlogin" (fun () -> Unix.getlogin ())
 
 module Ifaddr = Unix.Ifaddr

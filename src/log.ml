@@ -791,7 +791,7 @@ end = struct
               Time.now (wall-clock time) instead a different time source. *)
            let now = Time.now () in
            let cutoff = Time.sub now span in
-           Deferred.List.filter files ~f:(fun (_, filename) ->
+           Deferred.List.filter ~how:`Sequential files ~f:(fun (_, filename) ->
              Deferred.Or_error.try_with
                ~run:`Schedule
                ~rest:`Log
@@ -806,7 +806,7 @@ end = struct
              List.sort files ~compare:(fun (i1, _) (i2, _) -> Id.cmp_newest_first i1 i2)
            in
            List.drop files i)
-        >>= Deferred.List.map ~f:(fun (_i, filename) ->
+        >>= Deferred.List.map ~how:`Sequential ~f:(fun (_i, filename) ->
           Deferred.Or_error.try_with
             ~run:`Schedule
             ~rest:`Log
@@ -850,7 +850,7 @@ end = struct
           List.rev
             (List.sort files ~compare:(fun (i1, _) (i2, _) -> Id.cmp_newest_first i1 i2))
         in
-        Deferred.List.iter files ~f:(fun (id, src) ->
+        Deferred.List.iter ~how:`Sequential files ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
           let dst = make_filename ~dirname ~basename id' in
           if String.equal src t.filename then Tail.extend t.log_files dst;
@@ -1094,7 +1094,7 @@ module Update = struct
 end
 
 let default_time_source =
-  if am_running_inline_test
+  if Ppx_inline_test_lib.am_running
   then
     Synchronous_time_source.read_only
       (Synchronous_time_source.create ~now:Time_ns.epoch ())
@@ -1133,7 +1133,7 @@ module Flush_at_exit_or_gc : sig
   val add_log : t -> unit
   val close : t -> unit Deferred.t
 end = struct
-  module Weak_table = Caml.Weak.Make (struct
+  module Weak_table = Stdlib.Weak.Make (struct
       type z = t
       type t = z
 

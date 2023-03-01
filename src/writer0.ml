@@ -10,7 +10,9 @@ let debug = Debug.writer
 module Time_ns_suppress_sexp_in_test = struct
   type t = Time_ns.t
 
-  let sexp_of_t t = if am_running_inline_test then Sexp.List [] else Time_ns.sexp_of_t t
+  let sexp_of_t t =
+    if Ppx_inline_test_lib.am_running then Sexp.List [] else Time_ns.sexp_of_t t
+  ;;
 end
 
 module Flush_result = struct
@@ -176,38 +178,39 @@ let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
 type t_internals = t
 
 let sexp_of_t_internals
-      { id
-      ; fd
-      ; monitor
-      ; inner_monitor
-      ; background_writer_state
-      ; background_writer_stopped
-      ; syscall
-      ; bytes_received
-      ; bytes_written
-      ; scheduled = _
-      ; scheduled_bytes
-      ; buf = _
-      ; scheduled_back
-      ; back
-      ; time_source
-      ; flushes = _
-      ; close_state
-      ; close_finished
-      ; close_started
-      ; producers_to_flush_at_close
-      ; flush_at_shutdown_elt
-      ; check_buffer_age
-      ; consumer_left
-      ; raise_when_consumer_leaves
-      ; open_flags
-      ; line_ending
-      ; backing_out_channel
-      }
+      ({ id
+       ; fd
+       ; monitor
+       ; inner_monitor
+       ; background_writer_state
+       ; background_writer_stopped
+       ; syscall
+       ; bytes_received
+       ; bytes_written
+       ; scheduled = _
+       ; scheduled_bytes
+       ; buf = _
+       ; scheduled_back
+       ; back
+       ; time_source
+       ; flushes = _
+       ; close_state
+       ; close_finished
+       ; close_started
+       ; producers_to_flush_at_close
+       ; flush_at_shutdown_elt
+       ; check_buffer_age
+       ; consumer_left
+       ; raise_when_consumer_leaves
+       ; open_flags
+       ; line_ending
+       ; backing_out_channel
+       } :
+         t_internals)
   =
-  let suppress_in_test x = if am_running_inline_test then None else Some x in
+  let suppress_in_test x = if Ppx_inline_test_lib.am_running then None else Some x in
   let monitor_name_in_test monitor =
-    if am_running_inline_test
+    if Ppx_inline_test_lib.am_running
     then [%sexp (Monitor.name monitor : Info.t)]
     else [%sexp (monitor : Monitor.t)]
   in
@@ -817,12 +820,12 @@ let create
   let monitor =
     Monitor.create
       ()
-      ?name:(if am_running_inline_test then Some "Writer.monitor" else None)
+      ?name:(if Ppx_inline_test_lib.am_running then Some "Writer.monitor" else None)
   in
   let inner_monitor =
     Monitor.create
       ()
-      ?name:(if am_running_inline_test then Some "Writer.inner_monitor" else None)
+      ?name:(if Ppx_inline_test_lib.am_running then Some "Writer.inner_monitor" else None)
   in
   let consumer_left = Ivar.create () in
   let open_flags = Fd.syscall fd (fun file_descr -> Core_unix.fcntl_getfl file_descr) in
@@ -1194,7 +1197,8 @@ let write_gen_internal
       ~src_pos
       ~src_len
       ~allow_partial_write
-      ~(blit_to_bigstring : (a, Bigstring.t) Blit.blit)
+      ~(blit_to_bigstring :
+          src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
   =
   if is_stopped_permanently t
   then got_bytes t src_len
@@ -1280,7 +1284,8 @@ let write_bytes ?pos ?len t src =
     ?len
     t
     src
-    ~blit_to_bigstring:Bigstring.From_bytes.blit
+    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      Bigstring.From_bytes.blit ~src ~src_pos ~dst ~dst_pos ~len)
     ~length:Bytes.length
 ;;
 
@@ -1290,7 +1295,8 @@ let write ?pos ?len t src =
     ?len
     t
     src
-    ~blit_to_bigstring:Bigstring.From_string.blit
+    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      Bigstring.From_string.blit ~src ~src_pos ~dst ~dst_pos ~len)
     ~length:String.length
 ;;
 
@@ -1300,8 +1306,9 @@ let write_bigstring ?pos ?len t src =
     ?len
     t
     src
-    ~blit_to_bigstring:Bigstring.blit
-    ~length:Bigstring.length
+    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      Bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
+    ~length:(fun buf -> Bigstring.length buf)
 ;;
 
 let write_iobuf ?pos ?len t iobuf =
@@ -1311,8 +1318,9 @@ let write_iobuf ?pos ?len t iobuf =
     ?len
     t
     iobuf
-    ~blit_to_bigstring:Iobuf.Peek.To_bigstring.blit
-    ~length:Iobuf.length
+    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      Iobuf.Peek.To_bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
+    ~length:(fun buf -> Iobuf.length buf)
 ;;
 
 let write_substring t substring =
@@ -1431,13 +1439,14 @@ let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =
 
 let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
   let len = writer.size v in
-  assert (len > 0);
   let tot_len = len + Bin_prot.Utils.size_header_length in
   if is_stopped_permanently t
   then got_bytes t tot_len
   else (
     let buf, start_pos = give_buf t tot_len in
-    ignore (Bigstring.write_bin_prot buf ~pos:start_pos writer v : int);
+    ignore
+      (Bigstring.write_bin_prot_known_size buf ~pos:start_pos ~size:len writer.write v
+       : int);
     maybe_start_writer t)
 ;;
 
@@ -1947,3 +1956,14 @@ let pipe t =
   don't_wait_for (transfer t pipe_r (fun s -> write t s));
   pipe_w
 ;;
+
+module Private = struct
+  let set_bytes_received t i =
+    let (_ : _) = force t.check_buffer_age in
+    t.bytes_received <- i
+  ;;
+
+  let set_bytes_written t i = t.bytes_written <- i
+
+  module Check_buffer_age = Check_buffer_age
+end

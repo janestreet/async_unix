@@ -166,7 +166,7 @@ type 'a read_one_chunk_at_a_time_result =
   (** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned [`Consumed (c, _)]
       and left data in the reader's buffer (i.e., [c < len]), and that the reader reached
       EOF without reading any more data into the buffer; hence the data in the buffer was
-      never consumed (and never will be, since the reader is at EOF). *)
+      never consumed. The unconsumed data is left on the reader. *)
   | `Eof_with_unconsumed_data of string
   ]
 [@@deriving sexp_of]

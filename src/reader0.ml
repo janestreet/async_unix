@@ -106,7 +106,7 @@ module Internal = struct
         ; state
         }
     =
-    let unless_testing x = Option.some_if (not am_running_inline_test) x in
+    let unless_testing x = Option.some_if (not Ppx_inline_test_lib.am_running) x in
     [%sexp
       { id = (id |> unless_testing : (Id.t option[@sexp.option]))
       ; state : State.t

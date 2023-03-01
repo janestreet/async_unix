@@ -88,3 +88,5 @@ let clear t =
      [thread_safe_interrupt] after [clear] returns to incorrectly be a no-op. *)
   t.already_interrupted <- false
 ;;
+
+let already_interrupted t = t.already_interrupted

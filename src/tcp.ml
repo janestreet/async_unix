@@ -533,35 +533,28 @@ module Server = struct
       :  'addr t
       -> f:
            (([ `Unconnected ], 'addr) Socket.t
-            -> reuseaddr:bool
             -> ([ `Passive ], 'addr) Socket.t Deferred.t)
       -> ([ `Passive ], 'addr) Socket.t Deferred.t
 
     val bind_and_listen_maybe_retry'
       :  'addr t
-      -> f:
-           (([ `Unconnected ], 'addr) Socket.t
-            -> reuseaddr:bool
-            -> ([ `Passive ], 'addr) Socket.t)
+      -> f:(([ `Unconnected ], 'addr) Socket.t -> ([ `Passive ], 'addr) Socket.t)
       -> ([ `Passive ], 'addr) Socket.t
   end = struct
     type 'addr t =
       { create_socket : unit -> ([ `Unconnected ], 'addr) Socket.t
-      ; should_set_reuseaddr : bool
       ; retries_upon_addr_in_use : int
       }
 
     let create maybe_socket where_to_listen =
       match maybe_socket with
-      | Some socket ->
-        { create_socket = Fn.const socket
-        ; should_set_reuseaddr = false
-        ; retries_upon_addr_in_use = 0
-        }
+      | Some socket -> { create_socket = Fn.const socket; retries_upon_addr_in_use = 0 }
       | None ->
         { create_socket =
-            (fun () -> Socket.create where_to_listen.Where_to_listen.socket_type)
-        ; should_set_reuseaddr = true
+            (fun () ->
+               let socket = Socket.create where_to_listen.Where_to_listen.socket_type in
+               Socket.setopt socket Socket.Opt.reuseaddr true;
+               socket)
         ; retries_upon_addr_in_use =
             Where_to_listen.max_retries_upon_addr_in_use where_to_listen
         }
@@ -584,10 +577,7 @@ module Server = struct
 
     let rec aux_bind_and_listen_maybe_retry t ~retries_attempted_upon_addr_in_use ~f =
       let socket = t.create_socket () in
-      match%bind
-        Monitor.try_with ~extract_exn:true (fun () ->
-          f socket ~reuseaddr:t.should_set_reuseaddr)
-      with
+      match%bind Monitor.try_with ~extract_exn:true (fun () -> f socket) with
       | Ok v -> return v
       | Error exn ->
         let `Please_retry = handle_exn t socket exn ~retries_attempted_upon_addr_in_use in
@@ -599,7 +589,7 @@ module Server = struct
 
     let rec aux_bind_and_listen_maybe_retry' t ~retries_attempted_upon_addr_in_use ~f =
       let socket = t.create_socket () in
-      try f socket ~reuseaddr:t.should_set_reuseaddr with
+      try f socket with
       | exn ->
         let `Please_retry = handle_exn t socket exn ~retries_attempted_upon_addr_in_use in
         aux_bind_and_listen_maybe_retry'
@@ -635,10 +625,8 @@ module Server = struct
     in
     let%map socket =
       let socket_creator = Socket_creator.create socket where_to_listen in
-      Socket_creator.bind_and_listen_maybe_retry
-        socket_creator
-        ~f:(fun socket ~reuseaddr ->
-          Socket.bind ~reuseaddr socket where_to_listen.address >>| Socket.listen ?backlog)
+      Socket_creator.bind_and_listen_maybe_retry socket_creator ~f:(fun socket ->
+        Socket.bind_keep_opts socket where_to_listen.address >>| Socket.listen ?backlog)
     in
     let max_connections =
       Max_connections.create
@@ -676,11 +664,9 @@ module Server = struct
     in
     let socket =
       let socket_creator = Socket_creator.create socket where_to_listen in
-      Socket_creator.bind_and_listen_maybe_retry'
-        socket_creator
-        ~f:(fun socket ~reuseaddr ->
-          Socket.bind_inet ~reuseaddr socket where_to_listen.address
-          |> Socket.listen ?backlog)
+      Socket_creator.bind_and_listen_maybe_retry' socket_creator ~f:(fun socket ->
+        Socket.bind_inet_keep_opts socket where_to_listen.address
+        |> Socket.listen ?backlog)
     in
     let max_connections =
       Max_connections.create

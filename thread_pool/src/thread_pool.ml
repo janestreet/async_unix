@@ -35,13 +35,13 @@ let priority_zero = Priority.of_int 0
 let getpriority =
   match Linux_ext.getpriority with
   | Error _ -> const priority_zero
-  | Ok f -> f
+  | Ok f -> fun () -> f ()
 ;;
 
 let setpriority =
   match Linux_ext.setpriority with
   | Error _ -> Fn.ignore
-  | Ok f -> f
+  | Ok f -> fun p -> f p
 ;;
 
 let set_thread_name =
