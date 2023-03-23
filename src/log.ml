@@ -556,6 +556,7 @@ module Output : sig
     -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
+    -> ?suffix:string
     -> Rotation.t
     -> t
 
@@ -565,6 +566,7 @@ module Output : sig
     -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
+    -> ?suffix:string
     -> Rotation.t
     -> t * string Tail.t
 
@@ -748,44 +750,44 @@ end = struct
       -> ?time_source:Synchronous_time_source.t
       -> Format.t
       -> basename:string
+      -> ?suffix:string
       -> Rotation.t
       -> log_on_rotation:(unit -> Message.t list) option
       -> t * string Tail.t
   end = struct
     module Make (Id : Rotation.Id_intf) = struct
-      let make_filename ~dirname ~basename id =
+      let make_filename ~dirname ~basename ~suffix id =
         match Id.to_string_opt id with
-        | None -> dirname ^/ sprintf "%s.log" basename
-        | Some s -> dirname ^/ sprintf "%s.%s.log" basename s
+        | None -> dirname ^/ sprintf "%s%s" basename suffix
+        | Some s -> dirname ^/ sprintf "%s.%s%s" basename s suffix
       ;;
 
-      let parse_filename_id ~basename filename =
-        if String.equal (Filename.basename filename) (basename ^ ".log")
+      let parse_filename_id ~basename ~suffix filename =
+        if String.equal (Filename.basename filename) (basename ^ suffix)
         then Id.of_string_opt None
         else
           let open Option.Monad_infix in
           String.chop_prefix (Filename.basename filename) ~prefix:(basename ^ ".")
           >>= fun id_dot_log ->
-          String.chop_suffix id_dot_log ~suffix:".log"
-          >>= fun id -> Id.of_string_opt (Some id)
+          String.chop_suffix id_dot_log ~suffix >>= fun id -> Id.of_string_opt (Some id)
       ;;
 
-      let current_log_files ~dirname ~basename =
+      let current_log_files ~dirname ~basename ~suffix =
         Sys.readdir dirname
         >>| fun files ->
         List.filter_map (Array.to_list files) ~f:(fun filename ->
           let filename = dirname ^/ filename in
-          Option.(parse_filename_id ~basename filename >>| fun id -> id, filename))
+          Option.(parse_filename_id ~basename ~suffix filename >>| fun id -> id, filename))
       ;;
 
       (* errors from this function should be ignored.  If this function fails to run, the
          disk may fill up with old logs, but external monitoring should catch that, and
          the core function of the Log module will be unaffected. *)
-      let maybe_delete_old_logs ~dirname ~basename keep =
+      let maybe_delete_old_logs ~dirname ~basename ~suffix keep =
         (match keep with
          | `All -> return []
          | `Newer_than span ->
-           current_log_files ~dirname ~basename
+           current_log_files ~dirname ~basename ~suffix
            >>= fun files ->
            (* This will be compared to the mtime of the file, so we should always use
               Time.now (wall-clock time) instead a different time source. *)
@@ -800,7 +802,7 @@ end = struct
              | Error _ -> false
              | Ok stats -> Time.( < ) stats.mtime cutoff)
          | `At_least i ->
-           current_log_files ~dirname ~basename
+           current_log_files ~dirname ~basename ~suffix
            >>| fun files ->
            let files =
              List.sort files ~compare:(fun (i1, _) (i2, _) -> Id.cmp_newest_first i1 i2)
@@ -816,6 +818,7 @@ end = struct
 
       type t =
         { basename : string
+        ; suffix : string
         ; dirname : string
         ; rotation : Rotation.t
         ; format : Format.t
@@ -841,10 +844,10 @@ end = struct
       ;;
 
       let rotate t ~time_source =
-        let basename, dirname = t.basename, t.dirname in
+        let { basename; dirname; suffix; _ } = t in
         close_writer t
         >>= fun () ->
-        current_log_files ~dirname ~basename
+        current_log_files ~dirname ~basename ~suffix
         >>= fun files ->
         let files =
           List.rev
@@ -852,16 +855,17 @@ end = struct
         in
         Deferred.List.iter ~how:`Sequential files ~f:(fun (id, src) ->
           let id' = Id.rotate_one id in
-          let dst = make_filename ~dirname ~basename id' in
+          let dst = make_filename ~dirname ~basename ~suffix id' in
           if String.equal src t.filename then Tail.extend t.log_files dst;
           if Id.cmp_newest_first id id' <> 0 then Unix.rename ~src ~dst else return ())
         >>= fun () ->
-        maybe_delete_old_logs ~dirname ~basename t.rotation.keep
+        maybe_delete_old_logs ~dirname ~basename ~suffix t.rotation.keep
         >>| fun () ->
         let filename =
           make_filename
             ~dirname
             ~basename
+            ~suffix
             (Id.create ?time_source (Rotation.zone t.rotation))
         in
         t.last_size <- 0;
@@ -894,7 +898,7 @@ end = struct
         t.last_time <- current_time
       ;;
 
-      let create ?perm ?time_source ~log_on_rotation format ~basename rotation =
+      let create ?perm ?time_source ~log_on_rotation format ~basename ~suffix rotation =
         let log_on_rotation =
           match log_on_rotation with
           | None -> Fn.const []
@@ -914,9 +918,11 @@ end = struct
             make_filename
               ~dirname
               ~basename
+              ~suffix
               (Id.create ?time_source (Rotation.zone rotation))
           in
           { basename
+          ; suffix
           ; dirname
           ; rotation
           ; format
@@ -1010,21 +1016,36 @@ end = struct
         ;;
       end)
 
-    let create ?perm ?time_source format ~basename (rotation : Rotation.t) =
+    let create
+          ?perm
+          ?time_source
+          format
+          ~basename
+          ?(suffix = ".log")
+          (rotation : Rotation.t)
+      =
       match rotation.naming_scheme with
-      | `Numbered -> Numbered.create format ~basename rotation ?perm ?time_source
-      | `Timestamped -> Timestamped.create format ~basename rotation ?perm ?time_source
-      | `Dated -> Dated.create format ~basename rotation ?perm ?time_source
+      | `Numbered -> Numbered.create format ~basename ~suffix rotation ?perm ?time_source
+      | `Timestamped ->
+        Timestamped.create format ~basename ~suffix rotation ?perm ?time_source
+      | `Dated -> Dated.create format ~basename ~suffix rotation ?perm ?time_source
       | `User_defined id ->
         let module Id = (val id : Rotation.Id_intf) in
         let module User_defined = Make (Id) in
-        User_defined.create format ~basename rotation ?perm ?time_source
+        User_defined.create format ~basename ~suffix rotation ?perm ?time_source
     ;;
   end
 
-  let rotating_file ?perm ?time_source ?log_on_rotation format ~basename rotation =
+  let rotating_file ?perm ?time_source ?log_on_rotation format ~basename ?suffix rotation =
     fst
-      (Rotating_file.create format ~basename ~log_on_rotation rotation ?perm ?time_source)
+      (Rotating_file.create
+         format
+         ~basename
+         ?suffix
+         ~log_on_rotation
+         rotation
+         ?perm
+         ?time_source)
   ;;
 
   let rotating_file_with_tail
@@ -1033,9 +1054,17 @@ end = struct
         ?log_on_rotation
         format
         ~basename
+        ?suffix
         rotation
     =
-    Rotating_file.create format ~basename ~log_on_rotation rotation ?perm ?time_source
+    Rotating_file.create
+      format
+      ~basename
+      ?suffix
+      ~log_on_rotation
+      rotation
+      ?perm
+      ?time_source
   ;;
 
   let file = File.create
@@ -1830,8 +1859,7 @@ module Reader = struct
 
   let pipe format filename =
     Pipe.create_reader ~close_on_exception:false (fun pipe_w ->
-      Reader.with_file filename ~f:(fun reader ->
-        read_from_reader format reader ~pipe_w))
+      Reader.with_file filename ~f:(fun reader -> read_from_reader format reader ~pipe_w))
   ;;
 
   module Expert = struct

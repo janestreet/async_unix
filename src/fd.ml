@@ -98,7 +98,8 @@ module Close = struct
                 Monitor.protect
                   ~run:`Schedule
                   ~finally:(fun () ->
-                    In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
+                    In_thread.syscall_exn ~name:"close" (fun () ->
+                      Unix.close t.file_descr))
                   (fun () ->
                      match t.kind, socket_handling with
                      | Socket `Active, Shutdown_socket ->
@@ -221,8 +222,7 @@ let interruptible_ready_to t read_or_write ~interrupt =
   | `Watching ->
     stop_watching_upon_interrupt t read_or_write ready ~interrupt;
     Deferred.map (Ivar.read ready) ~f:(function
-      | `Unsupported ->
-        if Deferred.is_determined interrupt then `Interrupted else `Ready
+      | `Unsupported -> if Deferred.is_determined interrupt then `Interrupted else `Ready
       | (`Bad_fd | `Closed | `Interrupted | `Ready) as res -> res)
 ;;
 

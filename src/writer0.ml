@@ -101,7 +101,8 @@ type t =
        t], and sends them to [monitor]. *)
     monitor : Monitor.t
   ; inner_monitor : Monitor.t
-  ; mutable background_writer_state :
+  ; mutable
+    background_writer_state :
       [ `Running | `Not_running | `Stopped_permanently of Stop_reason.t ]
   ; background_writer_stopped : unit Ivar.t
   ; (* [syscall] determines the batching approach that the writer uses to batch data
@@ -242,16 +243,12 @@ let sexp_of_t_internals
     ; close_started : unit Ivar.t
     ; num_producers_to_flush_at_close = (Bag.length producers_to_flush_at_close : int)
     ; flush_at_shutdown_elt =
-        (suppress_in_test flush_at_shutdown_elt : ((t[@sexp.opaque]) Bag.Elt.t option
-                                                     option
-                                                   [@sexp.option]))
+        (suppress_in_test flush_at_shutdown_elt
+         : ((t[@sexp.opaque]) Bag.Elt.t option option[@sexp.option]))
     ; check_buffer_age =
-        (suppress_in_test check_buffer_age : ((t[@sexp.opaque]) Check_buffer_age'.t
-                                                Bag.Elt.t
-                                                option
-                                                Lazy.t
-                                                option
-                                              [@sexp.option]))
+        (suppress_in_test check_buffer_age
+         : ((t[@sexp.opaque]) Check_buffer_age'.t Bag.Elt.t option Lazy.t option
+            [@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
     ; open_flags = (suppress_in_test open_flags : (open_flags option[@sexp.option]))
@@ -287,8 +284,7 @@ let invariant t : unit =
              assert (Ivar.is_full t.background_writer_stopped)
            | `Running | `Not_running ->
              assert (Bigstring.length t.buf > 0);
-             assert (
-               Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)));
+             assert (Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)));
              assert (Ivar.is_empty t.background_writer_stopped)))
       ~background_writer_stopped:ignore
       ~syscall:ignore
@@ -695,7 +691,8 @@ let final_flush ?force t =
          [after (sec 5.)]  makes sense. *)
       (match Fd.kind t.fd with
        | File -> Deferred.never ()
-       | Char | Fifo | Socket _ -> Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
+       | Char | Fifo | Socket _ ->
+         Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
   in
   Deferred.any_unit
     [ (* If the consumer leaves, there's no more writing we can do. *)

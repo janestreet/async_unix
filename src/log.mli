@@ -213,6 +213,7 @@ module Output : sig
     -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
+    -> ?suffix:string (** defaults to [".log"] *)
     -> Rotation.t
     -> t
 
@@ -224,6 +225,7 @@ module Output : sig
     -> ?log_on_rotation:(unit -> Message.t list)
     -> Format.t
     -> basename:string
+    -> ?suffix:string (** defaults to [".log"] *)
     -> Rotation.t
     -> t * string Tail.t
 

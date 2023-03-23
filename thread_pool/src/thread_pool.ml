@@ -124,7 +124,8 @@ module Internal = struct
       ; mutable priority : Priority.t
       (* A thread can be "available", meaning that it isn't working on anything, or
          doing work added to the thread pool, or serving as a helper thread.  *)
-      ; mutable state :
+      ; mutable
+        state :
           [ `Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t ]
       (* [unfinished_work] is the amount of work remaining for this thread to do.  It
          includes all the work in [work_queue], plus perhaps an additional work that is
@@ -462,10 +463,8 @@ module Internal = struct
                    | `Available ->
                      raise_s
                        [%message
-                         "thread-pool thread unexpectedly available"
-                           (thread : Thread.t)]
-                   | `Helper helper_thread ->
-                     maybe_finish_helper_thread t helper_thread
+                         "thread-pool thread unexpectedly available" (thread : Thread.t)]
+                   | `Helper helper_thread -> maybe_finish_helper_thread t helper_thread
                    | `Working -> make_thread_available t thread);
                  loop ()
              in
@@ -570,8 +569,7 @@ module Internal = struct
       match Hashtbl.find t.thread_by_id (Thread_id.self ()) with
       | Some thread -> Ok thread
       | None ->
-        Or_error.error_string
-          "become_helper_thread not called within thread-pool thread")
+        Or_error.error_string "become_helper_thread not called within thread-pool thread")
   ;;
 
   let add_work_for_helper_thread ?priority ?name t helper_thread doit =
