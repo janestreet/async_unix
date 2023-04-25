@@ -1,3 +1,58 @@
+## Release v0.16.0
+
+- Improve scheduling fairness in `Async_unix`:
+  * Fix an issue where a chain of `In_thread.run` calls can monopolize the scheduler without
+  letting other jobs to run.
+
+- Changes in `Async.Log`:
+  * Add `printf` function
+  * Let the user override the suffix of the log file (defaults to ".log")
+  * Propagate the `rest` parameter of `Monitor.protect` through to the API
+
+- Changes in `Async.Process`:
+  * Rename type aliases `Process.{create,run,collect}` to `Process.Aliases.{create,run,collect}`
+  * Add functions that forward data from stdout/stderr of the child to the parent
+    - `run_forwarding`
+    - `run_forwarding_exn`
+    - `forward_output_and_wait`
+    - `forward_output_and_wait_exn`
+    
+- Changes in `Async.Reader`:
+  *  Removed function `Reader.io_stats` (also in `Writer`)
+  * Added `Reader.bytes_read`: returns the number of bytes read by a specific reader, including bytes in the internal buffer
+  * Added `Reader.iter_bin_prot{,_exn}`: reads all size-prefixed binary protocol messages in `t`, calls `f` for each message, and closes `t`
+  * `read_bin_prot_into_pipe` is similar to `iter_bin_prot`, but returns messages as a pipe
+  * `Reader.read_all` now accepts an optional `close_when_finished` parameter, with a default value of `true`
+  * `Reader.read` and `Reader.load` changed from a type synonym to a type abbreviation
+
+- Changes in `Async.Scheduler`:
+  * Add an ability to specify a custom file descriptor watcher
+  * Add `raise_if_any_jobs_were_scheduled` function to `Scheduler`:
+    - Raises an exception if any async work has ever been scheduled
+    - Useful to call before a program starts, e.g., before `Command.run`, to ensure no libraries have started async work by mistake, avoiding unexpected non-deterministic behavior
+  * Add `add_busy_poller` function to `Scheduler`:
+    - Pollers will be called in a busy loop while waiting on I/O before an Async cycle
+
+- Changes in `Async.Shutdown`:
+  * Add an ability to exit with signal (as if terminated by a fatal signal with no handler).
+
+- Changes in `Async.Signal`:
+  * Add an ability to remove a signal handler.
+
+- Changes in `Async.Tcp`:
+  * Rename `Tcp.with_connect_options` to `Tcp.Aliases.with_connect_options`.
+  
+- Changes in `Unix_syscalls`:
+  * Add `Socket.bind_keep_opts`
+    - Behaves like `bind`, but preserves existing socket options and the CLOEXEC flag
+  * Add `Socket.bind_inet_keep_opts`
+    - Similar to `bind_inet`, but preserves existing socket options and the CLOEXEC flag
+  * Add `Socket.reuseport`:
+    - Allows setting the `SO_REUSEPORT` flag on the socket
+  * Add `username`, which is the same as `getlogin`, to avoid confusing with `getlogin` that comes with OCaml distribution.
+
+## Old pre-v0.15 changelogs (very likely stale and incomplete)
+
 ## 113.43.00
 
 - Switched if-then-else style from:
