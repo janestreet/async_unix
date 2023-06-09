@@ -88,7 +88,7 @@ module Close = struct
     (match t.state with
      | Close_requested _ | Closed -> ()
      | Open close_started ->
-       Ivar.fill close_started ();
+       Ivar.fill_exn close_started ();
        let do_close_syscall () =
          don't_wait_for
            (let%map () =
@@ -107,7 +107,7 @@ module Close = struct
                          Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
                      | _ -> return ())
             in
-            Ivar.fill t.close_finished ())
+            Ivar.fill_exn t.close_finished ())
        in
        let scheduler = the_one_and_only () in
        let kernel_scheduler = scheduler.kernel_scheduler in
@@ -122,6 +122,8 @@ module Close = struct
        Scheduler.maybe_start_closing_fd scheduler t);
     Ivar.read t.close_finished
   ;;
+
+  let deregister t = close ~file_descriptor_handling:Do_not_close_file_descriptor t
 end
 
 include Close

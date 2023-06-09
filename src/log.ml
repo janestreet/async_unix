@@ -1254,13 +1254,13 @@ let create_log_processor ~output =
              output_message_queue (fun () ->
                Output.rotate !output
                >>= fun () ->
-               Ivar.fill i ();
+               Ivar.fill_exn i ();
                loop yield_every)
            | Flush i ->
              output_message_queue (fun () ->
                Output.flush !output
                >>= fun () ->
-               Ivar.fill i ();
+               Ivar.fill_exn i ();
                loop yield_every)
            | Msg msg ->
              Queue.enqueue msgs msg;

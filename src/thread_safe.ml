@@ -199,7 +199,7 @@ let deferred t =
     then Ivar.create ()
     else run_holding_async_lock t Ivar.create ~finish:Result.ok_exn
   in
-  let fill x = run_in_async_exn t (fun () -> Ivar.fill ivar x) in
+  let fill x = run_in_async_exn t (fun () -> Ivar.fill_exn ivar x) in
   Ivar.read ivar, fill
 ;;
 

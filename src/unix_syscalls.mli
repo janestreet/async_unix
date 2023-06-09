@@ -693,6 +693,7 @@ val geteuid : unit -> int
 val getgid : unit -> int
 val getegid : unit -> int
 val setuid : int -> unit
+val setgid : int -> unit
 
 module Error = Unix.Error
 

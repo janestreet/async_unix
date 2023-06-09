@@ -66,7 +66,7 @@ let when_file_exists ?follow_symlinks ?(poll_delay = sec 0.5) file =
     let rec loop () =
       file_exists ?follow_symlinks file
       >>> function
-      | `Yes -> Ivar.fill i ()
+      | `Yes -> Ivar.fill_exn i ()
       | `No -> upon (Clock.after poll_delay) loop
       | `Unknown ->
         raise_s [%message "when_file_exists can not check file" (file : string)]

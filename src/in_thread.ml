@@ -56,13 +56,13 @@ let run_after_scheduler_is_started
       protect
         ~finally:(fun () -> unlock t)
         ~f:(fun () ->
-          Ivar.fill ivar result;
+          Ivar.fill_exn ivar result;
           have_lock_do_cycle t)
     else
       thread_safe_enqueue_external_job
         t
         (current_execution_context t)
-        (fun () -> Ivar.fill ivar result)
+        (fun () -> Ivar.fill_exn ivar result)
         ()
   in
   (match thread with

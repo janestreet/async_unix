@@ -445,7 +445,7 @@ end = struct
       | true, true | false, false -> ()
       | true, false -> e.too_old <- Ivar.create ()
       | false, true ->
-        Ivar.fill e.too_old ();
+        Ivar.fill_exn e.too_old ();
         let writer = e.writer in
         (* [Monitor.send_exn] enqueues jobs but does not run user code, and so cannot
            modify [e]. *)
@@ -711,7 +711,7 @@ let close_internal ~flush t =
      ()
    | `Open ->
      t.close_state <- `Closed_and_flushing;
-     Ivar.fill t.close_started ();
+     Ivar.fill_exn t.close_started ();
      (match flush with
       | `Flush force -> final_flush t ?force
       | `No_flush -> return ())
@@ -722,7 +722,7 @@ let close_internal ~flush t =
      (match t.flush_at_shutdown_elt with
       | None -> assert false
       | Some elt -> Bag.remove writers_to_flush_at_shutdown elt);
-     Unix.close t.fd >>> fun () -> Ivar.fill t.close_finished ());
+     Unix.close t.fd >>> fun () -> Ivar.fill_exn t.close_finished ());
   close_finished t
 ;;
 
@@ -748,7 +748,7 @@ let fill_flushes { bytes_written; flushes; time_source; _ } =
       | Some (ivar, z) ->
         if Int63.(z <= bytes_written)
         then (
-          Ivar.fill ivar (Flush_result.Flushed now);
+          Ivar.fill_exn ivar (Flush_result.Flushed now);
           ignore (Queue.dequeue flushes : (Flush_result.t Ivar.t * Int63.t) option);
           loop ())
     in
@@ -764,7 +764,7 @@ let stop_permanently t (outcome : Stop_reason.t) =
   t.back <- 0;
   Ivar.fill_if_empty t.background_writer_stopped ();
   Queue.iter t.flushes ~f:(fun (ivar, _) ->
-    Ivar.fill
+    Ivar.fill_exn
       ivar
       (match outcome with
        | Error -> Flush_result.Error
@@ -1029,7 +1029,7 @@ let rec start_write t =
       (* [t.consumer_left] is empty since once we reach this point, we stop the writer
          permanently, and so will never reach here again. *)
       assert (Ivar.is_empty t.consumer_left);
-      Ivar.fill t.consumer_left ();
+      Ivar.fill_exn t.consumer_left ();
       if t.raise_when_consumer_leaves
       then (
         stop_permanently t Error;
@@ -1910,7 +1910,7 @@ let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r 
         | Some max_queue_length -> Pipe.read_now' pipe_r ~consumer ~max_queue_length
       in
       match read_result with
-      | `Eof -> Ivar.fill end_of_pipe_r ()
+      | `Eof -> Ivar.fill_exn end_of_pipe_r ()
       | `Nothing_available -> Pipe.values_available pipe_r >>> fun _ -> iter ()
       | `Ok q ->
         write_f q ~cont:(fun () ->

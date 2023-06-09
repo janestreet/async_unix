@@ -17,7 +17,7 @@ let%bench_module "Clock.every" =
         ~stop:(Ivar.read iv)
         ~continue_on_error:false
         ~f:(fun () ->
-          if !n >= 1_000 then Ivar.fill iv () else incr n;
+          if !n >= 1_000 then Ivar.fill_exn iv () else incr n;
           return ())
         ~continue:Time_source.Continue.immediately;
       run_cycles_until_no_jobs_remain ()
@@ -31,7 +31,7 @@ let%bench_module "Clock.every" =
         ~stop:(Ivar.read iv)
         ~continue_on_error:true
         ~f:(fun () ->
-          if !n >= 1_000 then Ivar.fill iv () else incr n;
+          if !n >= 1_000 then Ivar.fill_exn iv () else incr n;
           return ())
         ~continue:Time_source.Continue.immediately;
       run_cycles_until_no_jobs_remain ()

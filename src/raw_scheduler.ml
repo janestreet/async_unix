@@ -429,11 +429,11 @@ let give_up_on_watching t fd read_or_write (watching : Watching.t) =
   match watching with
   | Stop_requested | Not_watching -> ()
   | Watch_once ready_to ->
-    Ivar.fill ready_to `Unsupported;
+    Ivar.fill_exn ready_to `Unsupported;
     set_fd_desired_watching t fd read_or_write Stop_requested
   | Watch_repeatedly (job, finished) ->
     Kernel_scheduler.free_job t.kernel_scheduler job;
-    Ivar.fill finished `Unsupported;
+    Ivar.fill_exn finished `Unsupported;
     set_fd_desired_watching t fd read_or_write Stop_requested
 ;;
 
@@ -478,7 +478,7 @@ let request_stop_watching t fd read_or_write value =
   match Read_write_pair.get fd.watching read_or_write with
   | Stop_requested | Not_watching -> ()
   | Watch_once ready_to ->
-    Ivar.fill ready_to value;
+    Ivar.fill_exn ready_to value;
     set_fd_desired_watching t fd read_or_write Stop_requested;
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
   | Watch_repeatedly (job, finished) ->
@@ -486,7 +486,7 @@ let request_stop_watching t fd read_or_write value =
      | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
      | (`Closed | `Bad_fd | `Interrupted | `Unsupported) as value ->
        Kernel_scheduler.free_job t.kernel_scheduler job;
-       Ivar.fill finished value;
+       Ivar.fill_exn finished value;
        set_fd_desired_watching t fd read_or_write Stop_requested;
        if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t)
 ;;

@@ -142,6 +142,23 @@ module Close : sig
     (** default is [Close_file_descriptor Shutdown_socket] *)
     -> t
     -> unit Deferred.t
+
+
+  (** [deregister t] causes Async to stop tracking this file descriptor, and prevents
+      further use of [t].  The file descriptor remains open; it can be used by other
+      libraries.
+
+      You should only call this function if you have a file descriptor created by Async
+      and you need to move ownership of that file descriptor to another IO library which
+      expects to be able to close the file descriptor itself.  Otherwise, just use
+      [close].
+
+      This is like calling [close] with [file_descriptor_handling] set to
+      [Do_not_close_file_descriptor].
+
+      It is OK to call [deregister] multiple times on the same [t], like [close].
+  *)
+  val deregister : t -> unit Deferred.t
 end
 
 include module type of Close

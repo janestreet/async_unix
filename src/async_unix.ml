@@ -37,7 +37,7 @@ let shutdown = Shutdown.shutdown
 let within = Scheduler.within
 let within' = Scheduler.within'
 
-(* We rebind all pervasive and some Core funtions that deal with I/O so that one
+(* We rebind all pervasive and some Core functions that deal with I/O so that one
    doesn't unintentionally do blocking stuff in an Async program. *)
 
 (** Shadow blocking functions in [Core.Printf] to prevent their unintentional use. *)

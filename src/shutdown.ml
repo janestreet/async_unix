@@ -173,7 +173,7 @@ let exit ?force status =
 let don't_finish_before =
   let proceed_with_shutdown = Ivar.create () in
   let num_waiting = ref 0 in
-  let check () = if !num_waiting = 0 then Ivar.fill proceed_with_shutdown () in
+  let check () = if !num_waiting = 0 then Ivar.fill_exn proceed_with_shutdown () in
   at_shutdown (fun () ->
     check ();
     Ivar.read proceed_with_shutdown);

@@ -129,7 +129,7 @@ let connect_sock
     >>> function
     | `Ok s ->
       Time_source.Event.abort_if_possible timeout ();
-      Ivar.fill result s
+      Ivar.fill_exn result s
     | `Interrupted ->
       don't_wait_for (Unix.close (Socket.fd s));
       let address = Socket.Address.to_string address in

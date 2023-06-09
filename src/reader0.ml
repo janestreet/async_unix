@@ -192,7 +192,7 @@ module Internal = struct
      | `Closed -> ()
      | `Not_in_use | `In_use ->
        t.state <- `Closed;
-       upon (Unix.close t.fd) (fun () -> Ivar.fill t.close_finished ());
+       upon (Unix.close t.fd) (fun () -> Ivar.fill_exn t.close_finished ());
        t.pos <- 0;
        t.available <- 0;
        (match t.close_may_destroy_buf with
@@ -228,7 +228,7 @@ module Internal = struct
      returns [`Ok], otherwise it returns [`Eof]. *)
   let get_data t : [ `Ok | `Eof ] Deferred.t =
     Deferred.create (fun result ->
-      let eof () = Ivar.fill result `Eof in
+      let eof () = Ivar.fill_exn result `Eof in
       match t.state, t.open_flags with
       | `Not_in_use, _ -> assert false
       | `Closed, _ | _, `Already_closed -> eof ()
@@ -281,7 +281,7 @@ module Internal = struct
               t.pos <- 0;
               t.available <- t.available + bytes_read;
               t.last_read_time <- read_time;
-              Ivar.fill result `Ok)
+              Ivar.fill_exn result `Ok)
         in
         let buf = t.buf in
         if t.available > 0 && t.pos > 0
@@ -347,17 +347,35 @@ module Internal = struct
           loop ()))
   ;;
 
-  let ensure_buf_len t ~at_least =
+  (** Grow the buffer length if its size is less than [desired].
+      If the requested growth is too large, we only grow the buffer to ~4x the size.
+      The reason is that the [desired] value is often read from the data stream,
+      and we don't want to run out of memory if we read an absurd [desired] value from
+      the data stream. *)
+  let maybe_grow_buf_len t ~desired =
     let buf_len = Bigstring.length t.buf in
-    if buf_len < at_least
+    if buf_len < desired
     then (
-      let new_buf = Bigstring.create (Int.max at_least (2 * Bigstring.length t.buf)) in
+      let new_buf =
+        let new_buf_len =
+          if desired < 2 * buf_len
+          then 2 * buf_len
+          else if desired < 8 * buf_len
+          (* Slightly more willing to grow the buffer if that brings us exactly to
+             [desired], so grow by 8x here instead of 4x.
+
+             This trick is to avoid growing above [desired] when [maybe_grow_buf_len] is
+             called multiple times. *)
+          then desired
+          else 4 * buf_len
+        in
+        Bigstring.create new_buf_len
+      in
       if t.available > 0
       then
         Bigstring.blit ~src:t.buf ~src_pos:t.pos ~len:t.available ~dst:new_buf ~dst_pos:0;
       t.buf <- new_buf;
-      t.pos <- 0);
-    assert (Bigstring.length t.buf >= at_least)
+      t.pos <- 0)
   ;;
 
   (* [get_data_until] calls [get_data] to read into [t.buf] until [t.available >=
@@ -367,7 +385,7 @@ module Internal = struct
     if t.available >= available_at_least
     then return `Ok
     else (
-      ensure_buf_len t ~at_least:available_at_least;
+      maybe_grow_buf_len t ~desired:available_at_least;
       if t.pos > 0
       then (
         Bigstring.blit ~src:t.buf ~src_pos:t.pos ~dst:t.buf ~dst_pos:0 ~len:t.available;
@@ -379,7 +397,10 @@ module Internal = struct
         else (
           match result with
           | `Eof -> return (`Eof t.available)
-          | `Ok -> loop ())
+          | `Ok ->
+            if t.available = Bigstring.length t.buf
+            then maybe_grow_buf_len t ~desired:available_at_least;
+            loop ())
       in
       loop ())
   ;;
@@ -461,21 +482,21 @@ module Internal = struct
                   (Bigstring.to_string t.buf ~pos:t.pos ~len:t.available)
               else `Eof
             in
-            Ivar.fill final_result result
+            Ivar.fill_exn final_result result
           | `Ok ->
             let len = t.available in
             let continue z =
               match t.state with
               | `Not_in_use -> assert false
-              | `Closed -> Ivar.fill final_result `Eof
+              | `Closed -> Ivar.fill_exn final_result `Eof
               | `In_use ->
                 (match z with
                  | `Stop a ->
                    consume t len;
-                   Ivar.fill final_result (`Stopped a)
+                   Ivar.fill_exn final_result (`Stopped a)
                  | `Stop_consumed (a, consumed) ->
                    consume t consumed;
-                   Ivar.fill final_result (`Stopped a)
+                   Ivar.fill_exn final_result (`Stopped a)
                  | `Continue ->
                    consume t len;
                    loop ~force_refill:true
@@ -579,11 +600,11 @@ module Internal = struct
       Deferred.create (fun result ->
         let rec loop s amount_read =
           if S.length s = 0
-          then Ivar.fill result `Ok
+          then Ivar.fill_exn result `Ok
           else
             read t s
             >>> function
-            | `Eof -> Ivar.fill result (`Eof amount_read)
+            | `Eof -> Ivar.fill_exn result (`Eof amount_read)
             | `Ok len -> loop (S.drop_prefix s len) (amount_read + len)
         in
         loop s 0)
@@ -746,7 +767,7 @@ module Internal = struct
   let read_line t =
     Deferred.create (fun result ->
       read_line_gen t (fun z ->
-        Ivar.fill
+        Ivar.fill_exn
           result
           (match z with
            | `Eof_without_delim str -> `Ok str
@@ -756,8 +777,8 @@ module Internal = struct
   let really_read_line ~wait_time t =
     Deferred.create (fun result ->
       let fill_result = function
-        | [] -> Ivar.fill result None
-        | ac -> Ivar.fill result (Some (String.concat (List.rev ac)))
+        | [] -> Ivar.fill_exn result None
+        | ac -> Ivar.fill_exn result (Some (String.concat (List.rev ac)))
       in
       let rec continue ac =
         match t.state with
@@ -836,10 +857,10 @@ module Internal = struct
         let rec loop parse_pos =
           gen_read_sexp t ~sexp_kind ?parse_pos (function
             | Error error -> Error.raise error
-            | Ok `Eof -> Ivar.fill result ()
+            | Ok `Eof -> Ivar.fill_exn result ()
             | Ok (`Ok (sexp, parse_pos)) ->
               if Pipe.is_closed pipe_w
-              then Ivar.fill result ()
+              then Ivar.fill_exn result ()
               else Pipe.write pipe_w sexp >>> fun () -> loop (Some parse_pos))
         in
         loop parse_pos)
@@ -920,7 +941,7 @@ module Internal = struct
   end
 
   let peek_or_read_bin_prot
-        ?(max_len = 100 * 1024 * 1024)
+        ?(max_len = Int.max_value)
         t
         ~(peek_or_read : Peek_or_read.t)
         (bin_prot_reader : _ Bin_prot.Type_class.reader)
@@ -932,8 +953,10 @@ module Internal = struct
            k (Or_error.error "Reader.read_bin_prot" (msg, t) [%sexp_of: string * t]))
         f
     in
-    let handle_eof n =
-      if n = 0 then k (Ok `Eof) else error "got Eof with %d bytes left over" n ()
+    let handle_eof ~need n =
+      if n = 0
+      then k (Ok `Eof)
+      else error "got Eof with %d bytes left over (need %d)" n need ()
     in
     if max_len < 0
     then error "max read length is negative: %d" max_len ()
@@ -963,7 +986,7 @@ module Internal = struct
              else
                get_data_until t ~available_at_least:need
                >>> (function
-                 | `Eof n -> handle_eof n
+                 | `Eof n -> handle_eof ~need n
                  | `Ok -> read_loop ())
            | Error error -> k (Error error)
            | exception exn -> k (Or_error.of_exn exn))
@@ -1072,7 +1095,7 @@ module Internal = struct
     Deferred.create (fun i ->
       read_line t
       >>> function
-      | `Eof -> Ivar.fill i `Eof
+      | `Eof -> Ivar.fill_exn i `Eof
       | `Ok length_str ->
         (match
            try Ok (int_of_string length_str) with
@@ -1087,7 +1110,7 @@ module Internal = struct
            really_read t buf
            >>> (function
              | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
-             | `Ok -> Ivar.fill i (`Ok buf))))
+             | `Ok -> Ivar.fill_exn i (`Ok buf))))
   ;;
 
   let transfer t pipe_w =
@@ -1213,7 +1236,7 @@ let do_read_k
   Deferred.create (fun result ->
     read_k (fun r ->
       finished_read t;
-      Ivar.fill result (make_result (ok_exn r))))
+      Ivar.fill_exn result (make_result (ok_exn r))))
 ;;
 
 let read_until t p ~keep_delim = do_read_k t (read_until t p ~keep_delim) Fn.id

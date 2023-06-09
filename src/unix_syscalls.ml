@@ -29,7 +29,7 @@ let getppid_exn () = Unix.getppid_exn ()
 let this_process_became_child_of_init ?(poll_delay = sec 1.) () =
   Deferred.create (fun i ->
     Clock.every poll_delay ~stop:(Ivar.read i) (fun () ->
-      if Pid.equal (getppid_exn ()) Pid.init then Ivar.fill i ()))
+      if Pid.equal (getppid_exn ()) Pid.init then Ivar.fill_exn i ()))
 ;;
 
 let nice i = Unix.nice i
@@ -512,10 +512,10 @@ end = struct
 
     let wait_nohang : type q r. (q, r) t -> q -> r option =
       fun t wait_on ->
-        match t with
-        | Normal -> wait_nohang wait_on
-        | Untraced -> wait_nohang_untraced wait_on
-        | Waitpid -> waitpid_nohang wait_on
+      match t with
+      | Normal -> wait_nohang wait_on
+      | Untraced -> wait_nohang_untraced wait_on
+      | Waitpid -> waitpid_nohang wait_on
     ;;
   end
 
@@ -533,10 +533,10 @@ end = struct
       match Kind.wait_nohang t.kind t.wait_on with
       | None -> false
       | Some x ->
-        Ivar.fill t.result (Ok x);
+        Ivar.fill_exn t.result (Ok x);
         true
       | exception exn ->
-        Ivar.fill t.result (Error exn);
+        Ivar.fill_exn t.result (Error exn);
         true
     ;;
   end
@@ -1251,6 +1251,7 @@ end
 
 let gethostname () = Unix.gethostname ()
 let setuid uid = Unix.setuid uid
+let setgid gid = Unix.setgid gid
 let getuid () = Unix.getuid ()
 let getgid () = Unix.getgid ()
 let getegid () = Unix.getegid ()
