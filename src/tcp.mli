@@ -315,6 +315,8 @@ module Server : sig
   *)
   val set_drop_incoming_connections : (_, _) t -> bool -> unit
 
+  val is_dropping_incoming_connections : (_, _) t -> bool
+
   (**/**)
 
   (*_ See the Jane Street Style Guide for an explanation of [Private] submodules:

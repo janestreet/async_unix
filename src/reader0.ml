@@ -74,7 +74,7 @@ module Internal = struct
          to client code, which may in turn hold on to it (e.g. via
          [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
       mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
-    ; (* [pos] is the first byte of data in [buf] to b be read by user code. *)
+    ; (* [pos] is the first byte of data in [buf] to be read by user code. *)
       mutable pos : int
     ; (* [available] is how many bytes in [buf] are available to be read by user code. *)
       mutable available : int

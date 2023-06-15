@@ -361,6 +361,7 @@ module Server = struct
     }
   [@@deriving fields, sexp_of]
 
+  let is_dropping_incoming_connections t = t.drop_incoming_connections
   let num_connections t = Bag.length t.connections
   let listening_socket = socket
 

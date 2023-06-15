@@ -653,6 +653,15 @@ end
 (**/**)
 
 module Private : sig
+  (** Writes a message to the log regardless of current log level. *)
+  val push_sexp
+    :  ?level:Level.t
+    -> ?time:Time.t
+    -> ?tags:(string * string) list
+    -> t
+    -> Sexp.t
+    -> unit
+
   module Message : sig
     type t = Message.t [@@deriving of_sexp]
 

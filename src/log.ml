@@ -1376,9 +1376,12 @@ let create_message t ?level ?time ?tags msg =
   Message.create ?level ?time ~time_source ?tags msg
 ;;
 
+let push_sexp ?level ?time ?tags t sexp =
+  push_message t (create_message t ?level ?time ?tags (`Sexp sexp))
+;;
+
 let sexp ?level ?time ?tags t sexp =
-  if would_log t level
-  then push_message t (create_message t ?level ?time ?tags (`Sexp sexp))
+  if would_log t level then push_sexp ?level ?time ?tags t sexp
 ;;
 
 let string ?level ?time ?tags t s =
@@ -1884,6 +1887,8 @@ end
 
 module Private = struct
   module Message = Message
+
+  let push_sexp = push_sexp
 end
 
 include For_external_use_only
