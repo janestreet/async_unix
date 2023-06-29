@@ -333,7 +333,7 @@ let expect_file_descr_redirection_for_fd fd ~f =
 
 let expect_file_descr_redirection file_descr ~f =
   let fd_by_descr = Raw_scheduler.fd_by_descr (the_one_and_only ()) in
-  match Fd_by_descr.find fd_by_descr file_descr with
+  match By_descr.find fd_by_descr file_descr with
   | None -> f ()
   | Some fd -> expect_file_descr_redirection_for_fd fd ~f
 ;;

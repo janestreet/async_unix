@@ -35,3 +35,4 @@ let fds_may_produce_events () = fds_may_produce_events (t ())
 let thread_pool_has_unfinished_work () = thread_pool_has_unfinished_work (t ())
 let max_num_threads () = max_num_threads (t ())
 let _ = current_execution_context
+let is_running () = is_the_one_and_only_running ()

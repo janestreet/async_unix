@@ -180,7 +180,7 @@ let exit = Shutdown.exit
 (**/**)
 
 module Async_unix_private = struct
-  module Fd_by_descr = Fd_by_descr
+  module By_descr = By_descr
   module Raw_fd = Raw_fd
   module Raw_scheduler = Raw_scheduler
   module Syscall = Syscall

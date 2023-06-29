@@ -46,7 +46,22 @@ module Which_watcher = struct
     | Custom of Custom.t
 end
 
+module External_fd_event = struct
+  type t =
+    { file_descr : File_descr.t
+    ; read_or_write : Read_write_pair.Key.t
+    ; event_type : [ `Ready | `Bad_fd ] (* HUP is reported as `Ready *)
+    }
+end
+
 include Async_kernel_scheduler
+
+type start_type =
+  | Not_started
+  | Called_go
+  | Called_block_on_async (* Thread_safe.block_on_async started the scheduler *)
+  | Called_external_run of { active : bool ref }
+[@@deriving sexp_of]
 
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
@@ -58,8 +73,7 @@ type t =
        which code tries to acquire the async lock while it already holds it, or releases
        the lock when it doesn't hold it. *)
     mutex : Nano_mutex.t
-  ; mutable is_running : bool
-  ; mutable have_called_go : bool
+  ; mutable start_type : start_type
   ; (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
        the last time their desired state was set in the [file_descr_watcher]. *)
     fds_whose_watching_has_changed : Fd.t Stack.t
@@ -68,9 +82,16 @@ type t =
     busy_pollers : (unit -> int) Uniform_array.t
   ; mutable num_busy_pollers : int
   ; mutable time_spent_waiting_for_io : Tsc.Span.t
-  ; (* [fd_by_descr] holds every file descriptor that Async knows about.  Fds are added
+  ; (* [fd_by_descr] holds every file descriptor that Async manages.  Fds are added
        when they are created, and removed when they transition to [Closed]. *)
-    fd_by_descr : Fd_by_descr.t
+    fd_by_descr : Fd.t By_descr.t
+  ; (* [external_fd_by_descr] holds file descriptors registered via External.
+       Async does no I/O on these, nor does it open or close them, but it reports
+       readiness of them from External.run_one_cycle *)
+    external_fd_by_descr : bool Read_write_pair.t By_descr.t
+  ; (* [external_ready_fds] communicates the set of ready external file descriptors from
+       [post_check_handle_fd] to [run_one_cycle], and is empty at other times *)
+    mutable external_fd_events : (External_fd_event.t list[@sexp.opaque])
   ; (* If we are using a file descriptor watcher that does not support sub-millisecond
        timeout, [timerfd] contains a timerfd used to handle the next expiration.
        [timerfd_set_at] holds the the time at which [timerfd] is set to expire.  This
@@ -111,7 +132,7 @@ type t =
 [@@deriving fields, sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
-let max_num_open_file_descrs t = Fd_by_descr.capacity t.fd_by_descr
+let max_num_open_file_descrs t = By_descr.capacity t.fd_by_descr
 
 let current_execution_context t =
   Kernel_scheduler.current_execution_context t.kernel_scheduler
@@ -199,7 +220,7 @@ let the_one_and_only () =
 let fds_created_before_initialization = ref []
 
 let create_fd_registration t fd =
-  match Fd_by_descr.add t.fd_by_descr fd with
+  match By_descr.add t.fd_by_descr fd.Fd.file_descr fd with
   | Ok () -> ()
   | Error error ->
     let backtrace =
@@ -235,7 +256,7 @@ let current_thread_id () = Core_thread.(id (self ()))
 (* OCaml runtime happens to assign the thread id of [0] to the main thread
    (the initial thread that starts the program). *)
 let is_main_thread () = current_thread_id () = 0
-let remove_fd t fd = Fd_by_descr.remove t.fd_by_descr fd
+let remove_fd t fd = By_descr.remove t.fd_by_descr fd.Fd.file_descr
 
 let maybe_start_closing_fd t (fd : Fd.t) =
   if fd.num_active_syscalls = 0
@@ -262,13 +283,12 @@ let invariant t : unit =
     Fields.iter
       ~mutex:ignore
       ~have_lock_do_cycle:ignore
-      ~is_running:ignore
-      ~have_called_go:ignore
+      ~start_type:ignore
       ~fds_whose_watching_has_changed:
         (check (fun fds_whose_watching_has_changed ->
            Stack.iter fds_whose_watching_has_changed ~f:(fun (fd : Fd.t) ->
              assert fd.watching_has_changed;
-             match Fd_by_descr.find t.fd_by_descr fd.file_descr with
+             match By_descr.find t.fd_by_descr fd.file_descr with
              | None -> assert false
              | Some fd' -> assert (phys_equal fd fd'))))
       ~file_descr_watcher:
@@ -277,7 +297,7 @@ let invariant t : unit =
            F.invariant F.watcher;
            F.iter F.watcher ~f:(fun file_descr _ ->
              try
-               match Fd_by_descr.find t.fd_by_descr file_descr with
+               match By_descr.find t.fd_by_descr file_descr with
                | None -> raise_s [%message "missing from fd_by_descr"]
                | Some fd -> assert (Fd.num_active_syscalls fd > 0)
              with
@@ -288,13 +308,15 @@ let invariant t : unit =
       ~time_spent_waiting_for_io:ignore
       ~fd_by_descr:
         (check (fun fd_by_descr ->
-           Fd_by_descr.invariant fd_by_descr;
-           Fd_by_descr.iter fd_by_descr ~f:(fun fd ->
+           By_descr.invariant fd_by_descr;
+           By_descr.iter fd_by_descr ~f:(fun fd ->
              if fd.watching_has_changed
              then
                assert (
                  Stack.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
                    phys_equal fd fd')))))
+      ~external_fd_by_descr:ignore
+      ~external_fd_events:(check (fun fds -> assert (List.is_empty fds)))
       ~timerfd:ignore
       ~timerfd_set_at:ignore
       ~scheduler_thread_id:ignore
@@ -504,11 +526,11 @@ let[@cold] post_check_invalid_fd file_descr =
       "File_descr_watcher returned unknown file descr" (file_descr : File_descr.t)]
 ;;
 
-let post_check_handle_fd t file_descr read_or_write value =
-  if Fd_by_descr.mem t.fd_by_descr file_descr
+let post_check_handle_fd t file_descr read_or_write (event_type : [ `Ready | `Bad_fd ]) =
+  if By_descr.mem t.fd_by_descr file_descr
   then (
-    let fd = Fd_by_descr.find_exn t.fd_by_descr file_descr in
-    request_stop_watching t fd read_or_write value)
+    let fd = By_descr.find_exn t.fd_by_descr file_descr in
+    request_stop_watching t fd read_or_write (event_type :> Fd.ready_to_result))
   else (
     match t.timerfd with
     | Some tfd when File_descr.equal file_descr (tfd :> Unix.File_descr.t) ->
@@ -518,7 +540,12 @@ let post_check_handle_fd t file_descr read_or_write value =
             edge-triggered behavior. *)
          ()
        | `Write -> post_check_got_timerfd file_descr)
-    | _ -> post_check_invalid_fd file_descr)
+    | _ ->
+      if By_descr.mem t.external_fd_by_descr file_descr
+      then (
+        let ev : External_fd_event.t = { file_descr; read_or_write; event_type } in
+        t.external_fd_events <- ev :: t.external_fd_events)
+      else post_check_invalid_fd file_descr)
 ;;
 
 external magic_trace_long_async_cycle : unit -> unit = "magic_trace_long_async_cycle"
@@ -533,17 +560,32 @@ let cycle_took_longer_than_100us =
     too_long := false;
     [%probe "magic_trace_async_cycle_longer_than_100us" (too_long := true)];
     [%probe
+      "magic_trace_async_cycle_longer_than_300us"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_us 300))];
+    [%probe
       "magic_trace_async_cycle_longer_than_1ms"
         (too_long_if (cycle_time > Time_ns.Span.of_int_ms 1))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_3ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 3))];
     [%probe
       "magic_trace_async_cycle_longer_than_10ms"
         (too_long_if (cycle_time > Time_ns.Span.of_int_ms 10))];
     [%probe
+      "magic_trace_async_cycle_longer_than_30ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 30))];
+    [%probe
       "magic_trace_async_cycle_longer_than_100ms"
         (too_long_if (cycle_time > Time_ns.Span.of_int_ms 100))];
     [%probe
+      "magic_trace_async_cycle_longer_than_300ms"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_ms 300))];
+    [%probe
       "magic_trace_async_cycle_longer_than_1s"
         (too_long_if (cycle_time > Time_ns.Span.of_int_sec 1))];
+    [%probe
+      "magic_trace_async_cycle_longer_than_3s"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 3))];
     [%probe
       "magic_trace_async_cycle_longer_than_10s"
         (too_long_if (cycle_time > Time_ns.Span.of_int_sec 10))];
@@ -595,12 +637,13 @@ let create
          ~max_num_threads:(Max_num_threads.raw max_num_threads))
   in
   let num_file_descrs = Max_num_open_file_descrs.raw max_num_open_file_descrs in
-  let fd_by_descr = Fd_by_descr.create ~num_file_descrs in
+  let fd_by_descr = By_descr.create ~num_file_descrs in
   let create_fd kind file_descr info =
     let fd = Fd.create kind file_descr info in
-    ok_exn (Fd_by_descr.add fd_by_descr fd);
+    ok_exn (By_descr.add fd_by_descr fd.Fd.file_descr fd);
     fd
   in
+  let external_fd_by_descr = By_descr.create ~num_file_descrs in
   let interruptor = Interruptor.create ~create_fd in
   let t_ref = ref None in
   (* set below, after [t] is defined *)
@@ -675,14 +718,15 @@ Async will be unable to timeout with sub-millisecond precision.|}]
   let kernel_scheduler = Kernel_scheduler.t () in
   let t =
     { mutex
-    ; is_running = false
-    ; have_called_go = false
+    ; start_type = Not_started
     ; fds_whose_watching_has_changed = Stack.create ()
     ; file_descr_watcher
     ; busy_pollers = Uniform_array.create ~len:256 (fun () -> 0)
     ; num_busy_pollers = 0
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
+    ; external_fd_by_descr
+    ; external_fd_events = []
     ; timerfd
     ; timerfd_set_at = Time_ns.max_value_for_1us_rounding
     ; scheduler_thread_id = -1 (* set when [be_the_scheduler] is called *)
@@ -925,7 +969,7 @@ let init t =
 
 let fds_may_produce_events t =
   let interruptor_fd = Interruptor.read_fd t.interruptor in
-  Fd_by_descr.exists t.fd_by_descr ~f:(fun fd ->
+  By_descr.exists t.fd_by_descr ~f:(fun fd ->
     (* Jobs created by the interruptor don't do anything, so we don't need to
        count them as something that can drive progress. When interruptor is involved, the
        progress is driven by other modules (e.g. the thread_pool).
@@ -1092,30 +1136,27 @@ let compute_timeout_and_check_file_descr_watcher t =
 ;;
 
 let one_iter t =
+  if Kernel_scheduler.check_invariants t.kernel_scheduler then invariant t;
   maybe_calibrate_tsc t;
   sync_changed_fds_to_file_descr_watcher t;
   compute_timeout_and_check_file_descr_watcher t;
   if debug then Debug.log_string "handling delivered signals";
   Raw_signal_manager.handle_delivered t.signal_manager;
-  have_lock_do_cycle t
+  have_lock_do_cycle t;
+  Kernel_scheduler.uncaught_exn t.kernel_scheduler
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
   init t;
   let rec loop () =
-    (* At this point, we have the lock. *)
-    if Kernel_scheduler.check_invariants t.kernel_scheduler then invariant t;
-    match Kernel_scheduler.uncaught_exn t.kernel_scheduler with
-    | Some error ->
-      unlock t;
-      error
-    | None ->
-      one_iter t;
-      loop ()
+    match one_iter t with
+    | Some error -> error
+    | None -> loop ()
   in
   let error_kind, error =
     try `User_uncaught, loop () with
     | exn ->
+      unlock t;
       `Async_uncaught, Error.create "bug in async scheduler" (exn, t) [%sexp_of: exn * t]
   in
   if raise_unhandled_exn
@@ -1147,14 +1188,13 @@ let add_finalizer_exn t x f =
     f (Heap_block.value heap_block))
 ;;
 
-let set_task_id () =
-  Async_kernel_config.task_id
-  := fun () ->
-    let pid = Unix.getpid () in
-    let thread_id = Thread.id (Thread.self ()) in
-    [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]]
-      (`pid pid, `thread_id thread_id)
+let async_kernel_config_task_id () =
+  let pid = Unix.getpid () in
+  let thread_id = Thread.id (Thread.self ()) in
+  [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]] (`pid pid, `thread_id thread_id)
 ;;
+
+let set_task_id () = Async_kernel_config.task_id := async_kernel_config_task_id
 
 let raise_if_any_jobs_were_scheduled () =
   match Kernel_scheduler.backtrace_of_first_job (Kernel_scheduler.t ()) with
@@ -1167,6 +1207,12 @@ let raise_if_any_jobs_were_scheduled () =
       , (bt : Backtrace.t)]
 ;;
 
+let is_running t =
+  match t.start_type with
+  | Not_started -> false
+  | _ -> true
+;;
+
 let go ?raise_unhandled_exn () =
   if debug then Debug.log_string "Scheduler.go";
   set_task_id ();
@@ -1175,19 +1221,23 @@ let go ?raise_unhandled_exn () =
      that reset scheduler after fork, so in some cases it must acquire the lock if
      the thread has not already done so. *)
   if not (am_holding_lock t) then lock t;
-  if t.have_called_go then raise_s [%message "cannot Scheduler.go more than once"];
-  t.have_called_go <- true;
-  if not t.is_running
-  then (
-    t.is_running <- true;
-    be_the_scheduler t ?raise_unhandled_exn)
-  else (
+  match t.start_type with
+  | Not_started ->
+    t.start_type <- Called_go;
+    be_the_scheduler t ?raise_unhandled_exn
+  | Called_block_on_async ->
+    (* This case can occur if the main thread uses Thread_safe.block_on_async before
+       starting Async. Then, the scheduler is started and running in another thread,
+       so we block forever instead of calling [be_the_scheduler] *)
     unlock t;
     (* We wakeup the scheduler so it can respond to whatever async changes this thread
        made. *)
     thread_safe_wakeup_scheduler t;
     (* Since the scheduler is already running, so we just pause forever. *)
-    Time.pause_forever ())
+    Time.pause_forever ()
+  | Called_external_run _ ->
+    raise_s [%message "cannot mix Scheduler.go and Scheduler.External"]
+  | Called_go -> raise_s [%message "cannot Scheduler.go more than once"]
 ;;
 
 let go_main
@@ -1219,8 +1269,8 @@ let go_main
   go ?raise_unhandled_exn ()
 ;;
 
-let is_running () =
-  if is_ready_to_initialize () then false else (the_one_and_only ()).is_running
+let is_the_one_and_only_running () =
+  if is_ready_to_initialize () then false else is_running (the_one_and_only ())
 ;;
 
 let report_long_cycle_times ?(cutoff = sec 1.) () =
@@ -1254,14 +1304,15 @@ let fold_fields (type a) ~init folder : a =
   Fields.fold
     ~init
     ~mutex:f
-    ~is_running:f
-    ~have_called_go:f
+    ~start_type:f
     ~fds_whose_watching_has_changed:f
     ~file_descr_watcher:f
     ~busy_pollers:f
     ~num_busy_pollers:f
     ~time_spent_waiting_for_io:f
     ~fd_by_descr:f
+    ~external_fd_by_descr:f
+    ~external_fd_events:f
     ~timerfd:f
     ~timerfd_set_at:f
     ~scheduler_thread_id:f
@@ -1289,3 +1340,154 @@ let handle_thread_pool_stuck f =
       (fun () -> f ~stuck_for)
       ())
 ;;
+
+module External = struct
+  let current_thread_can_cycle () =
+    if is_ready_to_initialize ()
+    then true
+    else (
+      let t = the_one_and_only () in
+      if not (am_holding_lock t)
+      then
+        raise_s
+          [%message "Attempt to call current_thread_can_cycle without holding Async lock"];
+      match t.start_type with
+      | Not_started -> true
+      | Called_external_run { active } when not !active -> i_am_the_scheduler t
+      | Called_go | Called_block_on_async | Called_external_run _ ->
+        if i_am_the_scheduler t
+        then
+          raise_s
+            [%message
+              "Scheduler.External.current_thread_can_cycle called from within Async"];
+        false)
+  ;;
+
+  let collect_events event_list =
+    List.map event_list ~f:(fun (ev : External_fd_event.t) ->
+      match ev.event_type with
+      | `Bad_fd -> raise_s [%message "Bad file descriptor" (ev.file_descr : File_descr.t)]
+      | `Ready -> ev.file_descr, ev.read_or_write)
+  ;;
+
+  let run_one_cycle () =
+    set_task_id ();
+    let t = the_one_and_only () in
+    if not (am_holding_lock t)
+    then raise_s [%message "Attempt to run_one_cycle without holding Async lock"];
+    let active =
+      match t.start_type with
+      | Called_external_run { active } -> active
+      | Called_go | Called_block_on_async ->
+        if t.scheduler_thread_id = current_thread_id ()
+        then
+          raise_s [%message "Scheduler.External.run_one_cycle called from within Async"]
+        else
+          raise_s
+            [%message
+              "Scheduler.External.run_one_cycle called while scheduler already running \
+               in another thread"]
+      | Not_started ->
+        let active = ref false in
+        t.start_type <- Called_external_run { active };
+        init t;
+        active
+    in
+    if !active
+    then raise_s [%message "Scheduler.External.run_one_cycle called recursively"];
+    if t.scheduler_thread_id <> current_thread_id ()
+    then raise_s [%message "Scheduler.External.run_one_cycle called from wrong thread"];
+    active := true;
+    Exn.protect
+      ~finally:(fun () ->
+        active := false;
+        t.external_fd_events <- [])
+      ~f:(fun () ->
+        Option.iter (one_iter t) ~f:Error.raise;
+        collect_events t.external_fd_events)
+  ;;
+
+  let check_thread () =
+    if not (current_thread_can_cycle ())
+    then raise_s [%message "FD registration must only be done from the scheduler thread"]
+  ;;
+
+  let register_fd fd ops =
+    check_thread ();
+    let t = the_one_and_only () in
+    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+    let%bind.Result () = By_descr.add t.external_fd_by_descr fd ops in
+    match F.set F.watcher fd ops with
+    | exception exn ->
+      By_descr.remove t.external_fd_by_descr fd;
+      Error (Error.of_exn ~backtrace:`Get exn)
+    | `Unsupported ->
+      By_descr.remove t.external_fd_by_descr fd;
+      Error (Error.of_string "Unsupported file descriptor type in register_fd")
+    | `Ok -> Ok ()
+  ;;
+
+  let not_watching = Read_write_pair.create ~read:false ~write:false
+
+  let unregister_fd fd =
+    check_thread ();
+    let t = the_one_and_only () in
+    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+    if not (By_descr.mem t.external_fd_by_descr fd)
+    then Error (Error.of_string "Attempt to unregister an FD which is not registered")
+    else (
+      By_descr.remove t.external_fd_by_descr fd;
+      match F.set F.watcher fd not_watching with
+      | exception exn -> Error (Error.of_exn ~backtrace:`Get exn)
+      | `Unsupported ->
+        (* Probably this can't happen because unsupported fd can't be registered
+           in the first place *)
+        Error (Error.of_string "Unsupported file descriptor type in unregister_fd")
+      | `Ok -> Ok ())
+  ;;
+
+  let is_registered fd =
+    check_thread ();
+    let t = the_one_and_only () in
+    By_descr.mem t.external_fd_by_descr fd
+  ;;
+
+  let rec run_cycles_until_determined d =
+    match Deferred.peek d with
+    | Some x -> x
+    | None ->
+      (match run_one_cycle () with
+       | [] -> run_cycles_until_determined d
+       | ready_fds ->
+         (* We're blocking until [d] is determined, so we ignore the fact that some fds
+            are ready. Readiness is level-triggered so the events will reappear in the
+            next [run_one_cycle] if ignored.
+
+            However, if we just call [run_one_cycle] again these fds will still be ready,
+            and we'll spin instead of blocking if we need to wait. So, to let Async wait
+            without spinning uselessly, we temporarily unregister the ready fds and
+            re-register afterwards.
+
+            This is not tail recursive, but the stack depth is bounded by the number
+            of externally registered FDs that are or become ready *)
+         let t = the_one_and_only () in
+         let fd_ops =
+           List.map ~f:fst ready_fds
+           (* FDs may be duplicated in ready_fds if they are simultaneously ready for
+              reading and writing *)
+           |> List.dedup_and_sort ~compare:[%compare: File_descr.t]
+           |> List.map ~f:(fun fd -> fd, By_descr.find_exn t.external_fd_by_descr fd)
+         in
+         (* Try to ensure that we leave the set of registered fds unchanged,
+            even if an exception is raised somewhere *)
+         let rec temporarily_unregister = function
+           | [] -> run_cycles_until_determined d
+           | (fd, ops) :: fd_ops ->
+             unregister_fd fd |> Or_error.ok_exn;
+             Exn.protect
+               ~finally:(fun () -> register_fd fd ops |> Or_error.ok_exn)
+               ~f:(fun () -> temporarily_unregister fd_ops)
+         in
+         temporarily_unregister fd_ops)
+  ;;
+end

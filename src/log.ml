@@ -904,16 +904,23 @@ end = struct
           | None -> Fn.const []
           | Some f -> f
         in
-        let basename, dirname =
+        let absolute_basename =
           (* make dirname absolute, because cwd may change *)
           match Filename.is_absolute basename with
-          | true -> Filename.basename basename, return (Filename.dirname basename)
-          | false -> basename, Sys.getcwd ()
+          | true ->
+            (* don't call Sys.getcwd if we don't have to, because that errors out when cwd
+               is a directory that's been removed *)
+            return basename
+          | false ->
+            let%map cwd = Sys.getcwd () in
+            Filename.to_absolute_exn basename ~relative_to:cwd
         in
         let log_files = Tail.create () in
         let t_deferred =
-          dirname
-          >>| fun dirname ->
+          absolute_basename
+          >>| fun absolute_basename ->
+          let dirname = Filename.dirname absolute_basename in
+          let basename = Filename.basename absolute_basename in
           let filename =
             make_filename
               ~dirname
@@ -1763,7 +1770,7 @@ end = struct
   let set_transform f = transform := f
 
   let write msg =
-    if Scheduler.is_running ()
+    if Scheduler.is_the_one_and_only_running ()
     then failwith "Log.Global.Blocking function called after scheduler started";
     let msg =
       match !transform with

@@ -62,14 +62,14 @@ let without_async_lock t f =
 ;;
 
 let ensure_the_scheduler_is_started t =
-  if not t.is_running
+  if not (is_running t)
   then (
     let starting =
       (* Hold the lock when deciding if we're the first thread to start the scheduler. *)
       with_async_lock t (fun () ->
-        if not t.is_running
+        if not (is_running t)
         then (
-          t.is_running <- true;
+          t.start_type <- Called_block_on_async;
           let scheduler_ran_a_job = Thread_safe_ivar.create () in
           upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
           `Yes scheduler_ran_a_job)

@@ -89,7 +89,7 @@ let run_after_scheduler_is_started
 
 let run ?priority ?thread ?(when_finished = !When_finished.default) ?name f =
   match !Raw_scheduler.the_one_and_only_ref with
-  | Initialized t when t.is_running ->
+  | Initialized t when is_running t ->
     run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f
   | _ ->
     (* We use [bind unit ...] to force calls to [run_after_scheduler_is_started] to wait

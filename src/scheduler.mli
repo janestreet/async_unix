@@ -198,3 +198,41 @@ val thread_pool_has_unfinished_work : unit -> bool
     Pollers run in the main monitor.
 *)
 val add_busy_poller : t -> max_busy_wait_duration:Time_ns.Span.t -> (unit -> int) -> unit
+
+(** Instead of calling Scheduler.go, the [External] module can be used to drive Async with
+    an external loop, manually running regular Async cycles. This is useful to integrate
+    Async with another event loop system. *)
+module External : sig
+  (** Run a single Async cycle. This function must be called:
+      - from the same thread every time
+      - nonrecursively
+      - while holding the Async lock
+      - regularly, to ensure Async callbacks get run
+
+      This function does block waiting for I/O, so if the caller needs it to wake up
+      sooner, they should arrange a wake-up inside Async, e.g. by watching an fd, or using
+      the timing wheel.
+
+      Returns a collection of readiness events on file descriptors registered
+      via [register_fd] below *)
+  val run_one_cycle : unit -> (File_descr.t * Read_write_pair.Key.t) list
+
+  (** Calls [run_one_cycle] zero or more times until the given Deferred is determined *)
+  val run_cycles_until_determined : 'a Deferred.t -> 'a
+
+  (** Returns [true] if the current thread can use [run_one_cycle].
+      Returns [false] if the Async scheduler is running in another thread.
+      Must not be called from within Async.
+      Must be called while holding the Async lock. *)
+  val current_thread_can_cycle : unit -> bool
+
+  (** Register a file descriptor for which [run_one_cycle] will return readiness events.
+      Async will not do any I/O or close this descriptor. *)
+  val register_fd : File_descr.t -> bool Read_write_pair.t -> unit Or_error.t
+
+  (** Remove a registration added by [register_fd] *)
+  val unregister_fd : File_descr.t -> unit Or_error.t
+
+  (** Check whether a file descriptor is currently registered via [register_fd] *)
+  val is_registered : File_descr.t -> bool
+end
