@@ -209,13 +209,21 @@ module External : sig
       - while holding the Async lock
       - regularly, to ensure Async callbacks get run
 
-      This function does block waiting for I/O, so if the caller needs it to wake up
-      sooner, they should arrange a wake-up inside Async, e.g. by watching an fd, or using
-      the timing wheel.
+      Whether this function may block is controlled by the [max_wait] parameter.
+      Note that e.g. [run_one_cycle ~max_wait:(`Until t)] may return:
+
+      - before [t], if something occurs that wakes up Async, such as activity on
+        a file descriptor, a timeout occurring, or reaching [max_inter_cycle_timeout]
+
+      - after [t], if there are Async jobs to run and some of them take a long time.
+        That is, [max_wait] only controls the time spent blocking, not the time spent
+        running jobs.
 
       Returns a collection of readiness events on file descriptors registered
       via [register_fd] below *)
-  val run_one_cycle : unit -> (File_descr.t * Read_write_pair.Key.t) list
+  val run_one_cycle
+    :  max_wait:[ `Zero | `Until of Time_ns.t | `Indefinite ]
+    -> (File_descr.t * Read_write_pair.Key.t) list
 
   (** Calls [run_one_cycle] zero or more times until the given Deferred is determined *)
   val run_cycles_until_determined : 'a Deferred.t -> 'a

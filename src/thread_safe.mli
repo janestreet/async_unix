@@ -93,3 +93,8 @@ val reset_scheduler : unit -> unit
       In the latter case the async lock is dropped for the duration of [f].
 *)
 val without_async_lock : (unit -> 'a) -> 'a
+
+module For_tests : sig
+  (** Same as [without_async_lock], but without all those pesky checks.  *)
+  val without_async_lock_unchecked : (unit -> 'a) -> 'a
+end

@@ -99,12 +99,11 @@ end
     If [name] is supplied, the name of the thread will be set to it for the duration of
     the execution of [f ()].
 
-    [when_finished] describes how the helper thread behaves once [f ()] has completed.
-    Its default value is the value of {!When_finished.default} when [run] is called. *)
+    Once [f ()] has completed, the helper thread behaves as {!When_finished.default}
+    specifies. *)
 val run
   :  ?priority:Priority.t
   -> ?thread:Helper_thread.t
-  -> ?when_finished:When_finished.t
   -> ?name:string
   -> (unit -> 'a)
   -> 'a Deferred.t

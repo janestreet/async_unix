@@ -41,7 +41,10 @@ let bytes_w = Bytes.of_string "w"
    not assume the scheduler lock is held, although it is fine if it is.  Because of
    OCaml's compilation, the test-and-set of [t.already_interrupted] is atomic, so
    we will only ever write one byte to the pipe before it is cleared. *)
-let thread_safe_interrupt t =
+
+(* Marked with attributes so any allocation at the call site cannot be sunk down into the
+   atomic section (there exists no barrier in OCaml right now to prevent this) *)
+let[@inline never] [@specialise never] [@local never] thread_safe_interrupt t =
   if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
   (* BEGIN ATOMIC *)
   if not t.already_interrupted

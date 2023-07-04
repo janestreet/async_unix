@@ -223,11 +223,25 @@ let ok_to_drop_lock t =
   is_main_thread () && not (Kernel_scheduler.in_cycle t.kernel_scheduler)
 ;;
 
+let without_async_lock_unchecked = without_async_lock
+
 let without_async_lock f =
   let t = t () in
   if i_am_the_scheduler t || (am_holding_lock t && not (ok_to_drop_lock t))
   then
     raise_s
-      [%message "called [become_helper_thread_and_block_on_async] from within async"]
+      [%sexp
+        "called [become_helper_thread_and_block_on_async] from within async"
+      , { i_am_the_scheduler = (i_am_the_scheduler t : bool)
+        ; am_holding_lock = (am_holding_lock t : bool)
+        ; ok_to_drop_lock = (ok_to_drop_lock t : bool)
+        }]
   else without_async_lock t f
 ;;
+
+module For_tests = struct
+  let without_async_lock_unchecked f =
+    let t = t () in
+    without_async_lock_unchecked t f
+  ;;
+end

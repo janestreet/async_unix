@@ -87,7 +87,8 @@ let run_after_scheduler_is_started
   Ivar.read ivar >>| Result.ok_exn
 ;;
 
-let run ?priority ?thread ?(when_finished = !When_finished.default) ?name f =
+let run ?priority ?thread ?name f =
+  let when_finished = !When_finished.default in
   match !Raw_scheduler.the_one_and_only_ref with
   | Initialized t when is_running t ->
     run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f
@@ -152,9 +153,9 @@ module Helper_thread = struct
   ;;
 end
 
-let run ?priority ?thread ?when_finished ?name f =
+let run ?priority ?thread ?name f =
   let thread = Option.map thread ~f:Helper_thread.thread_pool_helper_thread in
-  run ?priority ?thread ?when_finished ?name f
+  run ?priority ?thread ?name f
 ;;
 
 let syscall ~name f = run ~name (fun () -> Syscall.syscall f)

@@ -1370,11 +1370,8 @@ module External = struct
       | `Ready -> ev.file_descr, ev.read_or_write)
   ;;
 
-  let run_one_cycle () =
+  let run_one_cycle t =
     set_task_id ();
-    let t = the_one_and_only () in
-    if not (am_holding_lock t)
-    then raise_s [%message "Attempt to run_one_cycle without holding Async lock"];
     let active =
       match t.start_type with
       | Called_external_run { active } -> active
@@ -1452,11 +1449,28 @@ module External = struct
     By_descr.mem t.external_fd_by_descr fd
   ;;
 
+  let run_one_cycle ~max_wait =
+    let t = the_one_and_only () in
+    if not (am_holding_lock t)
+    then raise_s [%message "Attempt to run_one_cycle without holding Async lock"];
+    match max_wait with
+    | `Zero ->
+      (* Ensure there is at least one ready-to-run job, so that Async doesn't block *)
+      Kernel_scheduler.enqueue t.kernel_scheduler Execution_context.main ignore ();
+      run_one_cycle t
+    | `Until wake_at ->
+      let wake = Clock_ns.Event.at wake_at in
+      Exn.protect
+        ~f:(fun () -> run_one_cycle t)
+        ~finally:(fun () -> Clock_ns.Event.abort_if_possible wake ())
+    | `Indefinite -> run_one_cycle t
+  ;;
+
   let rec run_cycles_until_determined d =
     match Deferred.peek d with
     | Some x -> x
     | None ->
-      (match run_one_cycle () with
+      (match run_one_cycle ~max_wait:`Indefinite with
        | [] -> run_cycles_until_determined d
        | ready_fds ->
          (* We're blocking until [d] is determined, so we ignore the fact that some fds
