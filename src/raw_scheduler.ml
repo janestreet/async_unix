@@ -54,6 +54,16 @@ module External_fd_event = struct
     }
 end
 
+module Thread_pool_stuck_status = struct
+  type t =
+    | No_unstarted_work
+    | Stuck of
+        { stuck_since : Time_ns.t
+        ; num_work_completed : int
+        }
+  [@@deriving sexp_of]
+end
+
 include Async_kernel_scheduler
 
 type start_type =
@@ -117,6 +127,7 @@ type t =
   ; (* [handle_thread_pool_stuck] is called once per second if the thread pool is"stuck",
        i.e has not completed a job for one second and has no available threads. *)
     mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
+  ; mutable thread_pool_stuck : Thread_pool_stuck_status.t
   ; mutable next_tsc_calibration : Tsc.t
   ; kernel_scheduler : Kernel_scheduler.t
   ; (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
@@ -324,6 +335,7 @@ let invariant t : unit =
       ~signal_manager:(check Raw_signal_manager.invariant)
       ~thread_pool:(check Thread_pool.invariant)
       ~handle_thread_pool_stuck:ignore
+      ~thread_pool_stuck:ignore
       ~next_tsc_calibration:ignore
       ~kernel_scheduler:(check Kernel_scheduler.invariant)
       ~max_inter_cycle_timeout:ignore
@@ -406,27 +418,6 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
     if should_abort
     then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
     else Core.Debug.eprint_s message)
-;;
-
-let detect_stuck_thread_pool t =
-  let is_stuck = ref false in
-  let became_stuck_at = ref Time_ns.epoch in
-  let stuck_num_work_completed = ref 0 in
-  Clock.every (sec 1.) ~continue_on_error:false (fun () ->
-    if not (Thread_pool.has_unstarted_work t.thread_pool)
-    then is_stuck := false
-    else (
-      let now = Time_ns.now () in
-      let num_work_completed = Thread_pool.num_work_completed t.thread_pool in
-      if !is_stuck && num_work_completed = !stuck_num_work_completed
-      then
-        t.handle_thread_pool_stuck
-          t.thread_pool
-          ~stuck_for:(Time_ns.diff now !became_stuck_at)
-      else (
-        is_stuck := true;
-        became_stuck_at := now;
-        stuck_num_work_completed := num_work_completed)))
 ;;
 
 let thread_pool_has_unfinished_work t = Thread_pool.unfinished_work t.thread_pool <> 0
@@ -736,6 +727,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
           Interruptor.thread_safe_interrupt interruptor)
     ; thread_pool
     ; handle_thread_pool_stuck = default_handle_thread_pool_stuck
+    ; thread_pool_stuck = No_unstarted_work
     ; next_tsc_calibration = Tsc.now ()
     ; kernel_scheduler
     ; have_lock_do_cycle = None
@@ -745,7 +737,6 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     }
   in
   t_ref := Some t;
-  detect_stuck_thread_pool t;
   update_check_access t Config.detect_invalid_access_from_thread;
   List.iter (List.rev !fds_created_before_initialization) ~f:(create_fd_registration t);
   fds_created_before_initialization := [];
@@ -1320,6 +1311,7 @@ let fold_fields (type a) ~init folder : a =
     ~signal_manager:f
     ~thread_pool:f
     ~handle_thread_pool_stuck:f
+    ~thread_pool_stuck:f
     ~next_tsc_calibration:f
     ~kernel_scheduler:f
     ~have_lock_do_cycle:f

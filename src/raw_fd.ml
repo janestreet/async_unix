@@ -143,12 +143,7 @@ module T = struct
   type t_hum = t
 
   let sexp_of_t_hum { file_descr; info; kind; _ } =
-    let file_descr =
-      if Ppx_inline_test_lib.am_running
-      then [%sexp "_"]
-      else [%sexp (file_descr : File_descr.t)]
-    in
-    [%sexp { file_descr : Sexp.t; info : Info.t; kind : Kind.t }]
+    [%sexp { file_descr : File_descr.t; info : Info.t; kind : Kind.t }]
   ;;
 end
 

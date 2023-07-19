@@ -998,7 +998,11 @@ let is_running = function
 ;;
 
 (* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
-   monkeying around with the fd behind our back, and we should complain. *)
+   monkeying around with the fd behind our back, and we should complain.
+
+   There are some libraries that close the fd without closing the writer, e.g. Tcp,
+   usually for no good reason. In those cases any writes happening after fd is closed
+   will run into this error. *)
 let fd_closed t =
   if not (is_closed t) then die t [%message "writer fd unexpectedly closed "]
 ;;

@@ -24,6 +24,39 @@ let try_to_lock_for_cycle_if_scheduler_sleeping t =
   else false
 ;;
 
+let stuck_check_interval () = Time_ns.Span.of_sec 1.
+
+let rec schedule_stuck_check t =
+  t.thread_pool_stuck
+  <- Stuck
+       { stuck_since = Time_ns.now ()
+       ; num_work_completed = Thread_pool.num_work_completed t.thread_pool
+       };
+  Clock_ns.run_after (stuck_check_interval ()) check_still_stuck t
+
+and check_still_stuck t =
+  match t.thread_pool_stuck with
+  | No_unstarted_work -> ()
+  | Stuck _ when not (Thread_pool.has_unstarted_work t.thread_pool) ->
+    t.thread_pool_stuck <- No_unstarted_work
+  | Stuck { stuck_since; num_work_completed } ->
+    if num_work_completed = Thread_pool.num_work_completed t.thread_pool
+    then (
+      t.handle_thread_pool_stuck
+        t.thread_pool
+        ~stuck_for:(Time_ns.diff (Time_ns.now ()) stuck_since);
+      Clock_ns.run_after (stuck_check_interval ()) check_still_stuck t)
+    else schedule_stuck_check t
+;;
+
+let maybe_mark_thread_pool_stuck t =
+  if Thread_pool.has_unstarted_work t.thread_pool
+  then (
+    match t.thread_pool_stuck with
+    | No_unstarted_work -> schedule_stuck_check t
+    | _ -> ())
+;;
+
 let run_after_scheduler_is_started
       ~priority
       ~thread
@@ -84,6 +117,7 @@ let run_after_scheduler_is_started
           doit
           ?name
           ?priority));
+  maybe_mark_thread_pool_stuck t;
   Ivar.read ivar >>| Result.ok_exn
 ;;
 

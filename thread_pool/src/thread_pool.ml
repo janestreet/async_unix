@@ -353,7 +353,11 @@ module Internal = struct
         ; max_num_threads
         ; num_threads = 0
         ; thread_by_id = Thread_id.Table.create ()
-        ; thread_creation_failure_lockout = sec 1.
+        ; thread_creation_failure_lockout =
+            (* to avoid noise in tests (where a single transient thread-creation failure
+               counts as "stuck"), this should be smaller than thread pool stuck check
+               interval (happens to be 1.0s) *)
+            sec 0.5
         ; last_thread_creation_failure = None
         ; available_threads = []
         ; work_queue = Queue.create ()
