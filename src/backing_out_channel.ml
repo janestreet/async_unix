@@ -10,7 +10,7 @@ type t =
   ; flush : unit -> unit
   ; sexp : unit -> Sexp.t
   }
-[@@deriving fields]
+[@@deriving fields ~getters ~iterators:iter]
 
 let sexp_of_t t = t.sexp ()
 

@@ -2,6 +2,7 @@
 
 open! Core
 open! Import
+module Signal := Core.Signal
 
 (** [shutdown ?force status] initiates shutdown, which runs all the [at_shutdown]
     functions, waits for them to finish, and then exits with the supplied status.  The

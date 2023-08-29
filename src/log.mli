@@ -21,7 +21,7 @@ module Level : sig
     | `Info (** default level *)
     | `Error
     ]
-  [@@deriving bin_io, compare, enumerate, sexp]
+  [@@deriving bin_io, compare, enumerate, sexp, sexp_grammar]
 
   include Stringable with type t := t
 
@@ -505,6 +505,9 @@ val create
   -> ?transform:(Message.t -> Message.t)
   -> unit
   -> t
+
+(** Log that drops messages sent to it, as if it wrote to /dev/null *)
+val create_null : unit -> t
 
 (** Creates a copy of a log, which has the same settings and logs to the same outputs. *)
 val copy : t -> t

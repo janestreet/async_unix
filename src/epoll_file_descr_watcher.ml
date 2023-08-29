@@ -26,7 +26,7 @@ type t =
   ; handle_fd_read_ready : File_descr.t -> Flags.t -> unit
   ; handle_fd_write_ready : File_descr.t -> Flags.t -> unit
   }
-[@@deriving sexp_of, fields]
+[@@deriving sexp_of, fields ~iterators:iter]
 
 let backend = Config.File_descr_watcher.Epoll
 let is_timerfd t fd = File_descr.equal fd (Timerfd.to_file_descr t.timerfd)

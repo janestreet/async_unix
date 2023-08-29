@@ -146,7 +146,7 @@ let run ?priority ?thread ?name f =
 module Helper_thread = struct
   (* A wrapper around [Thread_pool]'s helper thread, so we can attach a finalizer. *)
   type t = { thread_pool_helper_thread : Thread_pool.Helper_thread.t }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields ~getters, sexp_of]
 
   (* Both [create] and [create_now] add Async finalizers to the returned helper thread so
      that the thread can be added back to the set of worker threads when there are no

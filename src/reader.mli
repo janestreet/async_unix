@@ -79,8 +79,22 @@ val pipe : t -> string Pipe.Reader.t
     pipe, with [t] being attached to the read end of the Unix pipe. *)
 val of_pipe : Info.t -> string Pipe.Reader.t -> t Deferred.t
 
-(** [create ~buf_len fd] creates a new reader that is reading from [fd]. *)
-val create : ?buf_len:int -> Fd.t -> t
+(** [create ~buf_len fd] creates a new reader that is reading from [fd].
+
+    [buf_len] specifies the initial size of the internal buffer, which is the most data
+    the [Reader] will buffer from the file descriptor (and consequently, the most that the
+    [Reader] will read from a single [read] syscall). This buffer will be automatically
+    increased in size if more data is requested from functions like
+    [read_one_chunk_at_a_time], [peek], or [{peek,read}_bin_prot]. Note that buffers at
+    least 128 KiB in size will be allocated with mmap (see [bigstring_unix_stubs.c]);
+    buffers smaller than that will go on the C heap directly, which can cause C heap
+    fragmentation in programs that allocate lots of buffers, e.g. RPC servers, possibly
+    resulting in unintuitive higher overall program memory usage. *)
+val create
+  :  ?buf_len:int
+  (** default is 32 KiB for files and character devices, 128 KiB for fifos and sockets *)
+  -> Fd.t
+  -> t
 
 val of_in_channel : In_channel.t -> Fd.Kind.t -> t
 
@@ -104,7 +118,9 @@ val of_in_channel : In_channel.t -> Fd.Kind.t -> t
     flag in [open] systemcall.  Note that the implementation uses [Unix.lockf], which has
     known pitfalls.  It's recommended that you avoid the [exclusive] flag in favor of
     using a library dedicated to dealing with file locks where the pitfalls can be
-    documented in detail. *)
+    documented in detail.
+
+    See [create] for the meaning of [buf_len]. *)
 val with_file
   :  ?buf_len:int
   -> ?exclusive:bool (** default is [false] *)

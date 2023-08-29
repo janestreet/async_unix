@@ -100,9 +100,17 @@ module type Writer0 = sig
 
       [time_source] is useful in tests to trigger [buffer_age_limit]-related conditions, or
       simply to have the result of (for example) [flushed_time_ns] agree with your test's
-      synthetic time.  It is also used to schedule the [`Periodic] syscalls. *)
+      synthetic time.  It is also used to schedule the [`Periodic] syscalls.
+
+      [buf_len] specifies the initial size of the internal buffer. This buffer will be
+      automatically resized up if more data is written than the buffer has room for, e.g.
+      using the [write*] functions. Note that buffers at least 128 KiB in size will be
+      allocated with mmap (see [bigstring_unix_stubs.c]); buffers smaller than that will
+      go on the C heap directly, which can cause C heap fragmentation in programs that
+      allocate lots of buffers, e.g. RPC servers, possibly resulting in unintuitive higher
+      overall program memory usage. *)
   val create
-    :  ?buf_len:int
+    :  ?buf_len:int (** default is 130 KiB *)
     -> ?syscall:[ `Per_cycle | `Periodic of Time.Span.t ]
     -> ?buffer_age_limit:buffer_age_limit
     -> ?raise_when_consumer_leaves:bool (** default is [true] *)
@@ -131,7 +139,8 @@ module type Writer0 = sig
   val of_out_channel : Out_channel.t -> Fd.Kind.t -> t
 
   (** [open_file file] opens [file] for writing and returns a writer for it.  It uses
-      [Unix_syscalls.openfile] to open the file. *)
+      [Unix_syscalls.openfile] to open the file. See [create] for the meanings of the
+      arguments. *)
   val open_file
     :  ?info:Info.t (** for errors. Defaults to the file path. *)
     -> ?append:bool (** default is [false], meaning truncate instead *)

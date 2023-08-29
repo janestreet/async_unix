@@ -138,7 +138,7 @@ module T = struct
          and the underlying close() system call has finished. *)
       close_finished : unit Ivar.t
     }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields ~iterators:iter, sexp_of]
 
   type t_hum = t
 

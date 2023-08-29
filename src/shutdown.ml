@@ -2,6 +2,7 @@
 
 open Core
 open Import
+module Signal = Core.Signal
 
 module Status_compatibility = struct
   type t =
@@ -71,6 +72,10 @@ let exit_reliably status =
        Core_unix.exit_immediately (if code = 0 then 1 else code)
      | _ -> .)
   | Signal signal ->
+    (match Stdlib.do_at_exit () with
+     | exception exn ->
+       ignore_exn (fun () -> Core.Debug.eprints "Caml.exit raised" exn [%sexp_of: Exn.t])
+     | () -> ());
     Signal.Expert.set signal `Default;
     Signal_unix.send_exn signal (`Pid (Core_unix.getpid ()));
     ignore_exn (fun () ->

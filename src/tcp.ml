@@ -239,7 +239,7 @@ module Where_to_listen = struct
     ; address : 'address
     ; listening_on : ('address -> 'listening_on[@sexp.opaque])
     }
-  [@@deriving sexp_of, fields]
+  [@@deriving sexp_of, fields ~getters]
 
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]
@@ -296,7 +296,7 @@ module Server = struct
       { client_socket : ([ `Active ], 'address) Socket.t
       ; client_address : 'address
       }
-    [@@deriving fields, sexp_of]
+    [@@deriving fields ~iterators:iter, sexp_of]
 
     let invariant invariant_address t =
       Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
@@ -359,7 +359,7 @@ module Server = struct
     ; mutable drop_incoming_connections : bool
     ; close_finished_and_handlers_determined : unit Ivar.t
     }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields ~getters ~setters ~iterators:iter, sexp_of]
 
   let is_dropping_incoming_connections t = t.drop_incoming_connections
   let num_connections t = Bag.length t.connections

@@ -106,7 +106,7 @@ module Internal = struct
          thread, unless that work is added with an overriding priority. *)
       ; default_priority : Priority.t
       }
-    [@@deriving fields, sexp_of]
+    [@@deriving fields ~getters, sexp_of]
   end
 
   module Thread = struct
@@ -137,7 +137,7 @@ module Internal = struct
          the unfinished work that has been added for the helper thread. *)
       ; work_queue : Work_queue.t
       }
-    [@@deriving fields, sexp_of]
+    [@@deriving fields ~iterators:iter, sexp_of]
 
     let invariant t : unit =
       try
@@ -216,7 +216,7 @@ module Internal = struct
       { at : Time_ns.t
       ; error : Error.t
       }
-    [@@deriving fields, sexp_of]
+    [@@deriving fields ~getters, sexp_of]
   end
 
   (* [Thread_pool.t] *)
@@ -262,7 +262,7 @@ module Internal = struct
     ; mutable unfinished_work : int
     ; mutable num_work_completed : int
     }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields ~getters ~iterators:iter, sexp_of]
 
   let invariant t : unit =
     try

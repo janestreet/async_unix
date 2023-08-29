@@ -26,9 +26,26 @@ val ignore : [ `Do_not_use_with_async ] -> _
     The first time [handle] is called for a signal, it will install a C signal handler for
     it, replacing the existing C signal handler for that signal.
 
-    If [stop] is passed, the signal handler will be uninstalled when [stop] resolves.
+    If [stop] is passed, the Async signal handler will be uninstalled when [stop]
+    resolves. (the OCaml and C signal handlers are never uninstalled, so if this is
+    the last Async signal handler then the signal will start being ignored)
 *)
 val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
+
+
+(** [manage_by_async signal] arranges so that [signal] starts being managed by
+    Async, i.e. we install an OCaml signal handler for it.
+    The behavior of that handler approximates the default signal behavior with the
+    difference that for signals whose default behavior is to terminate the program, we
+    run on-shutdown handlers first.
+
+    For terminating signals the exit status of the program will be indistinguishable from
+    the signal not being handled. (see [Shutdown.shutdown_with_signal_exn])
+
+    If [handle] is called (before or after), that takes precedence: the shutdown on signal
+    behavior is suppressed (even if the corresponding [stop] ivar is determined).
+*)
+val manage_by_async : t list -> unit
 
 (** [terminating] is a list of signals that can be supplied to [handle] and whose default
     behavior is to terminate the program: [alrm hup int term usr1 usr2].

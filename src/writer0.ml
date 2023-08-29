@@ -57,7 +57,7 @@ module Check_buffer_age' = struct
     { active_checks : ('a t[@sexp.opaque]) Bag.t
     ; closed : unit Ivar.t
     }
-  [@@deriving fields, sexp_of]
+  [@@deriving fields ~iterators:iter, sexp_of]
 end
 
 module Open_flags = Unix.Open_flags
@@ -172,7 +172,7 @@ type t =
   ; (* If specified, subsequent writes are synchronously redirected here. *)
     mutable backing_out_channel : Backing_out_channel.t option
   }
-[@@deriving fields]
+[@@deriving fields ~getters ~iterators:iter]
 
 let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
 
@@ -809,7 +809,14 @@ let create
   in
   let buf_len =
     match buf_len with
-    | None -> 65 * 1024 * 2 (* largest observed single write call * 2 *)
+    | None ->
+      (* This exceeds the value bigstring_unix_stubs.c sets M_MMAP_THRESHOLD to. As a
+         result, these buffers are allocated using mmap, so they are returned to the OS
+         when OCaml GCs them. If this were less than M_MMAP_THRESHOLD, the buffers would
+         be allocated with brk, so malloc might hold on to them even after OCaml GCs them,
+         which could _increase_ memory usage for programs that create many such
+         buffers. *)
+      65 * 1024 * 2 (* largest observed single write call * 2 *)
     | Some buf_len ->
       if buf_len <= 0 then invalid_arg "Writer.create: buf_len <= 0" else buf_len
   in
@@ -1149,7 +1156,7 @@ let maybe_start_writer t =
 ;;
 
 let give_buf t desired =
-  assert (desired > 0);
+  assert (desired >= 0);
   assert (not (is_stopped_permanently t));
   got_bytes t desired;
   let buf_len = Bigstring.length t.buf in

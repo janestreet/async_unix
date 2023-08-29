@@ -120,7 +120,7 @@ type t =
   ; (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
        descriptor watcher. *)
     interruptor : Interruptor.t
-  ; signal_manager : Raw_signal_manager.t
+  ; signal_manager : Signal_manager.t
   ; (* The [thread_pool] is used for making blocking system calls in threads other than
        the scheduler thread, and for servicing [In_thread.run] requests. *)
     thread_pool : Thread_pool.t
@@ -140,7 +140,7 @@ type t =
        sexp. *)
     initialized_at : (Backtrace.t[@sexp.opaque])
   }
-[@@deriving fields, sexp_of]
+[@@deriving fields ~iterators:(fold, iter), sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
 let max_num_open_file_descrs t = By_descr.capacity t.fd_by_descr
@@ -332,7 +332,7 @@ let invariant t : unit =
       ~timerfd_set_at:ignore
       ~scheduler_thread_id:ignore
       ~interruptor:(check Interruptor.invariant)
-      ~signal_manager:(check Raw_signal_manager.invariant)
+      ~signal_manager:(check Signal_manager.invariant)
       ~thread_pool:(check Thread_pool.invariant)
       ~handle_thread_pool_stuck:ignore
       ~thread_pool_stuck:ignore
@@ -723,7 +723,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; scheduler_thread_id = -1 (* set when [be_the_scheduler] is called *)
     ; interruptor
     ; signal_manager =
-        Raw_signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
+        Signal_manager.create ~thread_safe_notify_signal_delivered:(fun () ->
           Interruptor.thread_safe_interrupt interruptor)
     ; thread_pool
     ; handle_thread_pool_stuck = default_handle_thread_pool_stuck
@@ -932,7 +932,7 @@ let init t =
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
-  Raw_signal_manager.manage t.signal_manager Signal.pipe;
+  Signal_manager.manage t.signal_manager Signal.pipe;
   let interruptor_finished = Ivar.create () in
   let interruptor_read_fd = Interruptor.read_fd t.interruptor in
   let problem_with_interruptor () =
@@ -1132,7 +1132,7 @@ let one_iter t =
   sync_changed_fds_to_file_descr_watcher t;
   compute_timeout_and_check_file_descr_watcher t;
   if debug then Debug.log_string "handling delivered signals";
-  Raw_signal_manager.handle_delivered t.signal_manager;
+  Signal_manager.handle_delivered t.signal_manager;
   have_lock_do_cycle t;
   Kernel_scheduler.uncaught_exn t.kernel_scheduler
 ;;

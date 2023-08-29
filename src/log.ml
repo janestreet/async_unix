@@ -92,7 +92,7 @@ module Stable = struct
         ; naming_scheme : naming_scheme
         ; zone : Time.Zone.V1.t
         }
-      [@@deriving fields]
+      [@@deriving fields ~getters ~iterators:fold]
 
       let sexp_of_t t =
         let a x = Core.Sexp.Atom x
@@ -273,7 +273,7 @@ module Level = struct
       | `Info
       | `Error
       ]
-    [@@deriving bin_io, compare, enumerate, sexp]
+    [@@deriving bin_io, compare, enumerate, sexp, sexp_grammar]
 
     let to_string = function
       | `Debug -> "Debug"
@@ -1899,3 +1899,7 @@ module Private = struct
 end
 
 include For_external_use_only
+
+let create_null () =
+  create ~level:`Error ~output:[] ~on_error:(`Call (fun (_ : Error.t) -> ())) ()
+;;

@@ -274,7 +274,7 @@ module Stats = struct
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields, sexp, bin_io, compare]
+  [@@deriving fields ~getters, sexp, bin_io, compare]
 
   let of_unix (u : Unix.stats) =
     let of_float_sec f = Time.of_span_since_epoch (Time.Span.of_sec f) in
@@ -716,7 +716,7 @@ module Socket = struct
       ; sexp_of_address : 'address -> Sexp.t
       }
       constraint 'address = [< Address.t ]
-    [@@deriving fields]
+    [@@deriving fields ~getters]
 
     let sexp_of_t
           _
@@ -1280,7 +1280,7 @@ module Passwd = struct
     ; dir : string
     ; shell : string
     }
-  [@@deriving fields, sexp]
+  [@@deriving fields ~getters, sexp]
 
   (* The four [Unix.Passwd] functions call C functions that release the OCaml lock and do
      a reentrant system call. *)
@@ -1297,7 +1297,7 @@ module Group = struct
     ; gid : int
     ; mem : string array
     }
-  [@@deriving fields, sexp]
+  [@@deriving fields ~getters, sexp]
 
   (* The four [Unix.Group] functions call C functions that release the OCaml lock and do a
      reentrant system call. *)

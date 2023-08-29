@@ -86,7 +86,7 @@ module Internal = struct
     ; (* [open_flags] is the open-file-descriptor bits of [fd]. *)
       open_flags : open_flags
     }
-  [@@deriving fields]
+  [@@deriving fields ~getters]
 
   let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
 
@@ -134,7 +134,14 @@ module Internal = struct
       | None ->
         (match Fd.kind fd with
          | Char | File -> 32 * 1024
-         | Fifo | Socket _ -> 128 * 1024)
+         | Fifo | Socket _ ->
+           (* This equals the value bigstring_unix_stubs.c sets M_MMAP_THRESHOLD to. As a
+              result, these buffers are allocated using mmap, so they are returned to the
+              OS when OCaml GCs them. If this were less than M_MMAP_THRESHOLD, the buffers
+              would be allocated with brk, so malloc might hold on to them even after
+              OCaml GCs them, which could _increase_ memory usage for programs that create
+              many such buffers. *)
+           128 * 1024)
       | Some buf_len ->
         if buf_len > 0
         then buf_len

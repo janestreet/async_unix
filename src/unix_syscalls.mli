@@ -198,7 +198,7 @@ module Stats : sig
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields, sexp, bin_io, compare]
+  [@@deriving fields ~getters, sexp, bin_io, compare]
 
   val of_unix : Core_unix.stats -> t
   val to_string : t -> string
@@ -765,7 +765,7 @@ module Passwd : sig
     ; dir : string
     ; shell : string
     }
-  [@@deriving fields, sexp]
+  [@@deriving fields ~getters, sexp]
 
   val getbyname : string -> t option Deferred.t
   val getbyname_exn : string -> t Deferred.t
@@ -781,7 +781,7 @@ module Group : sig
     ; gid : int
     ; mem : string array
     }
-  [@@deriving fields, sexp]
+  [@@deriving fields ~getters, sexp]
 
   val getbyname : string -> t option Deferred.t
   val getbyname_exn : string -> t Deferred.t

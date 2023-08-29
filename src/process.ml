@@ -15,7 +15,7 @@ type t =
   ; env : env
   ; wait : Unix.Exit_or_signal.t Deferred.t Lazy.t
   }
-[@@deriving fields, sexp_of]
+[@@deriving fields ~getters, sexp_of]
 
 let create
       ?argv0
