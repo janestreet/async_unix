@@ -6,8 +6,8 @@ open! Import
     [Core.Signal.Expert] if they need. *)
 include
   module type of Core.Signal
-  with type t = Core.Signal.t
-  with module Expert := Core.Signal.Expert
+    with type t = Core.Signal.t
+    with module Expert := Core.Signal.Expert
 
 (** We override values from [Core.Signal] that we don't want people to use with
     Async. *)
@@ -31,7 +31,6 @@ val ignore : [ `Do_not_use_with_async ] -> _
     the last Async signal handler then the signal will start being ignored)
 *)
 val handle : ?stop:unit Deferred.t -> t list -> f:(t -> unit) -> unit
-
 
 (** [manage_by_async signal] arranges so that [signal] starts being managed by
     Async, i.e. we install an OCaml signal handler for it.

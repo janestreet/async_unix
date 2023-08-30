@@ -18,16 +18,16 @@ type t =
 [@@deriving fields ~getters, sexp_of]
 
 let create
-      ?argv0
-      ?buf_len
-      ?(env = `Extend [])
-      ?prog_search_path
-      ?stdin:write_to_stdin
-      ?working_dir
-      ?setpgid
-      ~prog
-      ~args
-      ()
+  ?argv0
+  ?buf_len
+  ?(env = `Extend [])
+  ?prog_search_path
+  ?stdin:write_to_stdin
+  ?working_dir
+  ?setpgid
+  ~prog
+  ~args
+  ()
   =
   match%map
     In_thread.syscall ~name:"create_process_env" (fun () ->
@@ -84,16 +84,16 @@ let create
 ;;
 
 let create_exn
-      ?argv0
-      ?buf_len
-      ?env
-      ?prog_search_path
-      ?stdin
-      ?working_dir
-      ?setpgid
-      ~prog
-      ~args
-      ()
+  ?argv0
+  ?buf_len
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ?setpgid
+  ~prog
+  ~args
+  ()
   =
   create
     ?argv0
@@ -219,15 +219,15 @@ let collect_stdout_lines_and_wait =
 let collect_stdout_lines_and_wait_exn = map_collect collect_stdout_lines_and_wait ok_exn
 
 let run
-      ?accept_nonzero_exit
-      ?argv0
-      ?env
-      ?prog_search_path
-      ?stdin
-      ?working_dir
-      ~prog
-      ~args
-      ()
+  ?accept_nonzero_exit
+  ?argv0
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ~prog
+  ~args
+  ()
   =
   match%bind create ?argv0 ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () with
   | Error _ as e -> return e
@@ -235,17 +235,17 @@ let run
 ;;
 
 let map_run
-      run
-      f
-      ?accept_nonzero_exit
-      ?argv0
-      ?env
-      ?prog_search_path
-      ?stdin
-      ?working_dir
-      ~prog
-      ~args
-      ()
+  run
+  f
+  ?accept_nonzero_exit
+  ?argv0
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ~prog
+  ~args
+  ()
   =
   let%map a =
     run
@@ -267,15 +267,15 @@ let run_lines = map_run run (Or_error.map ~f:String.split_lines)
 let run_lines_exn = map_run run_lines ok_exn
 
 let run_expect_no_output
-      ?accept_nonzero_exit
-      ?argv0
-      ?env
-      ?prog_search_path
-      ?stdin
-      ?working_dir
-      ~prog
-      ~args
-      ()
+  ?accept_nonzero_exit
+  ?argv0
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ~prog
+  ~args
+  ()
   =
   match%map
     run
@@ -325,15 +325,15 @@ let forward_output_and_wait ?accept_nonzero_exit t =
 let forward_output_and_wait_exn = map_collect forward_output_and_wait ok_exn
 
 let run_forwarding
-      ?accept_nonzero_exit
-      ?argv0
-      ?env
-      ?prog_search_path
-      ?stdin
-      ?working_dir
-      ~prog
-      ~args
-      ()
+  ?accept_nonzero_exit
+  ?argv0
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ~prog
+  ~args
+  ()
   =
   match%bind create ?argv0 ?env ?prog_search_path ?stdin ?working_dir ~prog ~args () with
   | Error _ as e -> return e

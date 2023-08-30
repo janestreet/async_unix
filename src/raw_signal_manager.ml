@@ -27,14 +27,14 @@ let manage t signal =
       t.original_dispositions_of_managed_signals
       signal
       ~default:(fun () ->
-        Signal.Expert.signal
-          signal
-          (`Handle
-             (fun _ ->
-                (* Everything in this function body must be thread safe, since it is running in an
+      Signal.Expert.signal
+        signal
+        (`Handle
+          (fun _ ->
+            (* Everything in this function body must be thread safe, since it is running in an
                    OCaml signal handler. *)
-                Thread_safe_queue.enqueue t.delivered signal;
-                t.thread_safe_notify_signal_delivered ())))
+            Thread_safe_queue.enqueue t.delivered signal;
+            t.thread_safe_notify_signal_delivered ())))
   in
   ()
 ;;

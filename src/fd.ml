@@ -101,11 +101,11 @@ module Close = struct
                     In_thread.syscall_exn ~name:"close" (fun () ->
                       Unix.close t.file_descr))
                   (fun () ->
-                     match t.kind, socket_handling with
-                     | Socket `Active, Shutdown_socket ->
-                       In_thread.syscall_exn ~name:"shutdown" (fun () ->
-                         Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
-                     | _ -> return ())
+                    match t.kind, socket_handling with
+                    | Socket `Active, Shutdown_socket ->
+                      In_thread.syscall_exn ~name:"shutdown" (fun () ->
+                        Unix.shutdown t.file_descr ~mode:SHUTDOWN_ALL)
+                    | _ -> return ())
             in
             Ivar.fill_exn t.close_finished ())
        in
@@ -146,10 +146,7 @@ let create_borrowed ?avoid_setting_nonblock kind file_descr info ~f =
 ;;
 
 let with_close t ~f =
-  Monitor.protect
-    ~run:`Schedule
-    (fun () -> f t)
-    ~finally:(fun () -> close t)
+  Monitor.protect ~run:`Schedule (fun () -> f t) ~finally:(fun () -> close t)
 ;;
 
 let with_file_descr_deferred t f =
@@ -157,10 +154,7 @@ let with_file_descr_deferred t f =
   | `Already_closed -> return `Already_closed
   | `Ok ->
     let%map result =
-      Monitor.try_with
-        ~run:`Schedule
-        ~rest:`Log
-        (fun () -> f t.file_descr)
+      Monitor.try_with ~run:`Schedule ~rest:`Log (fun () -> f t.file_descr)
     in
     Scheduler.dec_num_active_syscalls_fd (the_one_and_only ()) t;
     (match result with
@@ -198,15 +192,15 @@ let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
        ; choice (Ivar.read ivar) (fun _ -> `Not_interrupted)
        ])
     (function
-      | `Not_interrupted -> ()
-      | `Interrupted ->
-        if Ivar.is_empty ivar
-        then
-          Scheduler.request_stop_watching
-            (the_one_and_only ())
-            t
-            read_or_write
-            `Interrupted)
+     | `Not_interrupted -> ()
+     | `Interrupted ->
+       if Ivar.is_empty ivar
+       then
+         Scheduler.request_stop_watching
+           (the_one_and_only ())
+           t
+           read_or_write
+           `Interrupted)
 ;;
 
 let interruptible_ready_to t read_or_write ~interrupt =
@@ -234,8 +228,7 @@ let ready_to t read_or_write =
   let ready = Ivar.create () in
   match start_watching t read_or_write (Watch_once ready) with
   | `Already_closed -> return `Closed
-  | `Unsupported ->
-    return `Ready
+  | `Unsupported -> return `Ready
   | `Watching ->
     (match%map Ivar.read ready with
      | `Unsupported -> `Ready
@@ -351,12 +344,12 @@ module Private = struct
     else (
       t.kind <- kind;
       t.info
-      <- (match info with
-        | `Set i -> i
-        | `Extend i ->
-          Info.create
-            "replaced"
-            (i, `previously_was t.info)
-            [%sexp_of: Info.t * [ `previously_was of Info.t ]]))
+        <- (match info with
+            | `Set i -> i
+            | `Extend i ->
+              Info.create
+                "replaced"
+                (i, `previously_was t.info)
+                [%sexp_of: Info.t * [ `previously_was of Info.t ]]))
   ;;
 end

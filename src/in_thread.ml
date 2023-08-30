@@ -28,10 +28,10 @@ let stuck_check_interval () = Time_ns.Span.of_sec 1.
 
 let rec schedule_stuck_check t =
   t.thread_pool_stuck
-  <- Stuck
-       { stuck_since = Time_ns.now ()
-       ; num_work_completed = Thread_pool.num_work_completed t.thread_pool
-       };
+    <- Stuck
+         { stuck_since = Time_ns.now ()
+         ; num_work_completed = Thread_pool.num_work_completed t.thread_pool
+         };
   Clock_ns.run_after (stuck_check_interval ()) check_still_stuck t
 
 and check_still_stuck t =
@@ -58,12 +58,12 @@ let maybe_mark_thread_pool_stuck t =
 ;;
 
 let run_after_scheduler_is_started
-      ~priority
-      ~thread
-      ~(when_finished : When_finished.t)
-      ~name
-      ~t
-      f
+  ~priority
+  ~thread
+  ~(when_finished : When_finished.t)
+  ~name
+  ~t
+  f
   =
   let ivar = Ivar.create () in
   let doit () =
@@ -108,7 +108,7 @@ let run_after_scheduler_is_started
            "Async's thread pool was unable to create a single thread"
              ~_:
                (Thread_pool.last_thread_creation_failure t.thread_pool
-                : (Sexp.t option[@sexp.option]))]
+                 : (Sexp.t option[@sexp.option]))]
    | Some helper_thread ->
      ok_exn
        (Thread_pool.add_work_for_helper_thread

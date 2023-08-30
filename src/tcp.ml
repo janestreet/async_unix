@@ -32,8 +32,8 @@ module Where_to_connect = struct
     { socket_type = Socket.Type.tcp
     ; remote_address =
         (fun () ->
-           Unix.Inet_addr.of_string_or_getbyname host
-           >>| fun inet_addr -> Socket.Address.Inet.create inet_addr ~port)
+          Unix.Inet_addr.of_string_or_getbyname host
+          >>| fun inet_addr -> Socket.Address.Inet.create inet_addr ~port)
     ; local_address = create_local_address ~bind_to_address ~bind_to_port
     ; info = [%sexp (hp : Host_and_port.t)]
     }
@@ -65,11 +65,7 @@ module Where_to_connect = struct
 end
 
 let close_sock_on_error s f =
-  Monitor.try_with
-    ~run:`Schedule
-    ~rest:`Log
-    ~name:"Tcp.close_sock_on_error"
-    f
+  Monitor.try_with ~run:`Schedule ~rest:`Log ~name:"Tcp.close_sock_on_error" f
   >>| function
   | Ok v -> v
   | Error e ->
@@ -87,11 +83,11 @@ let reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_s
 ;;
 
 let connect_sock
-      ?socket
-      ?interrupt
-      ?(timeout = sec 10.)
-      ?time_source
-      (where_to_connect : _ Where_to_connect.t)
+  ?socket
+  ?interrupt
+  ?(timeout = sec 10.)
+  ?time_source
+  (where_to_connect : _ Where_to_connect.t)
   =
   let time_source =
     match time_source with
@@ -141,14 +137,14 @@ let connect_sock
 ;;
 
 let connect
-      ?socket
-      ?buffer_age_limit
-      ?interrupt
-      ?reader_buffer_size
-      ?writer_buffer_size
-      ?timeout
-      ?time_source
-      where_to_connect
+  ?socket
+  ?buffer_age_limit
+  ?interrupt
+  ?reader_buffer_size
+  ?writer_buffer_size
+  ?timeout
+  ?time_source
+  where_to_connect
   =
   connect_sock ?socket ?interrupt ?timeout ?time_source where_to_connect
   >>| fun s ->
@@ -165,11 +161,7 @@ let collect_errors writer f =
   choose
     [ choice (Monitor.get_next_error monitor) (fun e -> Error e)
     ; choice
-        (Monitor.try_with
-           ~run:`Schedule
-           ~rest:`Log
-           ~name:"Tcp.collect_errors"
-           f)
+        (Monitor.try_with ~run:`Schedule ~rest:`Log ~name:"Tcp.collect_errors" f)
         Fn.id
     ]
 ;;
@@ -189,14 +181,14 @@ let close_connection_via_reader_and_writer r w =
 ;;
 
 let with_connection
-      ?buffer_age_limit
-      ?interrupt
-      ?reader_buffer_size
-      ?writer_buffer_size
-      ?timeout
-      ?time_source
-      where_to_connect
-      f
+  ?buffer_age_limit
+  ?interrupt
+  ?reader_buffer_size
+  ?writer_buffer_size
+  ?timeout
+  ?time_source
+  where_to_connect
+  f
   =
   connect_sock ?interrupt ?timeout ?time_source where_to_connect
   >>= fun socket ->
@@ -263,7 +255,7 @@ module Where_to_listen = struct
     ; address
     ; listening_on =
         (function
-          | `Inet (_, port) -> port)
+         | `Inet (_, port) -> port)
     }
   ;;
 
@@ -479,13 +471,13 @@ module Server = struct
   ;;
 
   let create_from_socket
-        ~max_connections
-        ?(max_accepts_per_batch = 1)
-        ?(drop_incoming_connections = false)
-        ~on_handler_error
-        (where_to_listen : _ Where_to_listen.t)
-        handle_client
-        socket
+    ~max_connections
+    ?(max_accepts_per_batch = 1)
+    ?(drop_incoming_connections = false)
+    ~on_handler_error
+    (where_to_listen : _ Where_to_listen.t)
+    handle_client
+    socket
     =
     let t =
       { socket
@@ -553,9 +545,9 @@ module Server = struct
       | None ->
         { create_socket =
             (fun () ->
-               let socket = Socket.create where_to_listen.Where_to_listen.socket_type in
-               Socket.setopt socket Socket.Opt.reuseaddr true;
-               socket)
+              let socket = Socket.create where_to_listen.Where_to_listen.socket_type in
+              Socket.setopt socket Socket.Opt.reuseaddr true;
+              socket)
         ; retries_upon_addr_in_use =
             Where_to_listen.max_retries_upon_addr_in_use where_to_listen
         }
@@ -609,15 +601,15 @@ module Server = struct
   end
 
   let create_sock_non_inet_internal
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        (where_to_listen : _ Where_to_listen.t)
-        handle_client
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    (where_to_listen : _ Where_to_listen.t)
+    handle_client
     =
     let time_source =
       match time_source with
@@ -633,7 +625,7 @@ module Server = struct
       Max_connections.create
         ~limit:(get_max_connections_limit max_connections)
         ~time_source
-        (* We must call [Fd.info] on the socket's fd after [Socket.bind] is called,
+          (* We must call [Fd.info] on the socket's fd after [Socket.bind] is called,
            otherwise the [Info.t] won't have been set yet. *)
         ~listening_on:(Fd.info (Socket.fd socket))
     in
@@ -648,15 +640,15 @@ module Server = struct
   ;;
 
   let create_sock_inet_internal
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
-        ?time_source
-        ~on_handler_error
-        (where_to_listen : (Socket.Address.Inet.t, 'listening_on) Where_to_listen.t)
-        handle_client
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?(socket : ([ `Unconnected ], Socket.Address.Inet.t) Socket.t option)
+    ?time_source
+    ~on_handler_error
+    (where_to_listen : (Socket.Address.Inet.t, 'listening_on) Where_to_listen.t)
+    handle_client
     =
     let time_source =
       match time_source with
@@ -673,7 +665,7 @@ module Server = struct
       Max_connections.create
         ~limit:(get_max_connections_limit max_connections)
         ~time_source
-        (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
+          (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
            otherwise the [Info.t] won't have been set yet. *)
         ~listening_on:(Fd.info (Socket.fd socket))
     in
@@ -701,25 +693,25 @@ module Server = struct
 
   let create_sock_inet_internal_async : ('address, _, _) create_sock_async =
     fun ?max_connections
-      ?max_accepts_per_batch
-      ?backlog
-      ?drop_incoming_connections
-      ?socket
-      ?time_source
-      ~on_handler_error
-      where_to_listen
-      handle_client ->
-      return
-        (create_sock_inet_internal
-           ?max_connections
-           ?max_accepts_per_batch
-           ?backlog
-           ?drop_incoming_connections
-           ?socket
-           ?time_source
-           ~on_handler_error
-           where_to_listen
-           handle_client)
+        ?max_accepts_per_batch
+        ?backlog
+        ?drop_incoming_connections
+        ?socket
+        ?time_source
+        ~on_handler_error
+        where_to_listen
+        handle_client ->
+    return
+      (create_sock_inet_internal
+         ?max_connections
+         ?max_accepts_per_batch
+         ?backlog
+         ?drop_incoming_connections
+         ?socket
+         ?time_source
+         ~on_handler_error
+         where_to_listen
+         handle_client)
   ;;
 
   type ('address, 'listening_on, 't) create_sock_async_no_constraint =
@@ -745,21 +737,6 @@ module Server = struct
 
   let create_sock_internal : (_, _, [> read ]) create_sock_async =
     fun ?max_connections
-      ?max_accepts_per_batch
-      ?backlog
-      ?drop_incoming_connections
-      ?socket
-      ?time_source
-      ~on_handler_error
-      where_to_listen
-      handle_client ->
-      let (T f) =
-        create_sock_internal_type_hackery
-          ~is_inet:(Where_to_listen.is_inet_witness where_to_listen)
-          ~is_address:T
-      in
-      f
-        ?max_connections
         ?max_accepts_per_batch
         ?backlog
         ?drop_incoming_connections
@@ -767,20 +744,35 @@ module Server = struct
         ?time_source
         ~on_handler_error
         where_to_listen
-        handle_client
+        handle_client ->
+    let (T f) =
+      create_sock_internal_type_hackery
+        ~is_inet:(Where_to_listen.is_inet_witness where_to_listen)
+        ~is_address:T
+    in
+    f
+      ?max_connections
+      ?max_accepts_per_batch
+      ?backlog
+      ?drop_incoming_connections
+      ?socket
+      ?time_source
+      ~on_handler_error
+      where_to_listen
+      handle_client
   ;;
 
   let create_sock
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        (where_to_listen : ('address, 'listening_on) Where_to_listen.t)
-        (handle_client :
-           ([< Socket.Address.t ] as 'b) -> ([ `Active ], 'b) Socket.t -> unit Deferred.t)
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    (where_to_listen : ('address, 'listening_on) Where_to_listen.t)
+    (handle_client :
+      ([< Socket.Address.t ] as 'b) -> ([ `Active ], 'b) Socket.t -> unit Deferred.t)
     =
     create_sock_internal
       ?max_connections
@@ -792,23 +784,20 @@ module Server = struct
       ?time_source
       where_to_listen
       (fun client_address client_socket ->
-         Monitor.try_with
-           ~run:`Schedule
-           ~rest:`Log
-           ~name:"Tcp.Server.create_sock"
-           (fun () -> handle_client client_address client_socket))
+      Monitor.try_with ~run:`Schedule ~rest:`Log ~name:"Tcp.Server.create_sock" (fun () ->
+        handle_client client_address client_socket))
   ;;
 
   let create_sock_inet
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        where_to_listen
-        handle_client
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    where_to_listen
+    handle_client
     =
     create_sock_inet_internal
       ?max_connections
@@ -820,25 +809,25 @@ module Server = struct
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
-         Monitor.try_with
-           ~run:`Schedule
-           ~rest:`Log
-           ~name:"Tcp.Server.create_sock_inet"
-           (fun () -> handle_client client_address client_socket))
+      Monitor.try_with
+        ~run:`Schedule
+        ~rest:`Log
+        ~name:"Tcp.Server.create_sock_inet"
+        (fun () -> handle_client client_address client_socket))
   ;;
 
   let create_internal
-        ~create_sock
-        ?buffer_age_limit
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        where_to_listen
-        handle_client
+    ~create_sock
+    ?buffer_age_limit
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    where_to_listen
+    handle_client
     =
     create_sock
       ?max_connections
@@ -850,26 +839,26 @@ module Server = struct
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
-         let r, w = reader_writer_of_sock ?buffer_age_limit client_socket in
-         Writer.set_raise_when_consumer_leaves w false;
-         Deferred.any
-           [ collect_errors w (fun () -> handle_client client_address r w)
-           ; Writer.consumer_left w |> Deferred.ok
-           ]
-         >>= fun res -> close_connection_via_reader_and_writer r w >>| fun () -> res)
+      let r, w = reader_writer_of_sock ?buffer_age_limit client_socket in
+      Writer.set_raise_when_consumer_leaves w false;
+      Deferred.any
+        [ collect_errors w (fun () -> handle_client client_address r w)
+        ; Writer.consumer_left w |> Deferred.ok
+        ]
+      >>= fun res -> close_connection_via_reader_and_writer r w >>| fun () -> res)
   ;;
 
   let create_inet
-        ?buffer_age_limit
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        where_to_listen
-        handle_client
+    ?buffer_age_limit
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    where_to_listen
+    handle_client
     =
     create_internal
       ~create_sock:create_sock_inet_internal
@@ -886,16 +875,16 @@ module Server = struct
   ;;
 
   let create
-        ?buffer_age_limit
-        ?max_connections
-        ?max_accepts_per_batch
-        ?backlog
-        ?drop_incoming_connections
-        ?socket
-        ?time_source
-        ~on_handler_error
-        where_to_listen
-        handle_client
+    ?buffer_age_limit
+    ?max_connections
+    ?max_accepts_per_batch
+    ?backlog
+    ?drop_incoming_connections
+    ?socket
+    ?time_source
+    ~on_handler_error
+    where_to_listen
+    handle_client
     =
     create_internal
       ~create_sock:create_sock_internal

@@ -102,11 +102,7 @@ let shutdown_with_status ?force status =
     upon
       (Deferred.all
          (List.map !todo ~f:(fun (backtrace, f) ->
-            let%map result =
-              Monitor.try_with_or_error
-                ~rest:`Log
-                f
-            in
+            let%map result = Monitor.try_with_or_error ~rest:`Log f in
             (match result with
              | Ok () -> ()
              | Error error ->
@@ -124,18 +120,18 @@ let shutdown_with_status ?force status =
                   [%sexp_of: Backtrace.t]);
             result)))
       (fun results ->
-         match shutting_down () with
-         | No -> assert false
-         | Yes status ->
-           let status =
-             match Or_error.combine_errors_unit results with
-             | Ok () -> status
-             | Error _ ->
-               (match status with
-                | Exit 0 -> Exit 1
-                | _ -> status)
-           in
-           exit_reliably status);
+        match shutting_down () with
+        | No -> assert false
+        | Yes status ->
+          let status =
+            match Or_error.combine_errors_unit results with
+            | Ok () -> status
+            | Error _ ->
+              (match status with
+               | Exit 0 -> Exit 1
+               | _ -> status)
+          in
+          exit_reliably status);
     let force =
       match force with
       | None -> !default_force_ref ()
@@ -184,8 +180,7 @@ let don't_finish_before =
     Ivar.read proceed_with_shutdown);
   fun d ->
     match shutting_down () with
-    | Yes _ ->
-      ()
+    | Yes _ -> ()
     | No ->
       incr num_waiting;
       upon d (fun () ->

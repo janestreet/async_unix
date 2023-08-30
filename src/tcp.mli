@@ -44,7 +44,6 @@ type 'a with_connect_options :=
   -> ?time_source:Time_source.t (** default is [Time_source.wall_clock ()] *)
   -> 'a
 
-
 (** [with_connection where_to_connect f] looks up [where_to_connect] (using DNS
     as needed), connects, then calls [f], passing the connected socket and
     a reader and writer for it. When the deferred returned by [f] is
@@ -63,7 +62,7 @@ val with_connection
   : ('addr Where_to_connect.t
      -> (([ `Active ], 'addr) Socket.t -> Reader.t -> Writer.t -> 'a Deferred.t)
      -> 'a Deferred.t)
-      with_connect_options
+    with_connect_options
 
 (** [connect_sock where_to_connect] creates a socket and opens a TCP connection.  To use
     an existing socket, supply [~socket].  Any errors in the connection will be reported
@@ -75,7 +74,6 @@ val connect_sock
   -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> 'addr Where_to_connect.t
   -> ([ `Active ], 'addr) Socket.t Deferred.t
-
 
 (** [connect where_to_connect] is a convenience wrapper around [connect_sock]
     that returns the socket, and a reader and writer for the socket.  The
@@ -95,7 +93,7 @@ val connect
   :  ?socket:([ `Unconnected ], 'addr) Socket.t
   -> ('addr Where_to_connect.t
       -> (([ `Active ], 'addr) Socket.t * Reader.t * Writer.t) Deferred.t)
-       with_connect_options
+     with_connect_options
 
 module Bind_to_address : sig
   type t =
@@ -149,7 +147,6 @@ module Server : sig
   type inet = (Socket.Address.Inet.t, int) t [@@deriving sexp_of]
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]
 
-
   val invariant : (_, _) t -> unit
   val listening_on : (_, 'listening_on) t -> 'listening_on
   val listening_on_address : ('address, _) t -> 'address
@@ -182,7 +179,6 @@ module Server : sig
       [close_finished t] is determined and the return of all active handlers
       is determined. *)
   val close_finished_and_handlers_determined : (_, _) t -> unit Deferred.t
-
 
   (** Options for server creation:
 
@@ -232,7 +228,7 @@ module Server : sig
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> ('address -> ([ `Active ], 'address) Socket.t -> unit Deferred.t)
@@ -247,7 +243,7 @@ module Server : sig
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:
          [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet
@@ -270,7 +266,7 @@ module Server : sig
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> ('address -> Reader.t -> Writer.t -> unit Deferred.t)
@@ -284,7 +280,7 @@ module Server : sig
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> on_handler_error:
          [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet

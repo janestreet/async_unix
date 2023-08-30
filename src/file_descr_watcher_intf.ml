@@ -48,7 +48,7 @@ module type S = sig
        -> handle_fd_read_ready:(File_descr.t -> unit)
        -> handle_fd_write_ready:(File_descr.t -> unit)
        -> t)
-        additional_create_args
+      additional_create_args
 
   val backend : Config.File_descr_watcher.t
 

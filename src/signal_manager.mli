@@ -17,7 +17,6 @@ module type Signal_dispatcher = sig
   type t
   type handler
 
-
   (** [set_composable_handler] causes [t] to manage the handling of [signals], and
       switches to custom signal handling mode for these signals, which suppresses the
       default behavior, and instead runs the handlers added by [install_handler].

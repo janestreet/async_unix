@@ -70,7 +70,6 @@ val transfer : t -> string Pipe.Writer.t -> unit Deferred.t
     the pipe. *)
 val pipe : t -> string Pipe.Reader.t
 
-
 (** [of_pipe info pipe_r] returns a reader [t] that receives all the data from [pipe_r].
     If [pipe_r] is closed, [t] will see an EOF (but will not be automatically closed).  If
     [t] is closed, then [pipe_r] will stop being drained.
@@ -92,7 +91,7 @@ val of_pipe : Info.t -> string Pipe.Reader.t -> t Deferred.t
     resulting in unintuitive higher overall program memory usage. *)
 val create
   :  ?buf_len:int
-  (** default is 32 KiB for files and character devices, 128 KiB for fifos and sockets *)
+       (** default is 32 KiB for files and character devices, 128 KiB for fifos and sockets *)
   -> Fd.t
   -> t
 
@@ -179,7 +178,7 @@ val drain : t -> unit Deferred.t
 type 'a read_one_chunk_at_a_time_result =
   [ `Eof
   | `Stopped of 'a
-  (** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned [`Consumed (c, _)]
+    (** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned [`Consumed (c, _)]
       and left data in the reader's buffer (i.e., [c < len]), and that the reader reached
       EOF without reading any more data into the buffer; hence the data in the buffer was
       never consumed. The unconsumed data is left on the reader. *)
@@ -189,10 +188,10 @@ type 'a read_one_chunk_at_a_time_result =
 
 type 'a handle_chunk_result =
   [ `Stop of 'a
-  (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
+    (** [`Stop a] means that [handle_chunk] consumed all [len] bytes, and that
       [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Stop_consumed of 'a * int
-  (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
+    (** [`Stop_consumed (a, n)] means that [handle_chunk] consumed [n] bytes, and that
       [read_one_chunk_at_a_time] should stop reading and return [`Stopped a]. *)
   | `Continue (** [`Continue] means that [handle_chunk] has consumed all [len] bytes. *)
   | `Consumed of int * [ `Need of int | `Need_unknown ]
@@ -202,7 +201,6 @@ type 'a handle_chunk_result =
         error if [n < 0 || c + n <= len]. *)
   ]
 [@@deriving sexp_of]
-
 
 (** [read_one_chunk_at_a_time t ~handle_chunk] reads into [t]'s internal buffer, and
     whenever bytes are available, applies [handle_chunk] to them.  It waits to read again
@@ -289,14 +287,13 @@ val read_until_bounded
   -> keep_delim:bool
   -> max:int
   -> [ `Ok of string | `Eof_without_delim of string | `Eof | `Max_exceeded of string ]
-       Deferred.t
+     Deferred.t
 
 (** [read_line t] reads up to and including the next newline ([\n]) character (or [\r\n])
     and returns a freshly-allocated string containing everything up to but not including
     the newline character.  If [read_line] encounters EOF before the newline char then
     everything read up to but not including EOF will be returned as a line. *)
 val read_line : t -> string Read_result.t Deferred.t
-
 
 (** [really_read_line ~wait_time t] reads up to and including the next newline ([\n])
     character and returns an optional, freshly-allocated string containing everything up
@@ -436,7 +433,7 @@ val load_annotated_sexps_exn : (Sexp.Annotated.t, 'a, 'a list) load
 type ('a, 'b) load_bin_prot :=
   ?exclusive:bool (** default is [false] *)
   -> ?max_len:int
-  (** default is 100 MiB. This is only used to save you from accidentally loading a giant
+       (** default is 100 MiB. This is only used to save you from accidentally loading a giant
       file and is not used to size any internal buffers. So it's safe to pass a
       arbitrarily large number if you're loading large files. *)
   -> string

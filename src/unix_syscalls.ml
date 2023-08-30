@@ -349,11 +349,8 @@ let fchown fd ~uid ~gid =
 
 let access filename perm =
   match%map
-    Monitor.try_with
-      ~run:`Schedule
-      ~rest:`Log
-      (fun () ->
-         In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
+    Monitor.try_with ~run:`Schedule ~rest:`Log (fun () ->
+      In_thread.syscall_exn ~name:"access" (fun () -> Unix.access filename perm))
   with
   | Ok res -> res
   | Error exn -> Error (Monitor.extract_exn exn)
@@ -704,8 +701,8 @@ module Socket = struct
 
       let is_inet_witness : type a. a t -> (a, Address.Inet.t) Type_equal.t option
         = function
-          | Inet -> Some T
-          | Unix -> None
+        | Inet -> Some T
+        | Unix -> None
       ;;
     end
 
@@ -719,8 +716,8 @@ module Socket = struct
     [@@deriving fields ~getters]
 
     let sexp_of_t
-          _
-          { address_of_sockaddr_exn = _; family; family_gadt = _; sexp_of_address = _ }
+      _
+      { address_of_sockaddr_exn = _; family; family_gadt = _; sexp_of_address = _ }
       =
       [%sexp (family : Unix.socket_domain)]
     ;;

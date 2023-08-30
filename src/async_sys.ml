@@ -9,18 +9,15 @@ let wrap1 f x1 = In_thread.run (fun () -> f x1)
 let wrap2 f x1 x2 = In_thread.run (fun () -> f x1 x2)
 
 let when_file_changes
-      ?(time_source = Time_source.wall_clock ())
-      ?(poll_delay = sec 0.5)
-      file
+  ?(time_source = Time_source.wall_clock ())
+  ?(poll_delay = sec 0.5)
+  file
   =
   let last_reported_mtime = ref None in
   let reader, writer = Pipe.create () in
   let rec loop () =
-    Monitor.try_with
-      ~run:`Schedule
-      ~rest:`Log
-      ~extract_exn:true
-      (fun () -> Unix.stat file)
+    Monitor.try_with ~run:`Schedule ~rest:`Log ~extract_exn:true (fun () ->
+      Unix.stat file)
     >>> fun stat_result ->
     if not (Pipe.is_closed writer)
     then (

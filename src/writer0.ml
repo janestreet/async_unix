@@ -102,7 +102,7 @@ type t =
     monitor : Monitor.t
   ; inner_monitor : Monitor.t
   ; mutable
-    background_writer_state :
+      background_writer_state :
       [ `Running | `Not_running | `Stopped_permanently of Stop_reason.t ]
   ; background_writer_stopped : unit Ivar.t
   ; (* [syscall] determines the batching approach that the writer uses to batch data
@@ -179,35 +179,35 @@ let sexp_of_t t = [%sexp (t.fd : Fd.t_hum)]
 type t_internals = t
 
 let sexp_of_t_internals
-      ({ id
-       ; fd
-       ; monitor
-       ; inner_monitor
-       ; background_writer_state
-       ; background_writer_stopped
-       ; syscall
-       ; bytes_received
-       ; bytes_written
-       ; scheduled = _
-       ; scheduled_bytes
-       ; buf = _
-       ; scheduled_back
-       ; back
-       ; time_source
-       ; flushes = _
-       ; close_state
-       ; close_finished
-       ; close_started
-       ; producers_to_flush_at_close
-       ; flush_at_shutdown_elt
-       ; check_buffer_age
-       ; consumer_left
-       ; raise_when_consumer_leaves
-       ; open_flags
-       ; line_ending
-       ; backing_out_channel
-       } :
-         t_internals)
+  ({ id
+   ; fd
+   ; monitor
+   ; inner_monitor
+   ; background_writer_state
+   ; background_writer_stopped
+   ; syscall
+   ; bytes_received
+   ; bytes_written
+   ; scheduled = _
+   ; scheduled_bytes
+   ; buf = _
+   ; scheduled_back
+   ; back
+   ; time_source
+   ; flushes = _
+   ; close_state
+   ; close_finished
+   ; close_started
+   ; producers_to_flush_at_close
+   ; flush_at_shutdown_elt
+   ; check_buffer_age
+   ; consumer_left
+   ; raise_when_consumer_leaves
+   ; open_flags
+   ; line_ending
+   ; backing_out_channel
+   } :
+    t_internals)
   =
   let suppress_in_test x = if Ppx_inline_test_lib.am_running then None else Some x in
   let monitor_name_in_test monitor =
@@ -244,10 +244,10 @@ let sexp_of_t_internals
     ; num_producers_to_flush_at_close = (Bag.length producers_to_flush_at_close : int)
     ; flush_at_shutdown_elt =
         (suppress_in_test flush_at_shutdown_elt
-         : ((t[@sexp.opaque]) Bag.Elt.t option option[@sexp.option]))
+          : ((t[@sexp.opaque]) Bag.Elt.t option option[@sexp.option]))
     ; check_buffer_age =
         (suppress_in_test check_buffer_age
-         : ((t[@sexp.opaque]) Check_buffer_age'.t Bag.Elt.t option Lazy.t option
+          : ((t[@sexp.opaque]) Check_buffer_age'.t Bag.Elt.t option Lazy.t option
             [@sexp.option]))
     ; consumer_left : unit Ivar.t
     ; raise_when_consumer_leaves : bool
@@ -279,13 +279,13 @@ let invariant t : unit =
       ~buf:ignore
       ~background_writer_state:
         (check (function
-           | `Stopped_permanently _ ->
-             assert (bytes_to_write t = 0);
-             assert (Ivar.is_full t.background_writer_stopped)
-           | `Running | `Not_running ->
-             assert (Bigstring.length t.buf > 0);
-             assert (Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)));
-             assert (Ivar.is_empty t.background_writer_stopped)))
+          | `Stopped_permanently _ ->
+            assert (bytes_to_write t = 0);
+            assert (Ivar.is_full t.background_writer_stopped)
+          | `Running | `Not_running ->
+            assert (Bigstring.length t.buf > 0);
+            assert (Int63.(t.bytes_received - t.bytes_written = of_int (bytes_to_write t)));
+            assert (Ivar.is_empty t.background_writer_stopped)))
       ~background_writer_stopped:ignore
       ~syscall:ignore
       ~bytes_written:
@@ -381,8 +381,8 @@ end = struct
                  q
                  ~init:t.bytes_received_at_now_minus_maximum_age
                  ~f:(fun prev count ->
-                   assert (Int63.( < ) prev count);
-                   count)
+                 assert (Int63.( < ) prev count);
+                 count)
              in
              assert (Int63.( <= ) n t.writer.bytes_received);
              assert (Int63.( = ) n t.bytes_seen)))
@@ -460,7 +460,7 @@ end = struct
                       writer.buf
                       ~pos:0
                       ~len:(Int.min 1024 (Bigstring.length writer.buf))
-                    : string)
+                     : string)
                  (writer : writer)])
     ;;
 
@@ -474,12 +474,12 @@ end = struct
   end
 
   module Time_source_key = Hashable.Make_plain (struct
-      type t = Time_source.t [@@deriving sexp_of]
+    type t = Time_source.t [@@deriving sexp_of]
 
-      let hash_fold_t state t = Time_source.Id.hash_fold_t state (Time_source.id t)
-      let hash t = Time_source.Id.hash (Time_source.id t)
-      let compare t1 t2 = Time_source.Id.compare (Time_source.id t1) (Time_source.id t2)
-    end)
+    let hash_fold_t state t = Time_source.Id.hash_fold_t state (Time_source.id t)
+    let hash t = Time_source.Id.hash (Time_source.id t)
+    let compare t1 t2 = Time_source.Id.compare (Time_source.id t1) (Time_source.id t2)
+  end)
 
   (* [by_time_source] holds the set of [Per_time_source.t]'s with nonempty [active_checks]. *)
   let by_time_source : Per_time_source.t Time_source_key.Table.t =
@@ -563,8 +563,7 @@ let flushed_or_failed_with_result t =
       | `Stopped_permanently Consumer_left -> return Flush_result.Consumer_left
       | `Running | `Not_running ->
         if Ivar.is_full t.close_finished
-        then
-          Deferred.return Flush_result.Error
+        then Deferred.return Flush_result.Error
         else
           Deferred.create (fun ivar -> Queue.enqueue t.flushes (ivar, t.bytes_received)))
 ;;
@@ -634,8 +633,8 @@ let with_synchronous_backing_out_channel t backing_out_channel ~f =
   Monitor.protect
     ~run:`Schedule
     (fun () ->
-       let%bind () = set_synchronous_backing_out_channel t backing_out_channel in
-       f ())
+      let%bind () = set_synchronous_backing_out_channel t backing_out_channel in
+      f ())
     ~finally:(fun () ->
       t.backing_out_channel <- saved_backing_out_channel;
       return ())
@@ -664,8 +663,6 @@ let is_closed t =
 ;;
 
 let is_open t = not (is_closed t)
-
-
 let writers_to_flush_at_shutdown : t Bag.t = Bag.create ()
 
 let final_flush ?force t =
@@ -699,7 +696,7 @@ let final_flush ?force t =
       consumer_left t
     ; Deferred.all_unit [ producers_flushed; flushed t ]
     ; force
-      ; (* The buffer-age check might fire while we're waiting. *)
+    ; (* The buffer-age check might fire while we're waiting. *)
       Check_buffer_age.too_old (Lazy.force t.check_buffer_age)
     ]
 ;;
@@ -707,8 +704,7 @@ let final_flush ?force t =
 let close_internal ~flush t =
   if debug then Debug.log "Writer.close" t [%sexp_of: t];
   (match t.close_state with
-   | `Closed_and_flushing | `Closed ->
-     ()
+   | `Closed_and_flushing | `Closed -> ()
    | `Open ->
      t.close_state <- `Closed_and_flushing;
      Ivar.fill_exn t.close_started ();
@@ -786,13 +782,13 @@ type buffer_age_limit =
 [@@deriving bin_io, sexp]
 
 let create
-      ?buf_len
-      ?(syscall = `Per_cycle)
-      ?buffer_age_limit
-      ?(raise_when_consumer_leaves = true)
-      ?(line_ending = Line_ending.Unix)
-      ?time_source
-      fd
+  ?buf_len
+  ?(syscall = `Per_cycle)
+  ?buffer_age_limit
+  ?(raise_when_consumer_leaves = true)
+  ?(line_ending = Line_ending.Unix)
+  ?time_source
+  fd
   =
   let time_source =
     match time_source with
@@ -895,14 +891,14 @@ let ensure_can_write t =
 ;;
 
 let open_file
-      ?info
-      ?(append = false)
-      ?buf_len
-      ?syscall
-      ?(perm = 0o666)
-      ?line_ending
-      ?time_source
-      file
+  ?info
+  ?(append = false)
+  ?buf_len
+  ?syscall
+  ?(perm = 0o666)
+  ?line_ending
+  ?time_source
+  file
   =
   (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
      a file. *)
@@ -916,31 +912,28 @@ let with_close t ~f =
   Monitor.protect
     ~run:`Schedule
     (fun () ->
-       let%bind res = f () in
-       let%map () = final_flush t in
-       res)
+      let%bind res = f () in
+      let%map () = final_flush t in
+      res)
     ~finally:(fun () -> close_noflush t)
 ;;
 
 let with_writer_exclusive t f =
   let%bind () = Unix.lockf t.fd Exclusive in
-  Monitor.protect
-    ~run:`Schedule
-    f
-    ~finally:(fun () ->
-      let%map () = flushed t in
-      Unix.unlockf t.fd)
+  Monitor.protect ~run:`Schedule f ~finally:(fun () ->
+    let%map () = flushed t in
+    Unix.unlockf t.fd)
 ;;
 
 let with_file
-      ?perm
-      ?append
-      ?syscall
-      ?(exclusive = false)
-      ?line_ending
-      ?time_source
-      file
-      ~f
+  ?perm
+  ?append
+  ?syscall
+  ?(exclusive = false)
+  ?line_ending
+  ?time_source
+  file
+  ~f
   =
   let%bind t = open_file ?perm ?append ?syscall ?line_ending ?time_source file in
   with_close t ~f:(fun () ->
@@ -971,7 +964,7 @@ let schedule_unscheduled t kind =
       kind
       (IOVec.of_bigstring t.buf ~pos ~len:need_to_schedule)
       ~count_bytes_as_received:false
-      (* they were already counted *))
+    (* they were already counted *))
 ;;
 
 let dummy_iovec = IOVec.empty IOVec.bigstring_kind
@@ -1174,7 +1167,7 @@ let give_buf t desired =
              length would each waste slightly less than half of the buffer.  Although, it is
              still the case that multiple consecutive writes of slightly more than one quarter
              of the buffer length will waste slightly less than one quarter of the buffer. *)
-    desired > buf_len / 2
+          desired > buf_len / 2
   then (
     schedule_unscheduled t Keep;
     (* Preallocation size too small; allocate dedicated buffer *)
@@ -1199,14 +1192,14 @@ let give_buf t desired =
 (* If [blit_to_bigstring] raises, [write_gen_unchecked] may leave some unexpected bytes in
    the bigstring.  However it leaves [t.back] and [t.bytes_received] in agreement. *)
 let write_gen_internal
-      (type a)
-      t
-      src
-      ~src_pos
-      ~src_len
-      ~allow_partial_write
-      ~(blit_to_bigstring :
-          src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
+  (type a)
+  t
+  src
+  ~src_pos
+  ~src_len
+  ~allow_partial_write
+  ~(blit_to_bigstring :
+      src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
   =
   if is_stopped_permanently t
   then got_bytes t src_len
@@ -1281,9 +1274,9 @@ let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
     ~src_len
     ~allow_partial_write:false
     ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-      assert (src_pos = 0);
-      assert (len = src_len);
-      blit_to_bigstring src dst ~pos:dst_pos)
+    assert (src_pos = 0);
+    assert (len = src_len);
+    blit_to_bigstring src dst ~pos:dst_pos)
 ;;
 
 let write_bytes ?pos ?len t src =
@@ -1362,9 +1355,9 @@ let write_gen_whole t src ~blit_to_bigstring ~length =
 let to_formatter t =
   Format.make_formatter
     (fun str pos len ->
-       let str = Bytes.of_string str in
-       ensure_can_write t;
-       write_substring t (Substring.create str ~pos ~len))
+      let str = Bytes.of_string str in
+      ensure_can_write t;
+      write_substring t (Substring.create str ~pos ~len))
     ignore
 ;;
 
@@ -1454,7 +1447,7 @@ let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
     let buf, start_pos = give_buf t tot_len in
     ignore
       (Bigstring.write_bin_prot_known_size buf ~pos:start_pos ~size:len writer.write v
-       : int);
+        : int);
     maybe_start_writer t)
 ;;
 
@@ -1738,13 +1731,13 @@ let behave_nicely_in_pipeline ?writers () =
 ;;
 
 let with_file_atomic
-      ?temp_file
-      ?perm
-      ?fsync:(do_fsync = false)
-      ?(replace_special = false)
-      ?time_source
-      file
-      ~f
+  ?temp_file
+  ?perm
+  ?fsync:(do_fsync = false)
+  ?(replace_special = false)
+  ?time_source
+  file
+  ~f
   =
   let%bind current_file_permissions =
     match%map Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.stat file) with
@@ -1864,14 +1857,14 @@ let save_sexp ?temp_file ?perm ?fsync ?replace_special ?(hum = true) file sexp =
 ;;
 
 let save_sexps_conv
-      ?temp_file
-      ?perm
-      ?fsync
-      ?replace_special
-      ?(hum = true)
-      file
-      xs
-      sexp_of_x
+  ?temp_file
+  ?perm
+  ?fsync
+  ?replace_special
+  ?(hum = true)
+  file
+  xs
+  sexp_of_x
   =
   with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
     List.iter xs ~f:(fun x ->
@@ -1891,12 +1884,9 @@ let save_bin_prot ?temp_file ?perm ?fsync ?replace_special file bin_writer a =
 
 let with_flushed_at_close t ~flushed ~f =
   let producers_to_flush_at_close_elt = Bag.add t.producers_to_flush_at_close flushed in
-  Monitor.protect
-    ~run:`Schedule
-    f
-    ~finally:(fun () ->
-      Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
-      return ())
+  Monitor.protect ~run:`Schedule f ~finally:(fun () ->
+    Bag.remove t.producers_to_flush_at_close producers_to_flush_at_close_elt;
+    return ())
 ;;
 
 let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r write_f =

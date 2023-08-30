@@ -7,8 +7,8 @@ type 'a t =
   ; mutable num_waiting : int
   ; mutex :
       (Mutex.t
-       [@sexp.opaque]
-       (* Threads that do [read t] when [is_none t.value] block using [Condition.wait t.full].
+      [@sexp.opaque]
+      (* Threads that do [read t] when [is_none t.value] block using [Condition.wait t.full].
           When [fill] sets [t.value], it uses [Condition.broadcast] to wake up all the blocked
           threads. *))
   ; full : (Condition.t[@sexp.opaque])

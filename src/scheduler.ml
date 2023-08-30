@@ -23,9 +23,9 @@ let set_min_inter_cycle_timeout min_inter_cycle_timeout =
   then
     Error.raise
       ([%message
-        "min_inter_cycle_timeout too large"
-          (min_inter_cycle_timeout : Time_ns.Span.t)
-          (t.max_inter_cycle_timeout : Max_inter_cycle_timeout.t)]
+         "min_inter_cycle_timeout too large"
+           (min_inter_cycle_timeout : Time_ns.Span.t)
+           (t.max_inter_cycle_timeout : Max_inter_cycle_timeout.t)]
        |> [%of_sexp: Error.t]);
   t.min_inter_cycle_timeout <- Min_inter_cycle_timeout.create_exn min_inter_cycle_timeout
 ;;

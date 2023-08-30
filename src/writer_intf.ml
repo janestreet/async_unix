@@ -69,7 +69,6 @@ module type Writer0 = sig
     ]
   [@@deriving bin_io, sexp]
 
-
   (** [create ?buf_len ?syscall ?buffer_age_limit fd] creates a new writer.  The file
       descriptor [fd] should not be in use for writing by anything else.
 
@@ -116,7 +115,7 @@ module type Writer0 = sig
     -> ?raise_when_consumer_leaves:bool (** default is [true] *)
     -> ?line_ending:Line_ending.t (** default is [Unix] *)
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> Fd.t
     -> t
 
@@ -149,7 +148,7 @@ module type Writer0 = sig
     -> ?perm:int (** default is [0o666] *)
     -> ?line_ending:Line_ending.t (** default is [Unix] *)
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> string
     -> t Deferred.t
 
@@ -177,7 +176,7 @@ module type Writer0 = sig
     -> ?exclusive:bool (** default is [false] *)
     -> ?line_ending:Line_ending.t (** default is [Unix] *)
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> string
     -> f:(t -> 'a Deferred.t)
     -> 'a Deferred.t
@@ -396,13 +395,13 @@ module type Writer0 = sig
   module Flush_result : sig
     type t =
       | Error
-      (** [Error] is accompanied by a detailed error being sent to the writer's monitor. *)
+          (** [Error] is accompanied by a detailed error being sent to the writer's monitor. *)
       | Consumer_left
-      (** [Consumer_left] is returned when the consumer leaves (see {!consumer_left}) and
+          (** [Consumer_left] is returned when the consumer leaves (see {!consumer_left}) and
           {!raise_when_consumer_leaves} is set to [false]. If that flag is set to [true],
           then you get an [Error] instead. *)
       | Flushed of Time_ns.t
-      (** The time just after the [write()] system call returned or
+          (** The time just after the [write()] system call returned or
           the time [flushed_*] was called if all the writes were already flushed by then. *)
     [@@deriving sexp_of]
   end
@@ -534,8 +533,6 @@ module type Writer0 = sig
       as the writer is running, [bytes_received = bytes_written + bytes_to_write]. *)
   val bytes_received : t -> Int63.t
 
-
-
   (** [with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f] creates a writer
       to a temp file, feeds that writer to [f], and when the result of [f] becomes
       determined, atomically moves (using [Unix.rename]) the temp file to [file].  If [file]
@@ -579,7 +576,7 @@ module type Writer0 = sig
     -> ?fsync:bool (** default is [false] *)
     -> ?replace_special:bool (** default is [false] *)
     -> ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> string
     -> f:(t -> 'a Deferred.t)
     -> 'a Deferred.t
@@ -809,7 +806,7 @@ module type Writer = sig
       shuttling bytes from the read-end of the Unix pipe to [pipe_w]. *)
   val of_pipe
     :  ?time_source:[> read ] Time_source.T1.t
-    (** default is [Time_source.wall_clock ()] *)
+         (** default is [Time_source.wall_clock ()] *)
     -> Info.t
     -> string Pipe.Writer.t
     -> (t * [ `Closed_and_flushed_downstream of unit Deferred.t ]) Deferred.t

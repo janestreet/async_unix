@@ -180,7 +180,6 @@ val send_signal_compat_exn : t -> Signal.t -> unit
     [Output.sexp_of_t] uses [Lines_or_sexp] to nicely render stdout and stderr of a child
     process. *)
 module Lines_or_sexp : sig
-
   type t [@@deriving sexp_of]
 
   val create : string -> t

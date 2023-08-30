@@ -15,8 +15,8 @@ let%test_unit "spurious wakeups" =
       Sys.sigint
       (Sys.Signal_handle
          (fun _s ->
-            assert (Thread.self () == t);
-            Thread_safe_ivar.fill signal_handled ()))
+           assert (Thread.self () == t);
+           Thread_safe_ivar.fill signal_handled ()))
   in
   let _previously_blocked = Caml_unix.sigprocmask SIG_BLOCK [ Sys.sigint ] in
   Unix.sleepf 0.001;

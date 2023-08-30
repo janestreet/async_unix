@@ -78,7 +78,7 @@ module type Require_explicit_time_source = sig
       end
 
       val now : zone:Time_float.Zone.t -> t
-      [@@deprecated "[since 2019-05] Use [Time_source]"]
+        [@@deprecated "[since 2019-05] Use [Time_source]"]
     end
 
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]

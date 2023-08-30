@@ -42,7 +42,7 @@ module Message : sig
     :  ?level:Level.t
     -> ?time:Time.t
     -> ?time_source:Synchronous_time_source.t
-    (** [time_source] is used to provide a default time, if none is specified *)
+         (** [time_source] is used to provide a default time, if none is specified *)
     -> ?tags:(string * string) list
     -> [ `String of string | `Sexp of Sexp.t ]
     -> t
@@ -113,7 +113,6 @@ module Rotation : sig
     val cmp_newest_first : t -> t -> int
   end
 
-
   val create
     :  ?messages:int
     -> ?size:Byte_units.t
@@ -138,7 +137,6 @@ end
 
 module Output : sig
   module Format : sig
-
     type machine_readable =
       [ `Sexp
       | `Sexp_hum
@@ -160,7 +158,6 @@ module Output : sig
   end
 
   type t
-
 
   (** [create f] returns a [t], given a function that actually performs the final output
       work. It is the responsibility of the write function to contain all state, and to
@@ -610,10 +607,7 @@ val surroundf
 
     This will return [false] if there are no outputs for the log, unless there is
     a [transform] set. *)
-val would_log
-  :  t
-  -> Level.t option
-  -> bool
+val would_log : t -> Level.t option -> bool
 
 module Reader : sig
   (** [pipe format filename] returns a pipe of all the messages in the log.  Errors

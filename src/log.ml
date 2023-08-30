@@ -205,15 +205,15 @@ module Stable = struct
     end
 
     module V2 = Make_versioned_serializable (struct
-        type t = Sexp_or_string.V1.t Stable_message_common.t [@@deriving bin_io, sexp]
+      type t = Sexp_or_string.V1.t Stable_message_common.t [@@deriving bin_io, sexp]
 
-        let%expect_test "bin_digest Message.V2" =
-          print_endline [%bin_digest: t];
-          [%expect {| 1dd2225c5392b6ac36b718ee2b1a08db |}]
-        ;;
+      let%expect_test "bin_digest Message.V2" =
+        print_endline [%bin_digest: t];
+        [%expect {| 1dd2225c5392b6ac36b718ee2b1a08db |}]
+      ;;
 
-        let version = Version.V2
-      end)
+      let version = Version.V2
+    end)
 
     (* this is the serialization scheme in 111.18 and before *)
     module V0 = struct
@@ -650,9 +650,7 @@ end = struct
       | ts ->
         fun f ->
           Deferred.List.map ~how:`Sequential ts ~f:(fun t ->
-            Monitor.try_with_or_error
-              ~rest:`Log
-              (fun () -> f t))
+            Monitor.try_with_or_error ~rest:`Log (fun () -> f t))
           >>| Or_error.combine_errors_unit
           >>| Or_error.ok_exn
     in
@@ -725,8 +723,8 @@ end = struct
         ~close:(fun () -> if Lazy.is_val w then force w >>= Writer.close else return ())
         ~flush:(fun () -> if Lazy.is_val w then force w >>= Writer.flushed else return ())
         (fun msgs ->
-           let%map (_ : Int63.t) = write' (force w) format msgs in
-           ())
+          let%map (_ : Int63.t) = write' (force w) format msgs in
+          ())
     ;;
   end
 
@@ -739,8 +737,8 @@ end = struct
       create
         ~flush:(fun () -> Writer.flushed w)
         (fun msgs ->
-           Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
-           return ())
+          Queue.iter msgs ~f:(fun msg -> basic_write format w msg);
+          return ())
     ;;
   end
 
@@ -794,10 +792,8 @@ end = struct
            let now = Time.now () in
            let cutoff = Time.sub now span in
            Deferred.List.filter ~how:`Sequential files ~f:(fun (_, filename) ->
-             Deferred.Or_error.try_with
-               ~run:`Schedule
-               ~rest:`Log
-               (fun () -> Unix.stat filename)
+             Deferred.Or_error.try_with ~run:`Schedule ~rest:`Log (fun () ->
+               Unix.stat filename)
              >>| function
              | Error _ -> false
              | Ok stats -> Time.( < ) stats.mtime cutoff)
@@ -809,10 +805,8 @@ end = struct
            in
            List.drop files i)
         >>= Deferred.List.map ~how:`Sequential ~f:(fun (_i, filename) ->
-          Deferred.Or_error.try_with
-            ~run:`Schedule
-            ~rest:`Log
-            (fun () -> Unix.unlink filename))
+              Deferred.Or_error.try_with ~run:`Schedule ~rest:`Log (fun () ->
+                Unix.unlink filename))
         >>| fun (_ : unit Or_error.t list) -> ()
       ;;
 
@@ -957,79 +951,79 @@ end = struct
             ~flush
             ~rotate:(fun () -> t_deferred >>= rotate ~time_source)
             (fun msgs ->
-               t_deferred
-               >>= fun t ->
-               if not !first_rotate_scheduled
-               then (
-                 first_rotate_scheduled := true;
-                 rotate t ~time_source >>= fun () -> write t ~time_source msgs)
-               else write t ~time_source msgs)
+              t_deferred
+              >>= fun t ->
+              if not !first_rotate_scheduled
+              then (
+                first_rotate_scheduled := true;
+                rotate t ~time_source >>= fun () -> write t ~time_source msgs)
+              else write t ~time_source msgs)
         , log_files )
       ;;
     end
 
     module Numbered = Make (struct
-        type t = int
+      type t = int
 
-        let create ?time_source:_ _ = 0
-        let rotate_one = ( + ) 1
+      let create ?time_source:_ _ = 0
+      let rotate_one = ( + ) 1
 
-        let to_string_opt = function
-          | 0 -> None
-          | x -> Some (Int.to_string x)
-        ;;
+      let to_string_opt = function
+        | 0 -> None
+        | x -> Some (Int.to_string x)
+      ;;
 
-        let cmp_newest_first = Int.ascending
+      let cmp_newest_first = Int.ascending
 
-        let of_string_opt = function
-          | None -> Some 0
-          | Some s ->
-            (try Some (Int.of_string s) with
-             | _ -> None)
-        ;;
-      end)
+      let of_string_opt = function
+        | None -> Some 0
+        | Some s ->
+          (try Some (Int.of_string s) with
+           | _ -> None)
+      ;;
+    end)
 
     module Timestamped = Make (struct
-        type t = Time.t
+      type t = Time.t
 
-        let create ?time_source _zone = now ~time_source
-        let rotate_one = Fn.id
+      let create ?time_source _zone = now ~time_source
+      let rotate_one = Fn.id
 
-        let to_string_opt ts =
-          Some (Time.to_filename_string ~zone:(force Time.Zone.local) ts)
-        ;;
+      let to_string_opt ts =
+        Some (Time.to_filename_string ~zone:(force Time.Zone.local) ts)
+      ;;
 
-        let cmp_newest_first = Time.descending
+      let cmp_newest_first = Time.descending
 
-        let of_string_opt = function
-          | None -> None
-          | Some s ->
-            (try Some (Time.of_filename_string ~zone:(force Time.Zone.local) s) with
-             | _ -> None)
-        ;;
-      end)
+      let of_string_opt = function
+        | None -> None
+        | Some s ->
+          (try Some (Time.of_filename_string ~zone:(force Time.Zone.local) s) with
+           | _ -> None)
+      ;;
+    end)
 
     module Dated = Make (struct
-        type t = Date.t
+      type t = Date.t
 
-        let create ?time_source zone = Date.of_time (now ~time_source) ~zone
-        let rotate_one = Fn.id
-        let to_string_opt date = Some (Date.to_string date)
-        let cmp_newest_first = Date.descending
+      let create ?time_source zone = Date.of_time (now ~time_source) ~zone
+      let rotate_one = Fn.id
+      let to_string_opt date = Some (Date.to_string date)
+      let cmp_newest_first = Date.descending
 
-        let of_string_opt = function
-          | None -> None
-          | Some str -> Option.try_with (fun () -> Date.of_string str)
-        ;;
-      end)
+      let of_string_opt = function
+        | None -> None
+        | Some str -> Option.try_with (fun () -> Date.of_string str)
+      ;;
+    end)
 
     let create
-          ?perm
-          ?time_source
-          format
-          ~basename
-          ?(suffix = ".log")
-          (rotation : Rotation.t)
+      ?perm
+      ?time_source
+      format
+      ~basename
+      ?(suffix = ".log")
+      (rotation : Rotation.t)
       =
       match rotation.naming_scheme with
       | `Numbered -> Numbered.create format ~basename ~suffix rotation ?perm ?time_source
@@ -1056,13 +1050,13 @@ end = struct
   ;;
 
   let rotating_file_with_tail
-        ?perm
-        ?time_source
-        ?log_on_rotation
-        format
-        ~basename
-        ?suffix
-        rotation
+    ?perm
+    ?time_source
+    ?log_on_rotation
+    format
+    ~basename
+    ?suffix
+    rotation
     =
     Rotating_file.create
       format
@@ -1170,12 +1164,12 @@ module Flush_at_exit_or_gc : sig
   val close : t -> unit Deferred.t
 end = struct
   module Weak_table = Stdlib.Weak.Make (struct
-      type z = t
-      type t = z
+    type z = t
+    type t = z
 
-      let equal = equal
-      let hash = hash
-    end)
+    let equal = equal
+    let hash = hash
+  end)
 
   (* contains all logs we want to flush at shutdown *)
   let flush_bag = lazy (Bag.create ())
@@ -1285,11 +1279,9 @@ let create_log_processor ~output =
 ;;
 
 let process_log_redirecting_all_errors t r output =
-  Monitor.try_with
-    ~rest:`Log
-    (fun () ->
-       let process_log = create_log_processor ~output in
-       Pipe.iter' r ~f:process_log)
+  Monitor.try_with ~rest:`Log (fun () ->
+    let process_log = create_log_processor ~output in
+    Pipe.iter' r ~f:process_log)
   >>| function
   | Ok () -> ()
   | Error e ->
@@ -1415,12 +1407,12 @@ let add_uuid_to_tags tags =
 ;;
 
 let surround_s_gen
-      ?(tags = [])
-      ~try_with
-      ~map_return
-      ~(log_sexp : ?tags:(string * string) list -> Sexp.t -> unit)
-      ~f
-      msg
+  ?(tags = [])
+  ~try_with
+  ~map_return
+  ~(log_sexp : ?tags:(string * string) list -> Sexp.t -> unit)
+  ~f
+  msg
   =
   let tags = add_uuid_to_tags tags in
   log_sexp ~tags [%message "Enter" ~_:(msg : Sexp.t)];
@@ -1434,10 +1426,10 @@ let surround_s_gen
 ;;
 
 let surroundf_gen
-      ?(tags = [])
-      ~try_with
-      ~map_return
-      ~(log_string : ?tags:(string * string) list -> string -> unit)
+  ?(tags = [])
+  ~try_with
+  ~map_return
+  ~(log_string : ?tags:(string * string) list -> string -> unit)
   =
   ksprintf (fun msg f ->
     let tags = add_uuid_to_tags tags in
@@ -1454,10 +1446,7 @@ let surroundf_gen
 let surround_s ~on_subsequent_errors ?level ?time ?tags t msg f =
   surround_s_gen
     ?tags
-    ~try_with:
-      (Monitor.try_with
-         ~run:`Schedule
-         ~rest:on_subsequent_errors)
+    ~try_with:(Monitor.try_with ~run:`Schedule ~rest:on_subsequent_errors)
     ~map_return:Deferred.map
     ~log_sexp:(fun ?tags s -> sexp ?tags ?level ?time t s)
     ~f
@@ -1467,10 +1456,7 @@ let surround_s ~on_subsequent_errors ?level ?time ?tags t msg f =
 let surroundf ~on_subsequent_errors ?level ?time ?tags t fmt =
   surroundf_gen
     ?tags
-    ~try_with:
-      (Monitor.try_with
-         ~run:`Schedule
-         ~rest:on_subsequent_errors)
+    ~try_with:(Monitor.try_with ~run:`Schedule ~rest:on_subsequent_errors)
     ~map_return:Deferred.map
     ~log_string:(fun ?tags -> string ?tags ?level ?time t)
     fmt
@@ -1794,10 +1780,10 @@ end = struct
   let gen ?level:msg_level ?time ?tags k =
     ksprintf
       (fun msg ->
-         if would_log msg_level
-         then (
-           let msg = `String msg in
-           write (create_message ?level:msg_level ?time ?tags msg)))
+        if would_log msg_level
+        then (
+          let msg = `String msg in
+          write (create_message ?level:msg_level ?time ?tags msg)))
       k
   ;;
 

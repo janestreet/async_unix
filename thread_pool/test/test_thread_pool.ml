@@ -7,7 +7,6 @@ module Time_ns = Time_ns_unix
 module Debug = Async_kernel.Async_kernel_private.Debug
 
 let debug = Debug.thread_pool
-
 let sec = Time_ns.Span.of_sec
 
 let%test_module _ =
@@ -60,94 +59,88 @@ let%test_module _ =
     (* Check that the expected concurrency is used. *)
     let%expect_test _ =
       List.iter [ 1; 2; 5; 10; 100; 1000 ] ~f:(fun num_jobs ->
-        List.iter ([ 1; 2; 5; 10 ]
-                   @ if Sys.word_size_in_bits = 32
-                   then [] (* not enough address space when the stack limit is high *)
-                   else [ 100 ]) ~f:(fun max_num_threads ->
-          if debug
-          then
-            eprintf
-              "num_jobs = %d  max_num_threads = %d\n%!"
-              num_jobs
-              max_num_threads;
-          let mutex = Nano_mutex.create () in
-          let expected_max_concurrent_jobs = min num_jobs max_num_threads in
-          let max_observed_concurrent_jobs = ref 0 in
-          let num_concurrent_jobs = ref 0 in
-          let job_starts = ref [] in
-          let t = ok_exn (create ~max_num_threads ()) in
-          let worker_threads_have_fully_started = Thread_safe_ivar.create () in
-          let worker_threads_should_continue = Thread_safe_ivar.create () in
-          let (_ : Core_thread.t) =
-            Core_thread.create
-              ~on_uncaught_exn:`Print_to_stderr
-              (fun () ->
-                 let start = Time_ns.now () in
-                 let rec loop () =
-                   if is_in_use t
-                   then (
-                     let how_long = Time_ns.diff (Time_ns.now ()) start in
-                     if Time_ns.Span.( >= ) how_long (sec 10.)
-                     then (
-                       Debug.log
-                         "thread-pool unit test hung"
-                         ( t
-                         , worker_threads_have_fully_started
-                         , worker_threads_should_continue )
-                         [%sexp_of:
-                           t * unit Thread_safe_ivar.t * unit Thread_safe_ivar.t];
-                       Stdlib.exit 1)
-                     else (
-                       Time_ns.pause (sec 0.1);
-                       loop ()))
-                 in
-                 loop ())
-              ()
-          in
-          let jobs = ref [] in
-          for i = 0 to num_jobs - 1 do
-            let job =
-              ok_exn
-                (add_work t (fun () ->
-                   Nano_mutex.critical_section mutex
-                     ~f:(fun () ->
+        List.iter
+          ([ 1; 2; 5; 10 ]
+           @
+           if Sys.word_size_in_bits = 32
+           then [] (* not enough address space when the stack limit is high *)
+           else [ 100 ])
+          ~f:(fun max_num_threads ->
+            if debug
+            then
+              eprintf "num_jobs = %d  max_num_threads = %d\n%!" num_jobs max_num_threads;
+            let mutex = Nano_mutex.create () in
+            let expected_max_concurrent_jobs = min num_jobs max_num_threads in
+            let max_observed_concurrent_jobs = ref 0 in
+            let num_concurrent_jobs = ref 0 in
+            let job_starts = ref [] in
+            let t = ok_exn (create ~max_num_threads ()) in
+            let worker_threads_have_fully_started = Thread_safe_ivar.create () in
+            let worker_threads_should_continue = Thread_safe_ivar.create () in
+            let (_ : Core_thread.t) =
+              Core_thread.create
+                ~on_uncaught_exn:`Print_to_stderr
+                (fun () ->
+                  let start = Time_ns.now () in
+                  let rec loop () =
+                    if is_in_use t
+                    then (
+                      let how_long = Time_ns.diff (Time_ns.now ()) start in
+                      if Time_ns.Span.( >= ) how_long (sec 10.)
+                      then (
+                        Debug.log
+                          "thread-pool unit test hung"
+                          ( t
+                          , worker_threads_have_fully_started
+                          , worker_threads_should_continue )
+                          [%sexp_of:
+                            t * unit Thread_safe_ivar.t * unit Thread_safe_ivar.t];
+                        Stdlib.exit 1)
+                      else (
+                        Time_ns.pause (sec 0.1);
+                        loop ()))
+                  in
+                  loop ())
+                ()
+            in
+            let jobs = ref [] in
+            for i = 0 to num_jobs - 1 do
+              let job =
+                ok_exn
+                  (add_work t (fun () ->
+                     Nano_mutex.critical_section mutex ~f:(fun () ->
                        job_starts := i :: !job_starts;
                        if List.length !job_starts = expected_max_concurrent_jobs
                        then Thread_safe_ivar.fill worker_threads_have_fully_started ();
                        incr num_concurrent_jobs;
-                       max_observed_concurrent_jobs :=
-                         max !max_observed_concurrent_jobs !num_concurrent_jobs;
-                       assert (!num_concurrent_jobs <= max_num_threads);
-                     );
-                   Thread_safe_ivar.read worker_threads_should_continue;
-                   Nano_mutex.critical_section mutex
-                     ~f:(fun () ->
+                       max_observed_concurrent_jobs
+                         := max !max_observed_concurrent_jobs !num_concurrent_jobs;
+                       assert (!num_concurrent_jobs <= max_num_threads));
+                     Thread_safe_ivar.read worker_threads_should_continue;
+                     Nano_mutex.critical_section mutex ~f:(fun () ->
                        decr num_concurrent_jobs)))
-            in
-            jobs := job :: !jobs
-          done;
-          Thread_safe_ivar.read worker_threads_have_fully_started;
-          assert (!num_concurrent_jobs = expected_max_concurrent_jobs);
-          assert (List.length !job_starts = expected_max_concurrent_jobs);
-          if max_num_threads = 1
-          then
-            assert (
-              List.equal
-                Int.equal
-                !job_starts
-                (List.init expected_max_concurrent_jobs ~f:Fn.id));
-          Thread_safe_ivar.fill worker_threads_should_continue ();
-          wait_until_no_unfinished_work t;
-          assert (!max_observed_concurrent_jobs = expected_max_concurrent_jobs);
-          if max_num_threads = 1
-          then
-            assert (
-              List.equal
-                Int.equal
-                (List.rev !job_starts)
-                (List.init num_jobs ~f:Fn.id));
-          assert (num_threads t <= max_num_threads);
-          finished_with t))
+              in
+              jobs := job :: !jobs
+            done;
+            Thread_safe_ivar.read worker_threads_have_fully_started;
+            assert (!num_concurrent_jobs = expected_max_concurrent_jobs);
+            assert (List.length !job_starts = expected_max_concurrent_jobs);
+            if max_num_threads = 1
+            then
+              assert (
+                List.equal
+                  Int.equal
+                  !job_starts
+                  (List.init expected_max_concurrent_jobs ~f:Fn.id));
+            Thread_safe_ivar.fill worker_threads_should_continue ();
+            wait_until_no_unfinished_work t;
+            assert (!max_observed_concurrent_jobs = expected_max_concurrent_jobs);
+            if max_num_threads = 1
+            then
+              assert (
+                List.equal Int.equal (List.rev !job_starts) (List.init num_jobs ~f:Fn.id));
+            assert (num_threads t <= max_num_threads);
+            finished_with t))
     ;;
 
     (* Helper threads. *)
@@ -229,15 +222,13 @@ let%test_module _ =
           for priority = 20 - cur_limit to 20 do
             let initial_priority = Priority.of_int priority in
             match Linux_ext.getpriority, Linux_ext.pr_get_name with
-            | Error _, _
-            | _, Error _ -> ()
+            | Error _, _ | _, Error _ -> ()
             | Ok getpriority, Ok get_name ->
               let t = ok_exn (create ~max_num_threads:2 ()) in
               let check4
-                    ~name
-                    ~priority
-                    (check :
-                       ?name:string -> ?priority:Priority.t -> unit -> unit Or_error.t)
+                ~name
+                ~priority
+                (check : ?name:string -> ?priority:Priority.t -> unit -> unit Or_error.t)
                 =
                 ok_exn (check ());
                 ok_exn (check ~name ());
@@ -249,48 +240,41 @@ let%test_module _ =
                 ~name:"new name"
                 ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
-                   add_work ?priority ?name t (fun () ->
-                     assert (
-                       String.equal
-                         (get_name ())
-                         (Option.value name ~default:default_thread_name));
-                     assert (
-                       Priority.equal
-                         (getpriority ())
-                         (Option.value priority ~default:(default_priority t)))));
+                add_work ?priority ?name t (fun () ->
+                  assert (
+                    String.equal
+                      (get_name ())
+                      (Option.value name ~default:default_thread_name));
+                  assert (
+                    Priority.equal
+                      (getpriority ())
+                      (Option.value priority ~default:(default_priority t)))));
               check4
                 ~name:"new name"
                 ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
-                   let helper_thread =
-                     ok_exn (create_helper_thread t ?priority ?name)
-                   in
-                   let default_thread_name =
-                     Option.value name ~default:default_thread_name
-                   in
-                   let default_priority =
-                     Option.value priority ~default:(default_priority t)
-                   in
-                   check4
-                     ~name:"new name 2"
-                     ~priority:(Priority.decr initial_priority)
-                     (fun ?name ?priority () ->
-                        add_work_for_helper_thread
-                          ?priority
-                          ?name
-                          t
-                          helper_thread
-                          (fun () ->
-                             assert (
-                               String.equal
-                                 (get_name ())
-                                 (Option.value name ~default:default_thread_name));
-                             assert (
-                               Priority.equal
-                                 (getpriority ())
-                                 (Option.value priority ~default:default_priority))));
-                   finished_with_helper_thread t helper_thread;
-                   Ok ());
+                let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
+                let default_thread_name =
+                  Option.value name ~default:default_thread_name
+                in
+                let default_priority =
+                  Option.value priority ~default:(default_priority t)
+                in
+                check4
+                  ~name:"new name 2"
+                  ~priority:(Priority.decr initial_priority)
+                  (fun ?name ?priority () ->
+                  add_work_for_helper_thread ?priority ?name t helper_thread (fun () ->
+                    assert (
+                      String.equal
+                        (get_name ())
+                        (Option.value name ~default:default_thread_name));
+                    assert (
+                      Priority.equal
+                        (getpriority ())
+                        (Option.value priority ~default:default_priority))));
+                finished_with_helper_thread t helper_thread;
+                Ok ());
               finished_with t
           done)
     ;;
@@ -370,7 +354,8 @@ let%test_module _ =
     let%expect_test "empty cpuset is invalid" =
       require_does_raise [%here] ~hide_positions:true (fun () ->
         ignore (Cpuset.create_exn Int.Set.empty : Cpuset.t));
-      [%expect {|
+      [%expect
+        {|
         ("validation failed" (
           ()
           ("validation errors" (("" "value 0 < bound 1")))

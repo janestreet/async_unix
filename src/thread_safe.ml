@@ -5,11 +5,11 @@ open Raw_scheduler
 let debug = Debug.thread_safe
 
 let run_holding_async_lock
-      (type a b)
-      ?(wakeup_scheduler = true)
-      t
-      (f : unit -> a)
-      ~(finish : (a, exn) Result.t -> b)
+  (type a b)
+  ?(wakeup_scheduler = true)
+  t
+  (f : unit -> a)
+  ~(finish : (a, exn) Result.t -> b)
   : b
   =
   if debug then Debug.log "run_holding_async_lock" t [%sexp_of: t];
@@ -84,16 +84,16 @@ let ensure_the_scheduler_is_started t =
           (Core_thread.create
              ~on_uncaught_exn:`Print_to_stderr
              (fun () ->
-                Exn.handle_uncaught ~exit:true (fun () ->
-                  let () =
-                    match Linux_ext.pr_set_name_first16 with
-                    | Ok f -> f "async-scheduler"
-                    | Error _ -> ()
-                  in
-                  lock t;
-                  never_returns (be_the_scheduler t)))
+               Exn.handle_uncaught ~exit:true (fun () ->
+                 let () =
+                   match Linux_ext.pr_set_name_first16 with
+                   | Ok f -> f "async-scheduler"
+                   | Error _ -> ()
+                 in
+                 lock t;
+                 never_returns (be_the_scheduler t)))
              ()
-           : Core_thread.t);
+            : Core_thread.t);
         (* Block until the scheduler has run the above job. *)
         Thread_safe_ivar.read scheduler_ran_a_job))
 ;;
@@ -104,12 +104,7 @@ let block_on_async_not_holding_async_lock t f =
   let maybe_blocked =
     run_holding_async_lock
       t
-      (fun () ->
-         Monitor.try_with
-           ~run:`Schedule
-           ~rest:`Log
-           f
-           ~name:"block_on_async")
+      (fun () -> Monitor.try_with ~run:`Schedule ~rest:`Log f ~name:"block_on_async")
       ~finish:(fun res ->
         match res with
         | Error exn -> `Available (Error exn)
@@ -232,10 +227,10 @@ let without_async_lock f =
     raise_s
       [%sexp
         "called [become_helper_thread_and_block_on_async] from within async"
-      , { i_am_the_scheduler = (i_am_the_scheduler t : bool)
-        ; am_holding_lock = (am_holding_lock t : bool)
-        ; ok_to_drop_lock = (ok_to_drop_lock t : bool)
-        }]
+        , { i_am_the_scheduler = (i_am_the_scheduler t : bool)
+          ; am_holding_lock = (am_holding_lock t : bool)
+          ; ok_to_drop_lock = (ok_to_drop_lock t : bool)
+          }]
   else without_async_lock t f
 ;;
 

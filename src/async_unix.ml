@@ -129,10 +129,10 @@ include struct
   let write_wrap ?binary:_ ~f:_ = overwrite1
 
   let (eprint_s [@deprecated
-         "[since 2019-12] If you want to the blocking version, use \
-          [Core.eprint_s] (this preserves behavior, but is discouraged). If you \
-          want the nonblocking version, use [eprint_s_nonblocking] or \
-          [Print.eprint_s]"])
+                  "[since 2019-12] If you want to the blocking version, use \
+                   [Core.eprint_s] (this preserves behavior, but is discouraged). If you \
+                   want the nonblocking version, use [eprint_s_nonblocking] or \
+                   [Print.eprint_s]"])
     =
     overwrite1
   ;;
@@ -149,29 +149,28 @@ include struct
   end
 
   module Sexp : sig
-  include module type of struct
-    include Sexp
-  end
+    include module type of struct
+      include Sexp
+    end
 
+    val save : ?perm:int -> string -> t -> unit
+      [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
 
-  val save : ?perm:int -> string -> t -> unit
-  [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
+    val save_hum : ?perm:int -> string -> t -> unit
+      [@@alert blocking "Use [Writer.save_sexp ~hum:true] to avoid blocking."]
 
-  val save_hum : ?perm:int -> string -> t -> unit
-  [@@alert blocking "Use [Writer.save_sexp ~hum:true] to avoid blocking."]
+    val save_mach : ?perm:int -> string -> t -> unit
+      [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
 
-  val save_mach : ?perm:int -> string -> t -> unit
-  [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
+    val save_sexps : ?perm:int -> string -> t list -> unit
+      [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
 
-  val save_sexps : ?perm:int -> string -> t list -> unit
-  [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
+    val save_sexps_hum : ?perm:int -> string -> t list -> unit
+      [@@alert blocking "Use [Writer.save_sexps ~hum:true] to avoid blocking."]
 
-  val save_sexps_hum : ?perm:int -> string -> t list -> unit
-  [@@alert blocking "Use [Writer.save_sexps ~hum:true] to avoid blocking."]
-
-  val save_sexps_mach : ?perm:int -> string -> t list -> unit
-  [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
-end =
+    val save_sexps_mach : ?perm:int -> string -> t list -> unit
+      [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
+  end =
     Sexp
 end
 

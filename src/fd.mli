@@ -139,10 +139,9 @@ module Close : sig
       will have no effect, but will return the same deferred as the original call. *)
   val close
     :  ?file_descriptor_handling:file_descriptor_handling
-    (** default is [Close_file_descriptor Shutdown_socket] *)
+         (** default is [Close_file_descriptor Shutdown_socket] *)
     -> t
     -> unit Deferred.t
-
 
   (** [deregister t] causes Async to stop tracking this file descriptor, and prevents
       further use of [t].  The file descriptor remains open; it can be used by other
@@ -235,7 +234,6 @@ val interruptible_ready_to
 (** [ready_to t read_write] is like [interruptible_ready_to], but without the possibility
     of interruption. *)
 val ready_to : t -> [ `Read | `Write ] -> [ `Bad_fd | `Closed | `Ready ] Deferred.t
-
 
 (** [interruptible_every_ready_to t read_write ~interrupt f a] checks every Async cycle
     whether the file descriptor underlying [t] can be read from or written to without
@@ -333,7 +331,6 @@ val file_descr_exn : t -> Unix.File_descr.t
 val to_int_exn : t -> int
 
 (**/**)
-
 
 (** Run a function [f] with the expectation that it's going to redirect the file
     descriptor, thereby possibly changing its kind. *)

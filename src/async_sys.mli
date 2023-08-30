@@ -7,9 +7,9 @@ open! Core
 open! Import
 
 val argv : string array
-[@@deprecated
-  "[since 2019-08] Use [Sys.get_argv] instead, which has the correct behavior when \
-   [caml_sys_modify_argv] is called."]
+  [@@deprecated
+    "[since 2019-08] Use [Sys.get_argv] instead, which has the correct behavior when \
+     [caml_sys_modify_argv] is called."]
 
 val get_argv : unit -> string array
 val executable_name : string

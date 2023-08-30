@@ -93,18 +93,18 @@ module Internal = struct
   type t_internals = t
 
   let sexp_of_t_internals
-        { available
-        ; buf = _
-        ; close_finished
-        ; close_may_destroy_buf
-        ; id
-        ; fd
-        ; bytes_read
-        ; last_read_time
-        ; open_flags
-        ; pos
-        ; state
-        }
+    { available
+    ; buf = _
+    ; close_finished
+    ; close_may_destroy_buf
+    ; id
+    ; fd
+    ; bytes_read
+    ; last_read_time
+    ; open_flags
+    ; pos
+    ; state
+    }
     =
     let unless_testing x = Option.some_if (not Ppx_inline_test_lib.am_running) x in
     [%sexp
@@ -208,21 +208,13 @@ module Internal = struct
     close_finished t
   ;;
 
-  let with_close t ~f =
-    Monitor.protect
-      ~run:`Schedule
-      f
-      ~finally:(fun () -> close t)
-  ;;
+  let with_close t ~f = Monitor.protect ~run:`Schedule f ~finally:(fun () -> close t)
 
   let with_reader_exclusive t f =
     let%bind () = Unix.lockf t.fd Shared in
-    Monitor.protect
-      ~run:`Schedule
-      f
-      ~finally:(fun () ->
-        if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
-        return ())
+    Monitor.protect ~run:`Schedule f ~finally:(fun () ->
+      if not (Fd.is_closed t.fd) then Unix.unlockf t.fd;
+      return ())
   ;;
 
   let with_file ?buf_len ?(exclusive = false) file ~f =
@@ -345,11 +337,11 @@ module Internal = struct
                       in
                       res, Scheduler.cycle_start ()))
                    (function
-                     (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
+                    (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
                         But we don't trust the OS.  So, in case it does, we just try
                         again. *)
-                     | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
-                     | exn -> raise exn))
+                    | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
+                    | exn -> raise exn))
           in
           loop ()))
   ;;
@@ -368,7 +360,7 @@ module Internal = struct
           if desired < 2 * buf_len
           then 2 * buf_len
           else if desired < 8 * buf_len
-          (* Slightly more willing to grow the buffer if that brings us exactly to
+                  (* Slightly more willing to grow the buffer if that brings us exactly to
              [desired], so grow by 8x here instead of 4x.
 
              This trick is to avoid growing above [desired] when [maybe_grow_buf_len] is
@@ -509,11 +501,11 @@ module Internal = struct
                    loop ~force_refill:true
                  | `Consumed (consumed, need) as c ->
                    if consumed < 0
-                   || consumed > len
-                   ||
-                   match need with
-                   | `Need_unknown -> false
-                   | `Need need -> need < 0 || consumed + need <= len
+                      || consumed > len
+                      ||
+                      match need with
+                      | `Need_unknown -> false
+                      | `Need need -> need < 0 || consumed + need <= len
                    then
                      raise_s
                        [%message
@@ -527,7 +519,7 @@ module Internal = struct
                      match need with
                      | `Need_unknown ->
                        if t.available = buf_len
-                       (* The buffer is full and the client doesn't know how much to
+                          (* The buffer is full and the client doesn't know how much to
                           expect: double the buffer size. *)
                        then buf_len * 2
                        else buf_len
@@ -585,9 +577,9 @@ module Internal = struct
   ;;
 
   module Read
-      (S : Substring_intf.S) (Name : sig
-                                val name : string
-                              end) =
+    (S : Substring_intf.S) (Name : sig
+      val name : string
+    end) =
   struct
     let read_available t s =
       let len = Int.min t.available (S.length s) in
@@ -765,10 +757,10 @@ module Internal = struct
       | Ok (`Ok line) ->
         k
           (`Ok
-             (let len = String.length line in
-              if len >= 1 && Char.O.(line.[len - 1] = '\r')
-              then String.sub line ~pos:0 ~len:(len - 1)
-              else line)))
+            (let len = String.length line in
+             if len >= 1 && Char.O.(line.[len - 1] = '\r')
+             then String.sub line ~pos:0 ~len:(len - 1)
+             else line)))
   ;;
 
   let read_line t =
@@ -819,12 +811,12 @@ module Internal = struct
            | Ok (Cont (Parsing_toplevel_whitespace, _)) -> k (Ok `Eof)
            | Ok
                (Cont
-                  ( ( Parsing_atom
-                    | Parsing_list
-                    | Parsing_nested_whitespace
-                    | Parsing_sexp_comment
-                    | Parsing_block_comment )
-                  , _ )) ->
+                 ( ( Parsing_atom
+                   | Parsing_list
+                   | Parsing_nested_whitespace
+                   | Parsing_sexp_comment
+                   | Parsing_block_comment )
+                 , _ )) ->
              raise_s [%message "Reader.read_sexp got unexpected eof" ~reader:(t : t)])
         | `Ok ->
           (match
@@ -948,16 +940,16 @@ module Internal = struct
   end
 
   let peek_or_read_bin_prot
-        ?(max_len = Int.max_value)
-        t
-        ~(peek_or_read : Peek_or_read.t)
-        (bin_prot_reader : _ Bin_prot.Type_class.reader)
-        k
+    ?(max_len = Int.max_value)
+    t
+    ~(peek_or_read : Peek_or_read.t)
+    (bin_prot_reader : _ Bin_prot.Type_class.reader)
+    k
     =
     let error f =
       ksprintf
         (fun msg () ->
-           k (Or_error.error "Reader.read_bin_prot" (msg, t) [%sexp_of: string * t]))
+          k (Or_error.error "Reader.read_bin_prot" (msg, t) [%sexp_of: string * t]))
         f
     in
     let handle_eof ~need n =
@@ -993,8 +985,8 @@ module Internal = struct
              else
                get_data_until t ~available_at_least:need
                >>> (function
-                 | `Eof n -> handle_eof ~need n
-                 | `Ok -> read_loop ())
+               | `Eof n -> handle_eof ~need n
+               | `Ok -> read_loop ())
            | Error error -> k (Error error)
            | exception exn -> k (Or_error.of_exn exn))
       in
@@ -1116,8 +1108,8 @@ module Internal = struct
            let buf = Bytes.create length in
            really_read t buf
            >>> (function
-             | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
-             | `Ok -> Ivar.fill_exn i (`Ok buf))))
+           | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
+           | `Ok -> Ivar.fill_exn i (`Ok buf))))
   ;;
 
   let transfer t pipe_w =
@@ -1233,10 +1225,10 @@ let really_read_line ~wait_time t = do_read t (fun () -> really_read_line ~wait_
    [Or_error.t].  It uses this to do a read returning a deferred.  This allows it to call
    [finished_read] before continuing, in the event that the result is an error. *)
 let do_read_k
-      (type r r')
-      t
-      (read_k : (r Or_error.t -> unit) -> unit)
-      (make_result : r -> r')
+  (type r r')
+  t
+  (read_k : (r Or_error.t -> unit) -> unit)
+  (make_result : r -> r')
   : r' Deferred.t
   =
   use t;
@@ -1334,11 +1326,11 @@ let ltell t =
 ;;
 
 let get_error
-      (type a sexp)
-      ~file
-      ~(sexp_kind : sexp sexp_kind)
-      ~(a_of_sexp : sexp -> a)
-      (annotated_sexp : Sexp.Annotated.t)
+  (type a sexp)
+  ~file
+  ~(sexp_kind : sexp sexp_kind)
+  ~(a_of_sexp : sexp -> a)
+  (annotated_sexp : Sexp.Annotated.t)
   =
   try
     ignore
@@ -1346,7 +1338,7 @@ let get_error
          (match sexp_kind with
           | Plain -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
           | Annotated -> (annotated_sexp : sexp))
-       : a);
+        : a);
     Ok ()
   with
   | exn ->
@@ -1371,31 +1363,27 @@ let get_error
 ;;
 
 let gen_load_exn
-      (type sexp a)
-      ?exclusive
-      ~(sexp_kind : sexp sexp_kind)
-      ~file
-      (convert : sexp list -> a)
-      (get_error : Sexp.Annotated.t list -> Error.t)
+  (type sexp a)
+  ?exclusive
+  ~(sexp_kind : sexp sexp_kind)
+  ~file
+  (convert : sexp list -> a)
+  (get_error : Sexp.Annotated.t list -> Error.t)
   : a Deferred.t
   =
   let may_load_file_multiple_times = ref false in
   let load ~sexp_kind =
     match%map
-      Monitor.try_with
-        ~run:`Schedule
-        ~rest:`Log
-        ~extract_exn:true
-        (fun () ->
-           with_file ?exclusive file ~f:(fun t ->
-             (may_load_file_multiple_times
-              := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+      Monitor.try_with ~run:`Schedule ~rest:`Log ~extract_exn:true (fun () ->
+        with_file ?exclusive file ~f:(fun t ->
+          (may_load_file_multiple_times
+             := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
                     kinds.  We can only load it multiple times if it has kind [File]. *)
                 match Fd.kind (fd t) with
                 | File -> true
                 | Char | Fifo | Socket _ -> false);
-             use t;
-             Pipe.to_list (gen_read_sexps t ~sexp_kind)))
+          use t;
+          Pipe.to_list (gen_read_sexps t ~sexp_kind)))
     with
     | Ok sexps -> sexps
     | Error exn ->
@@ -1438,12 +1426,12 @@ let get_load_result_exn = function
 ;;
 
 let gen_load_sexp_exn
-      (type a sexp)
-      ?exclusive
-      ~(sexp_kind : sexp sexp_kind)
-      ~file
-      ~(a_of_sexp : sexp -> a)
-      ()
+  (type a sexp)
+  ?exclusive
+  ~(sexp_kind : sexp sexp_kind)
+  ~file
+  ~(a_of_sexp : sexp -> a)
+  ()
   =
   let multiple sexps =
     Error.create
@@ -1456,20 +1444,20 @@ let gen_load_sexp_exn
     ~file
     ~sexp_kind
     (fun sexps ->
-       match sexps with
-       | [ sexp ] -> a_of_sexp sexp
-       | _ -> Error.raise (multiple sexps))
+      match sexps with
+      | [ sexp ] -> a_of_sexp sexp
+      | _ -> Error.raise (multiple sexps))
     (fun annot_sexps ->
-       match annot_sexps with
-       | [ annot_sexp ] ->
-         (match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
-          | Error e -> e
-          | Ok () ->
-            Error.create
-              "conversion of annotated sexp unexpectedly succeeded"
-              (Sexp.Annotated.get_sexp annot_sexp)
-              [%sexp_of: Sexp.t])
-       | _ -> multiple annot_sexps)
+      match annot_sexps with
+      | [ annot_sexp ] ->
+        (match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
+         | Error e -> e
+         | Ok () ->
+           Error.create
+             "conversion of annotated sexp unexpectedly succeeded"
+             (Sexp.Annotated.get_sexp annot_sexp)
+             [%sexp_of: Sexp.t])
+      | _ -> multiple annot_sexps)
 ;;
 
 let load_sexp_exn ?exclusive file a_of_sexp =
@@ -1497,12 +1485,12 @@ let load_annotated_sexp ?exclusive file a_of_sexp =
 ;;
 
 let gen_load_sexps_exn
-      (type a sexp)
-      ?exclusive
-      ~(sexp_kind : sexp sexp_kind)
-      ~file
-      ~(a_of_sexp : sexp -> a)
-      ()
+  (type a sexp)
+  ?exclusive
+  ~(sexp_kind : sexp sexp_kind)
+  ~file
+  ~(a_of_sexp : sexp -> a)
+  ()
   =
   gen_load_exn
     ?exclusive
@@ -1510,11 +1498,11 @@ let gen_load_sexps_exn
     ~sexp_kind
     (fun sexps -> List.map sexps ~f:a_of_sexp)
     (fun annot_sexps ->
-       Error.of_list
-         (List.filter_map annot_sexps ~f:(fun annot_sexp ->
-            match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
-            | Ok _ -> None
-            | Error error -> Some error)))
+      Error.of_list
+        (List.filter_map annot_sexps ~f:(fun annot_sexp ->
+           match get_error ~file ~sexp_kind ~a_of_sexp annot_sexp with
+           | Ok _ -> None
+           | Error error -> Some error)))
 ;;
 
 let load_sexps_exn ?exclusive file a_of_sexp =
@@ -1565,11 +1553,8 @@ type ('a, 'b) load_bin_prot =
 
 let load_bin_prot ?exclusive ?max_len file bin_reader =
   match%map
-    Monitor.try_with_or_error
-      ~rest:`Log
-      ~name:"Reader.load_bin_prot"
-      (fun () ->
-         with_file ?exclusive file ~f:(fun t -> read_bin_prot ?max_len t bin_reader))
+    Monitor.try_with_or_error ~rest:`Log ~name:"Reader.load_bin_prot" (fun () ->
+      with_file ?exclusive file ~f:(fun t -> read_bin_prot ?max_len t bin_reader))
   with
   | Ok (`Ok v) -> Ok v
   | Ok `Eof -> Or_error.error_string "Reader.load_bin_prot got unexpected eof"
