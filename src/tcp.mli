@@ -336,4 +336,5 @@ end
   https://opensource.janestreet.com/standards/#private-submodules *)
 module Private : sig
   val close_connection_via_reader_and_writer : Reader.t -> Writer.t -> unit Deferred.t
+  val set_max_connection_limit_logger : (Sexp.t -> unit) -> unit
 end

@@ -317,9 +317,11 @@ module Server = struct
     (* We make sure not to be too spammy with logs. This number was chosen pretty
        arbitrarily. *)
     let log_threshold = Time_ns.Span.of_min 1.
+    let max_connection_limit_logger = ref (eprint_s ?mach:None)
+    let set_logger = ( := ) max_connection_limit_logger
 
     let log_at_limit t ~now =
-      Log.Global.error_s
+      !max_connection_limit_logger
         [%message
           "At limit of Tcp server [max_connections]. New connections will not be \
            accepted until an existing connection is closed."
@@ -918,4 +920,5 @@ end
 
 module Private = struct
   let close_connection_via_reader_and_writer = close_connection_via_reader_and_writer
+  let set_max_connection_limit_logger = Server.Max_connections.set_logger
 end

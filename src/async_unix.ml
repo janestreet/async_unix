@@ -4,7 +4,6 @@ module Dump_core_on_job_delay = Dump_core_on_job_delay
 module Fd = Fd
 module In_thread = In_thread
 module Io_stats = Io_stats
-module Log = Log
 module Print = Async_print
 module Process = Process
 module Reader = Reader
@@ -23,9 +22,6 @@ module Unix = struct
 
   include Unix_syscalls (** @open *)
 end
-
-(* see comment in assign_try_with_log_exn.mli *)
-include Assign_try_with_log_exn
 
 let after = Clock.after
 let at = Clock.at
