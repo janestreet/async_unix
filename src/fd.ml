@@ -17,9 +17,8 @@ let with_file_descr_exn = with_file_descr_exn
 module Kind = struct
   include Fd.Kind
 
-  let blocking_infer_using_stat file_descr =
-    let st = Unix.fstat file_descr in
-    match st.st_kind with
+  let kind_from_fstat file_descr (kind : Core_unix.file_kind) : Fd.Kind.t =
+    match kind with
     | S_REG | S_DIR | S_BLK | S_LNK -> File
     | S_CHR -> Char
     | S_FIFO -> Fifo
@@ -27,8 +26,52 @@ module Kind = struct
       Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN then `Passive else `Active)
   ;;
 
+  let blocking_infer_using_stat file_descr =
+    let st = Unix.fstat file_descr in
+    kind_from_fstat file_descr st.st_kind
+  ;;
+
+  let kind_from_uring_stat file_descr kind =
+    match kind with
+    (* We don't know when the kernel can actually return Unknown, but the Ocaml
+       implementation of stat defaults to a File in the case there is no match, so we do
+       the same. *)
+    | `Unknown -> File
+    | `Regular_file | `Directory | `Block_device | `Symbolic_link -> File
+    | `Character_special -> Char
+    | `Fifo -> Fifo
+    | `Socket ->
+      Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN then `Passive else `Active)
+  ;;
+
+  let infer_using_uring_stat file_descr uring =
+    let statx_buffer = Io_uring_raw.Statx.create () in
+    match%map
+      Io_uring_raw.statx
+        uring
+        ~fd:file_descr
+        ~mask:Io_uring_raw.Statx.Mask.type'
+        ""
+        statx_buffer
+        Io_uring_raw.Statx.Flags.empty_path
+      |> Io_uring_raw.syscall_result
+    with
+    | Ok res ->
+      assert (res = 0);
+      kind_from_uring_stat file_descr (Io_uring_raw.Statx.kind statx_buffer)
+    | Error err ->
+      raise
+        (Unix.Unix_error
+           ( err
+           , "fstat"
+           , Core_unix.Private.sexp_to_string_hum [%sexp { file_descr : File_descr.t }] ))
+  ;;
+
   let infer_using_stat file_descr =
-    In_thread.syscall_exn ~name:"fstat" (fun () -> blocking_infer_using_stat file_descr)
+    match Io_uring_raw_singleton.the_one_and_only () with
+    | Some uring -> infer_using_uring_stat file_descr uring
+    | None ->
+      In_thread.syscall_exn ~name:"fstat" (fun () -> blocking_infer_using_stat file_descr)
   ;;
 end
 
@@ -83,6 +126,24 @@ module Close = struct
     | Close_file_descriptor of socket_handling
     | Do_not_close_file_descriptor
 
+  let close_syscall file_descr =
+    match Io_uring_raw_singleton.the_one_and_only () with
+    | Some uring ->
+      Io_uring_raw.syscall_result (Io_uring_raw.close uring file_descr)
+      >>| (function
+      | Error err ->
+        raise
+          (Unix.Unix_error
+             ( err
+             , "close"
+             , Core_unix.Private.sexp_to_string_hum
+                 [%sexp { fd : File_descr.t = file_descr }] ))
+      | Ok result ->
+        assert (result = 0);
+        ())
+    | None -> In_thread.syscall_exn ~name:"close" (fun () -> Unix.close file_descr)
+  ;;
+
   let close ?(file_descriptor_handling = Close_file_descriptor Shutdown_socket) t =
     if debug then Debug.log "Fd.close" t [%sexp_of: t];
     (match t.state with
@@ -97,9 +158,7 @@ module Close = struct
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
                   ~run:`Schedule
-                  ~finally:(fun () ->
-                    In_thread.syscall_exn ~name:"close" (fun () ->
-                      Unix.close t.file_descr))
+                  ~finally:(fun () -> close_syscall t.file_descr)
                   (fun () ->
                     match t.kind, socket_handling with
                     | Socket `Active, Shutdown_socket ->
@@ -149,12 +208,12 @@ let with_close t ~f =
   Monitor.protect ~run:`Schedule (fun () -> f t) ~finally:(fun () -> close t)
 ;;
 
-let with_file_descr_deferred t f =
+let with_file_descr_deferred t ?(extract_exn = false) f =
   match inc_num_active_syscalls t with
   | `Already_closed -> return `Already_closed
   | `Ok ->
     let%map result =
-      Monitor.try_with ~run:`Schedule ~rest:`Log (fun () -> f t.file_descr)
+      Monitor.try_with ~extract_exn ~run:`Schedule ~rest:`Log (fun () -> f t.file_descr)
     in
     Scheduler.dec_num_active_syscalls_fd (the_one_and_only ()) t;
     (match result with

@@ -16,6 +16,8 @@ depends: [
   "core_kernel"
   "core_unix"
   "ppx_jane"
+  "ppx_optcomp"
+  "cstruct"      {>= "6.0.0"}
   "dune"         {>= "2.0.0"}
 ]
 available: arch != "arm32" & arch != "x86_32"

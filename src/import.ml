@@ -6,6 +6,8 @@ module Time_ns = Time_ns_unix
 include Int.Replace_polymorphic_compare
 include Async_kernel
 module Epoll_max_ready_events = Config.Epoll_max_ready_events
+module Io_uring_max_submission_entries = Config.Io_uring_max_submission_entries
+module Io_uring_mode = Config.Io_uring_mode
 module Max_inter_cycle_timeout = Config.Max_inter_cycle_timeout
 module Max_num_open_file_descrs = Config.Max_num_open_file_descrs
 module Max_num_threads = Config.Max_num_threads

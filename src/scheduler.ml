@@ -36,3 +36,11 @@ let thread_pool_has_unfinished_work () = thread_pool_has_unfinished_work (t ())
 let max_num_threads () = max_num_threads (t ())
 let _ = current_execution_context
 let is_running () = is_the_one_and_only_running ()
+
+module For_tests = struct
+  let warm_up_fds () =
+    let () = Thread_safe.block_on_async_exn (fun () -> Deferred.return ()) in
+    let (_ : Io_uring_raw.t option) = Io_uring_raw_singleton.the_one_and_only () in
+    ()
+  ;;
+end

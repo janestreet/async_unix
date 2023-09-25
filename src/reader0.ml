@@ -294,9 +294,17 @@ module Internal = struct
           (match t.close_may_destroy_buf with
            | `Yes -> t.close_may_destroy_buf <- `Not_now
            | `Not_now | `Not_ever -> ());
-          Fd.syscall_in_thread t.fd ~name:"read" (fun file_descr ->
-            let res = Bigstring_unix.read file_descr buf ~pos ~len in
-            res, Time.now ())
+          (match Io_uring_raw_singleton.the_one_and_only () with
+           | Some uring ->
+             Io_uring.read uring ~off:pos ~len t.fd buf
+             >>| (function
+             | `Already_closed -> `Already_closed
+             | `Error exn -> `Error exn
+             | `Ok res -> `Ok (res, Time.now ()))
+           | None ->
+             Fd.syscall_in_thread t.fd ~name:"read" (fun file_descr ->
+               let res = Bigstring_unix.read file_descr buf ~pos ~len in
+               res, Time.now ()))
           >>> fun res ->
           (match t.close_may_destroy_buf with
            | `Not_now -> t.close_may_destroy_buf <- `Yes

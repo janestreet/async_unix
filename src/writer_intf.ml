@@ -152,7 +152,7 @@ module type Writer0 = sig
     -> string
     -> t Deferred.t
 
-  (** [with_file ~file f] opens [file] for writing, creates a writer [t], and runs [f t] to
+  (** [with_file file ~f] opens [file] for writing, creates a writer [t], and runs [f t] to
       obtain a deferred [d].  When [d] becomes determined, the writer is closed.  When the
       close completes, the result of [with_file] becomes determined with the value of [d].
 

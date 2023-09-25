@@ -70,13 +70,117 @@ type open_flag =
   | `Sync
   | `Rsync
   ]
+[@@deriving sexp_of]
 
 type file_perm = int [@@deriving sexp, bin_io, compare]
 
+(* Implementation of [openfile] on top of [Io_uring]. *)
+module Uring_openfile = struct
+  let convert_to_uring_flags : Unix.open_flag -> Io_uring_raw.Open_flags.t =
+    let open Io_uring_raw.Open_flags in
+    function
+    | O_RDONLY -> assert false
+    | O_WRONLY -> assert false
+    | O_RDWR -> assert false
+    | O_NONBLOCK -> nonblock
+    | O_APPEND -> append
+    | O_CREAT -> creat
+    | O_TRUNC -> trunc
+    | O_EXCL -> excl
+    | O_NOCTTY -> noctty
+    | O_DSYNC -> dsync
+    | O_SYNC -> sync
+    (* According to the open man page:
+
+       Linux implements O_SYNC and O_DSYNC, but not O_RSYNC.  Somewhat
+       incorrectly, glibc defines O_RSYNC to have the same value as
+       O_SYNC.  (O_RSYNC is defined in the Linux header file
+       <asm/fcntl.h> on HP PA-RISC, but it is not used.
+    *)
+    | O_RSYNC -> sync
+    | O_CLOEXEC -> cloexec
+    (* These flags have no [ocaml_uring] equivalent (also, they are unreachable because
+       they are not exposed by [Async]) *)
+    | O_SHARE_DELETE -> empty
+    | O_KEEPEXEC -> empty
+  ;;
+
+  let is_rw_flag (flag : Unix.open_flag) =
+    match flag with
+    | O_RDONLY | O_WRONLY | O_RDWR -> true
+    | _ -> false
+  ;;
+
+  let convert_to_uring_access (access : Unix.open_flag list) =
+    match
+      ( List.find access ~f:(function
+          | O_RDONLY | O_RDWR -> true
+          | _ -> false)
+      , List.find access ~f:(function
+          | O_WRONLY | O_RDWR -> true
+          | _ -> false) )
+    with
+    | Some _, Some _ -> `RW
+    | Some _, None -> `R
+    | None, Some _ -> `W
+    | None, None ->
+      failwith "Async.Unix_syscalls.openfile: must provide at least one access flag"
+  ;;
+
+  let convert_to_uring_mode mode =
+    let access, flags = List.partition_tf mode ~f:is_rw_flag in
+    let access = convert_to_uring_access access in
+    let flags =
+      List.map flags ~f:convert_to_uring_flags
+      |> List.fold ~init:Io_uring_raw.Open_flags.empty ~f:Io_uring_raw.Open_flags.( + )
+    in
+    access, flags
+  ;;
+
+  let openfile uring ?perm file ~unix_mode =
+    let access, flags = convert_to_uring_mode unix_mode in
+    let default_perm = 0o644 in
+    let perm_for_error = Option.value perm ~default:default_perm in
+    let perm =
+      Option.value
+        perm
+        ~default:
+          (let open Io_uring_raw.Open_flags in
+           if mem creat flags || mem tmpfile flags then default_perm else 0)
+    in
+    match%map
+      Io_uring_raw.syscall_result
+        (Io_uring_raw.openat2
+           uring
+           ~access
+           ~flags
+           ~perm
+           ~resolve:Io_uring_raw.Resolve.empty
+           file)
+    with
+    | Error err ->
+      raise
+        (Unix.Unix_error
+           ( err
+           , "open"
+           , Core_unix.Private.sexp_to_string_hum
+               [%sexp
+                 { filename : string = file
+                 ; mode : Unix.open_flag list = unix_mode
+                 ; perm : string = Printf.sprintf "0o%o" perm_for_error
+                 }] ))
+    | Ok res -> File_descr.of_int res
+  ;;
+end
+
 let openfile ?info ?perm file ~mode =
-  let mode = List.map mode ~f:convert_open_flag @ [ O_CLOEXEC ] in
+  let unix_mode = List.map mode ~f:convert_open_flag @ [ O_CLOEXEC ] in
   let%bind file_descr =
-    In_thread.syscall_exn ~name:"openfile" (fun () -> Unix.openfile ?perm file ~mode)
+    match Io_uring_raw_singleton.the_one_and_only () with
+    | Some uring -> Uring_openfile.openfile uring ?perm file ~unix_mode
+    | None ->
+      In_thread.syscall_exn ~name:"openfile" (fun () ->
+        Unix.openfile ?perm file ~mode:unix_mode)
   in
   let%map kind = Fd.Kind.infer_using_stat file_descr in
   Fd.create kind file_descr (Option.value info ~default:(Info.of_string file))
@@ -257,6 +361,17 @@ module File_kind = struct
     | S_FIFO -> `Fifo
     | S_SOCK -> `Socket
   ;;
+
+  let of_ocaml_uring : Io_uring_raw.Statx.kind -> _ = function
+    | `Unknown -> raise (Unix.Unix_error (Unix.EINVAL, "fstat", ""))
+    | `Fifo -> `Fifo
+    | `Character_special -> `Char
+    | `Directory -> `Directory
+    | `Block_device -> `Block
+    | `Regular_file -> `File
+    | `Symbolic_link -> `Link
+    | `Socket -> `Socket
+  ;;
 end
 
 module Stats = struct
@@ -293,17 +408,73 @@ module Stats = struct
     }
   ;;
 
+  let of_ocaml_uring_statx (u : Io_uring_raw.Statx.t) =
+    let open Io_uring_raw in
+    let of_timespec sec nsec =
+      Time.of_span_since_epoch Time.Span.(of_int_sec sec + of_int_ns nsec)
+    in
+    { dev = Statx.dev u |> Int64.to_int_exn
+    ; ino = Statx.ino u |> Int64.to_int_exn
+    ; kind = File_kind.of_ocaml_uring (Statx.kind u)
+    ; perm = Statx.perm u
+    ; nlink = Statx.nlink u |> Int64.to_int_exn
+    ; uid = Statx.uid u |> Int64.to_int_exn
+    ; gid = Statx.gid u |> Int64.to_int_exn
+    ; rdev = Statx.rdev u |> Int64.to_int_exn
+    ; size = Statx.size u
+    ; atime = of_timespec (Statx.atime_sec u |> Int64.to_int_exn) (Statx.atime_nsec u)
+    ; mtime = of_timespec (Statx.mtime_sec u |> Int64.to_int_exn) (Statx.mtime_nsec u)
+    ; ctime = of_timespec (Statx.ctime_sec u |> Int64.to_int_exn) (Statx.ctime_nsec u)
+    }
+  ;;
+
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
 
-let fstat fd = Fd.syscall_in_thread_exn fd ~name:"fstat" Unix.fstat >>| Stats.of_unix
+let result_of_uring_syscall_exn res ~name ?fd =
+  match res with
+  | `Already_closed ->
+    (match fd with
+     | Some fd ->
+       (* We have to match the error message of [Fd.syscall_in_thread_exn] because if we
+          default [Async] to using [Io_uring], inline tests that catch error messages
+          will start failing. *)
+       raise_s
+         [%message "Fd.syscall_in_thread_exn of a closed fd" name ~_:(fd : Fd.t_hum)]
+     | None ->
+       raise_s
+         [%message "Io_uring syscall returned `Already_closed when no Fd was passed" name])
+  | `Error exn -> raise exn
+  | `Ok res -> res
+;;
+
+let fstat fd =
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.fstat uring fd
+    >>| fun res ->
+    result_of_uring_syscall_exn ~name:"fstat" ~fd res |> Stats.of_ocaml_uring_statx
+  | None -> Fd.syscall_in_thread_exn fd ~name:"fstat" Unix.fstat >>| Stats.of_unix
+;;
 
 let stat filename =
-  In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.stat uring filename
+    >>| fun res ->
+    result_of_uring_syscall_exn ~name:"stat" ?fd:None res |> Stats.of_ocaml_uring_statx
+  | None ->
+    In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
 ;;
 
 let lstat filename =
-  In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.lstat uring filename
+    >>| fun res ->
+    result_of_uring_syscall_exn ~name:"lstat" ?fd:None res |> Stats.of_ocaml_uring_statx
+  | None ->
+    In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
 ;;
 
 (* We treat [isatty] as a blocking operation, because it acts on a file. *)
@@ -312,7 +483,11 @@ let isatty fd = Fd.syscall_in_thread_exn fd ~name:"isatty" Unix.isatty
 (* operations on filenames *)
 
 let unlink filename =
-  In_thread.syscall_exn ~name:"unlink" (fun () -> Unix.unlink filename)
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.unlink uring ~dir:false filename
+    >>| result_of_uring_syscall_exn ~name:"unlink" ?fd:None
+  | None -> In_thread.syscall_exn ~name:"unlink" (fun () -> Unix.unlink filename)
 ;;
 
 let remove filename =
@@ -324,7 +499,12 @@ let rename ~src ~dst =
 ;;
 
 let link ?force ~target ~link_name () =
-  In_thread.syscall_exn ~name:"link" (fun () -> Unix.link ?force ~target ~link_name ())
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.link uring ?force ~target ~link_name ()
+    >>| result_of_uring_syscall_exn ~name:"link" ?fd:None
+  | None ->
+    In_thread.syscall_exn ~name:"link" (fun () -> Unix.link ?force ~target ~link_name ())
 ;;
 
 (* file permission and ownership *)

@@ -701,25 +701,34 @@ let final_flush ?force t =
     ]
 ;;
 
+let do_close_noflush t =
+  match t.close_state with
+  | `Closed_and_flushing | `Open ->
+    t.close_state <- `Closed;
+    Ivar.fill_if_empty t.close_started ();
+    if Lazy.is_val t.check_buffer_age
+    then Check_buffer_age.destroy (force t.check_buffer_age);
+    (match t.flush_at_shutdown_elt with
+     | None -> assert false
+     | Some elt -> Bag.remove writers_to_flush_at_shutdown elt);
+    Unix.close t.fd >>> fun () -> Ivar.fill_exn t.close_finished ()
+  | `Closed -> ()
+;;
+
 let close_internal ~flush t =
   if debug then Debug.log "Writer.close" t [%sexp_of: t];
-  (match t.close_state with
-   | `Closed_and_flushing | `Closed -> ()
-   | `Open ->
-     t.close_state <- `Closed_and_flushing;
-     Ivar.fill_exn t.close_started ();
-     (match flush with
-      | `Flush force -> final_flush t ?force
-      | `No_flush -> return ())
-     >>> fun () ->
-     t.close_state <- `Closed;
-     if Lazy.is_val t.check_buffer_age
-     then Check_buffer_age.destroy (force t.check_buffer_age);
-     (match t.flush_at_shutdown_elt with
-      | None -> assert false
-      | Some elt -> Bag.remove writers_to_flush_at_shutdown elt);
-     Unix.close t.fd >>> fun () -> Ivar.fill_exn t.close_finished ());
-  close_finished t
+  match flush with
+  | `No_flush ->
+    do_close_noflush t;
+    close_finished t
+  | `Flush force ->
+    (match t.close_state with
+     | `Closed_and_flushing | `Closed -> ()
+     | `Open ->
+       t.close_state <- `Closed_and_flushing;
+       Ivar.fill_exn t.close_started ();
+       final_flush t ?force >>> fun () -> do_close_noflush t);
+    close_finished t
 ;;
 
 let close ?force_close t = close_internal ~flush:(`Flush force_close) t
@@ -936,6 +945,10 @@ let with_file
   ~f
   =
   let%bind t = open_file ?perm ?append ?syscall ?line_ending ?time_source file in
+  let parent_monitor = Monitor.current () in
+  let monitor = monitor t in
+  Monitor.detach_and_iter_errors monitor ~f:(fun exn ->
+    upon (close_noflush t) (fun () -> Monitor.send_exn parent_monitor exn));
   with_close t ~f:(fun () ->
     if exclusive then with_writer_exclusive t (fun () -> f t) else f t)
 ;;
@@ -1052,8 +1065,11 @@ let rec start_write t =
   in
   if should_write_in_thread
   then
-    Fd.syscall_in_thread t.fd ~name:"writev" (fun file_descr ->
-      Bigstring_unix.writev file_descr iovecs)
+    (match Io_uring_raw_singleton.the_one_and_only () with
+     | Some uring -> Io_uring.writev uring t.fd iovecs
+     | None ->
+       Fd.syscall_in_thread t.fd ~name:"writev" (fun file_descr ->
+         Bigstring_unix.writev file_descr iovecs))
     >>> handle_write_result
   else
     handle_write_result

@@ -209,6 +209,7 @@ val with_file_descr_exn
     [f] raises). *)
 val with_file_descr_deferred
   :  t
+  -> ?extract_exn:bool
   -> (Unix.File_descr.t -> 'a Deferred.t)
   -> [ `Ok of 'a | `Already_closed | `Error of exn ] Deferred.t
 

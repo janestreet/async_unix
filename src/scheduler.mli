@@ -244,3 +244,7 @@ module External : sig
   (** Check whether a file descriptor is currently registered via [register_fd] *)
   val is_registered : File_descr.t -> bool
 end
+
+module For_tests : sig
+  val warm_up_fds : unit -> unit
+end
