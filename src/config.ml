@@ -4,7 +4,7 @@ include Async_kernel.Async_kernel_config
 
 let file_descr_watcher =
   match file_descr_watcher with
-  | (Epoll | Select) as x -> x
+  | (Epoll | Select | Io_uring) as x -> x
   | Epoll_if_timerfd ->
     (* Without timerfd, epoll_wait(2) timeouts would have only millisecond precision. *)
     if Result.is_ok Linux_ext.Timerfd.create then Epoll else Select
@@ -22,7 +22,7 @@ let max_num_open_file_descrs =
       (* The maximum numeric value for a file descriptor watchable by [select] is limited
          by [FD_SETSIZE], which happens to be 1024 on Linux. *)
       Max_num_open_file_descrs.create_exn 1024
-    | Epoll | Epoll_if_timerfd ->
+    | Epoll | Epoll_if_timerfd | Io_uring ->
       Int.min
         Max_num_open_file_descrs.(default |> raw)
         (match Unix.RLimit.(get num_file_descriptors).max with

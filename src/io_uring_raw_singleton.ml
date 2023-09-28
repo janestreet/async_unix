@@ -94,11 +94,20 @@ module Eventfd_driver = struct
   ;;
 end
 
+module From_scheduler_driver = struct
+  let force_uring () =
+    match Raw_scheduler.uring (Raw_scheduler.t ()) with
+    | None -> Not_supported ()
+    | Some uring -> Ok uring
+  ;;
+end
+
 let create_global_io_uring () =
   match Config.io_uring_mode with
   | Disabled -> Not_supported ()
   | Eventfd -> Eventfd_driver.force_uring_exn ()
   | If_available_eventfd -> Eventfd_driver.force_uring_noraise ()
+  | From_scheduler -> From_scheduler_driver.force_uring ()
 ;;
 
 let global_io_uring = lazy (create_global_io_uring ())

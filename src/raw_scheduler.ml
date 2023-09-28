@@ -139,6 +139,7 @@ type t =
        generally more confusing than useful if it's shown on crash, so we omit it from the
        sexp. *)
     initialized_at : (Backtrace.t[@sexp.opaque])
+  ; uring : (Io_uring_raw.t option[@sexp.opaque])
   }
 [@@deriving fields ~iterators:(fold, iter), sexp_of]
 
@@ -346,6 +347,7 @@ let invariant t : unit =
                (Min_inter_cycle_timeout.raw min_inter_cycle_timeout)
                (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout))))
       ~initialized_at:ignore
+      ~uring:ignore
   with
   | exn -> raise_s [%message "Scheduler.invariant failed" (exn : exn) ~scheduler:(t : t)]
 ;;
@@ -647,7 +649,7 @@ let create
   let handle_fd_read_bad = handle_fd `Read `Bad_fd in
   let handle_fd_write_ready = handle_fd `Write `Ready in
   let handle_fd_write_bad = handle_fd `Write `Bad_fd in
-  let file_descr_watcher, timerfd =
+  let file_descr_watcher, timerfd, uring =
     match file_descr_watcher with
     | Custom (module Custom) ->
       let watcher =
@@ -664,7 +666,7 @@ let create
         let watcher = watcher
       end
       in
-      (module W : File_descr_watcher.S), None
+      (module W : File_descr_watcher.S), None, None
     | Config Select ->
       let watcher =
         Select_file_descr_watcher.create
@@ -680,7 +682,7 @@ let create
         let watcher = watcher
       end
       in
-      (module W : File_descr_watcher.S), None
+      (module W : File_descr_watcher.S), None, None
     | Config (Epoll | Epoll_if_timerfd) ->
       let timerfd =
         match try_create_timerfd () with
@@ -704,7 +706,29 @@ Async will be unable to timeout with sub-millisecond precision.|}]
         let watcher = watcher
       end
       in
-      (module W : File_descr_watcher.S), Some timerfd
+      (module W : File_descr_watcher.S), Some timerfd, None
+    | Config Io_uring ->
+      let uring =
+        Io_uring_raw.create
+          ~queue_depth:
+            (Io_uring_max_submission_entries.raw Config.io_uring_max_submission_entries)
+          ()
+        |> Or_error.ok_exn
+      in
+      let watcher =
+        Io_uring_file_descr_watcher.create
+          ~uring
+          ~num_file_descrs
+          ~handle_fd_read_ready
+          ~handle_fd_write_ready
+      in
+      let module W = struct
+        include Io_uring_file_descr_watcher
+
+        let watcher = watcher
+      end
+      in
+      (module W : File_descr_watcher.S), None, Some uring
   in
   let kernel_scheduler = Kernel_scheduler.t () in
   let t =
@@ -734,6 +758,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; max_inter_cycle_timeout = Config.max_inter_cycle_timeout
     ; min_inter_cycle_timeout = Config.min_inter_cycle_timeout
     ; initialized_at = Backtrace.get ()
+    ; uring
     }
   in
   t_ref := Some t;
@@ -1318,6 +1343,7 @@ let fold_fields (type a) ~init folder : a =
     ~max_inter_cycle_timeout:f
     ~min_inter_cycle_timeout:f
     ~initialized_at:f
+    ~uring:f
 ;;
 
 let handle_thread_pool_stuck f =
@@ -1404,16 +1430,25 @@ module External = struct
   let register_fd fd ops =
     check_thread ();
     let t = the_one_and_only () in
-    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
-    let%bind.Result () = By_descr.add t.external_fd_by_descr fd ops in
-    match F.set F.watcher fd ops with
-    | exception exn ->
-      By_descr.remove t.external_fd_by_descr fd;
-      Error (Error.of_exn ~backtrace:`Get exn)
-    | `Unsupported ->
-      By_descr.remove t.external_fd_by_descr fd;
-      Error (Error.of_string "Unsupported file descriptor type in register_fd")
-    | `Ok -> Ok ()
+    match t.uring with
+    | Some _ ->
+      (* Unlike with the [epoll] or [select] fd watchers, the fd checking in uring happens
+         asynchronously, so we can't implement a synchronous version of [unregister_fd]:
+         we need to wait for the cancellation to be acknowledged by the kernel, which
+         means waiting for asynchronous io_uring completions. *)
+      raise_s
+        [%message "Cannot watch external fds while using the Ocaml_uring fd watcher"]
+    | None ->
+      let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+      let%bind.Result () = By_descr.add t.external_fd_by_descr fd ops in
+      (match F.set F.watcher fd ops with
+       | exception exn ->
+         By_descr.remove t.external_fd_by_descr fd;
+         Error (Error.of_exn ~backtrace:`Get exn)
+       | `Unsupported ->
+         By_descr.remove t.external_fd_by_descr fd;
+         Error (Error.of_string "Unsupported file descriptor type in register_fd")
+       | `Ok -> Ok ())
   ;;
 
   let not_watching = Read_write_pair.create ~read:false ~write:false

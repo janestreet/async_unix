@@ -191,7 +191,9 @@ let create ?polling_timeout:_ ~queue_depth:_ () =
 ;;
 
 let exit _ = assert false
+let supports_ext_arg _ = assert false
 let submit _ = assert false
+let cqe_ready _ ~timeout:_ = assert false
 let fill_completions _ = assert false
 let noop _ = assert false
 let read _ = assert false

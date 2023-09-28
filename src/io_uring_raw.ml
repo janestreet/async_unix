@@ -96,8 +96,10 @@ let create ?polling_timeout ~queue_depth () =
 ;;
 
 let exit = Uring.exit
+let supports_ext_arg = Uring.supports_ext_arg
 let register_eventfd = Uring.register_eventfd
 let submit t = Uring.submit t
+let cqe_ready t = Uring.cqe_ready t
 
 let rec iter_completions_internal io_uring ~f count =
   match Uring.get_cqe_nonblocking io_uring with
@@ -109,13 +111,13 @@ let rec iter_completions_internal io_uring ~f count =
 
 let iter_completions io_uring ~f = iter_completions_internal io_uring ~f 0
 
-let fill_completions t =
-  iter_completions t ~f:(fun ~result ~data ->
-    if result >= 0
-    then Ivar.fill_exn data (Ok result)
-    else Ivar.fill_exn data (Error (Unix.Error.of_system_int ~errno:(-result))))
+let fill_syscall_ivar ~result ~data =
+  if result >= 0
+  then Ivar.fill_exn data (Ok result)
+  else Ivar.fill_exn data (Error (Unix.Error.of_system_int ~errno:(-result)))
 ;;
 
+let fill_completions t = iter_completions t ~f:fill_syscall_ivar
 let max_attempts = -1
 
 let prepare_internal f =
@@ -217,7 +219,7 @@ let cancel t handle =
          | None ->
            let%bind () = Async_kernel_scheduler.yield () in
            cancel_until_success ()
-         | Some _ ->
+         | Some _cancel_job ->
            Handle.set_status handle (Cancel_prepared cancel_ivar);
            cancel_until_success ()))
   in

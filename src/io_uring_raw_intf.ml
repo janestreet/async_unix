@@ -43,9 +43,11 @@ module type S = sig
   end
 
   val create : ?polling_timeout:int -> queue_depth:int -> unit -> t Or_error.t
+  val supports_ext_arg : t -> bool
   val exit : t -> unit
   val register_eventfd : t -> File_descr.t -> unit
   val submit : t -> int
+  val cqe_ready : t -> timeout:float -> bool
   val fill_completions : t -> int
   val noop : t -> Handle.t
   val read : t -> file_offset:Int63.t -> File_descr.t -> Cstruct.t -> Handle.t
