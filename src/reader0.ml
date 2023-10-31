@@ -223,6 +223,18 @@ module Internal = struct
       if exclusive then with_reader_exclusive t (fun () -> f t) else f t)
   ;;
 
+  let read_syscall_with_timestamp fd ~pos ~len buf =
+    Fd.with_file_descr_deferred_result fd (fun file_descr ->
+      match Io_uring_raw_singleton.the_one_and_only () with
+      | Some uring ->
+        Io_uring.read_file_descr uring file_descr ~off:pos ~len buf
+        >>| Result.map ~f:(fun res -> res, Time.now ())
+      | None ->
+        In_thread.syscall ~name:"read" (fun () ->
+          let res = Bigstring_unix.read file_descr buf ~pos ~len in
+          res, Time.now ()))
+  ;;
+
   (* [get_data t] attempts to read data into [t.buf].  If the read gets data, [get_data]
      returns [`Ok], otherwise it returns [`Eof]. *)
   let get_data t : [ `Ok | `Eof ] Deferred.t =
@@ -294,17 +306,7 @@ module Internal = struct
           (match t.close_may_destroy_buf with
            | `Yes -> t.close_may_destroy_buf <- `Not_now
            | `Not_now | `Not_ever -> ());
-          (match Io_uring_raw_singleton.the_one_and_only () with
-           | Some uring ->
-             Io_uring.read uring ~off:pos ~len t.fd buf
-             >>| (function
-             | `Already_closed -> `Already_closed
-             | `Error exn -> `Error exn
-             | `Ok res -> `Ok (res, Time.now ()))
-           | None ->
-             Fd.syscall_in_thread t.fd ~name:"read" (fun file_descr ->
-               let res = Bigstring_unix.read file_descr buf ~pos ~len in
-               res, Time.now ()))
+          read_syscall_with_timestamp t.fd ~pos ~len buf
           >>> fun res ->
           (match t.close_may_destroy_buf with
            | `Not_now -> t.close_may_destroy_buf <- `Yes

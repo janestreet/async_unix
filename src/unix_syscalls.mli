@@ -181,6 +181,7 @@ module File_kind : sig
   include Comparable.S with type t := t
 
   val of_unix : Core_unix.file_kind -> t
+  val to_unix : t -> Core_unix.file_kind
 end
 
 module Stats : sig
@@ -201,6 +202,7 @@ module Stats : sig
   [@@deriving fields ~getters, sexp, bin_io, compare]
 
   val of_unix : Core_unix.stats -> t
+  val to_unix : t -> Core_unix.stats
   val to_string : t -> string
 end
 

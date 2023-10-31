@@ -1020,6 +1020,14 @@ let fd_closed t =
   if not (is_closed t) then die t [%message "writer fd unexpectedly closed "]
 ;;
 
+let writev_in_background fd iovecs =
+  Fd.with_file_descr_deferred_result fd (fun file_descr ->
+    match Io_uring_raw_singleton.the_one_and_only () with
+    | Some uring -> Io_uring.writev uring fd iovecs
+    | None ->
+      In_thread.syscall ~name:"writev" (fun () -> Bigstring_unix.writev file_descr iovecs))
+;;
+
 let rec start_write t =
   if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
   assert (is_running t.background_writer_state);
@@ -1064,13 +1072,7 @@ let rec start_write t =
     || contains_mmapped
   in
   if should_write_in_thread
-  then
-    (match Io_uring_raw_singleton.the_one_and_only () with
-     | Some uring -> Io_uring.writev uring t.fd iovecs
-     | None ->
-       Fd.syscall_in_thread t.fd ~name:"writev" (fun file_descr ->
-         Bigstring_unix.writev file_descr iovecs))
-    >>> handle_write_result
+  then writev_in_background t.fd iovecs >>> handle_write_result
   else
     handle_write_result
       (Fd.syscall t.fd ~nonblocking:true (fun file_descr ->
@@ -1371,9 +1373,8 @@ let write_gen_whole t src ~blit_to_bigstring ~length =
 let to_formatter t =
   Format.make_formatter
     (fun str pos len ->
-      let str = Bytes.of_string str in
       ensure_can_write t;
-      write_substring t (Substring.create str ~pos ~len))
+      write ~pos ~len t str)
     ignore
 ;;
 
@@ -1425,29 +1426,25 @@ module Terminate_with = struct
   [@@deriving sexp_of]
 end
 
-let write_sexp_internal =
-  let initial_size = 10 * 1024 in
-  let buffer = lazy (Buffer.create initial_size) in
-  let blit_str = ref (Bytes.create 0) in
-  fun ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp ->
-    let buffer = Lazy.force buffer in
-    Buffer.clear buffer;
-    if hum
-    then Sexp.to_buffer_hum ~buf:buffer ~indent:!Sexp.default_indent sexp
-    else Sexp.to_buffer ~buf:buffer sexp;
-    let len = Buffer.length buffer in
-    let blit_str_len = Bytes.length !blit_str in
-    if len > blit_str_len
-    then blit_str := Bytes.create (max len (max initial_size (2 * blit_str_len)));
-    Buffer.blit ~src:buffer ~src_pos:0 ~dst:!blit_str ~dst_pos:0 ~len;
-    write_bytes t !blit_str ~len;
-    match terminate_with with
-    | Newline -> newline t
-    | Space_if_needed ->
-      (* If the string representation doesn't start/end with paren or double quote, we add
-         a space after it to ensure that the parser can recognize the end of the sexp. *)
-      let c = Bytes.get !blit_str 0 in
-      if not Char.O.(c = '(' || c = '"') then write_char t ' '
+let write_sexp_internal ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp =
+  if hum
+  then Format.fprintf (to_formatter t) "%a@?" Sexp.pp_hum sexp
+  else Sexp.to_buffer_gen ~buf:t ~add_char:write_char ~add_string:write sexp;
+  match terminate_with with
+  | Newline -> newline t
+  | Space_if_needed ->
+    (* If the string representation doesn't start/end with paren or double quote, we add
+       a space after it to ensure that the parser can recognize the end of the sexp.
+
+       Concretely, starting with '(' occurs IFF the sexp is a [Sexp.List], while
+       starting with '"' occurs IFF the sexp is a [Sexp.Atom] where the atom needs
+       escaping. *)
+    let space_is_needed =
+      match sexp with
+      | List _ -> false
+      | Atom str -> not (Sexplib.Pre_sexp.must_escape str)
+    in
+    if space_is_needed then write_char t ' '
 ;;
 
 let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =

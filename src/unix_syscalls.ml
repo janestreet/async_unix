@@ -362,6 +362,16 @@ module File_kind = struct
     | S_SOCK -> `Socket
   ;;
 
+  let to_unix : t -> Unix.file_kind = function
+    | `File -> S_REG
+    | `Directory -> S_DIR
+    | `Char -> S_CHR
+    | `Block -> S_BLK
+    | `Link -> S_LNK
+    | `Fifo -> S_FIFO
+    | `Socket -> S_SOCK
+  ;;
+
   let of_ocaml_uring : Io_uring_raw.Statx.kind -> _ = function
     | `Unknown -> raise (Unix.Unix_error (Unix.EINVAL, "fstat", ""))
     | `Fifo -> `Fifo
@@ -408,6 +418,23 @@ module Stats = struct
     }
   ;;
 
+  let to_unix (u : t) : Unix.stats =
+    let to_float_sec f = Time.Span.to_sec (Time.to_span_since_epoch f) in
+    { st_dev = u.dev
+    ; st_ino = u.ino
+    ; st_kind = File_kind.to_unix u.kind
+    ; st_perm = u.perm
+    ; st_nlink = u.nlink
+    ; st_uid = u.uid
+    ; st_gid = u.gid
+    ; st_rdev = u.rdev
+    ; st_size = u.size
+    ; st_atime = to_float_sec u.atime
+    ; st_mtime = to_float_sec u.mtime
+    ; st_ctime = to_float_sec u.ctime
+    }
+  ;;
+
   let of_ocaml_uring_statx (u : Io_uring_raw.Statx.t) =
     let open Io_uring_raw in
     let of_timespec sec nsec =
@@ -431,29 +458,10 @@ module Stats = struct
   let to_string t = Sexp.to_string (sexp_of_t t)
 end
 
-let result_of_uring_syscall_exn res ~name ?fd =
-  match res with
-  | `Already_closed ->
-    (match fd with
-     | Some fd ->
-       (* We have to match the error message of [Fd.syscall_in_thread_exn] because if we
-          default [Async] to using [Io_uring], inline tests that catch error messages
-          will start failing. *)
-       raise_s
-         [%message "Fd.syscall_in_thread_exn of a closed fd" name ~_:(fd : Fd.t_hum)]
-     | None ->
-       raise_s
-         [%message "Io_uring syscall returned `Already_closed when no Fd was passed" name])
-  | `Error exn -> raise exn
-  | `Ok res -> res
-;;
-
 let fstat fd =
   match Io_uring_raw_singleton.the_one_and_only () with
   | Some uring ->
-    Io_uring.fstat uring fd
-    >>| fun res ->
-    result_of_uring_syscall_exn ~name:"fstat" ~fd res |> Stats.of_ocaml_uring_statx
+    Io_uring.fstat uring fd >>| fun res -> Result.ok_exn res |> Stats.of_ocaml_uring_statx
   | None -> Fd.syscall_in_thread_exn fd ~name:"fstat" Unix.fstat >>| Stats.of_unix
 ;;
 
@@ -461,8 +469,7 @@ let stat filename =
   match Io_uring_raw_singleton.the_one_and_only () with
   | Some uring ->
     Io_uring.stat uring filename
-    >>| fun res ->
-    result_of_uring_syscall_exn ~name:"stat" ?fd:None res |> Stats.of_ocaml_uring_statx
+    >>| fun res -> Result.ok_exn res |> Stats.of_ocaml_uring_statx
   | None ->
     In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
 ;;
@@ -471,8 +478,7 @@ let lstat filename =
   match Io_uring_raw_singleton.the_one_and_only () with
   | Some uring ->
     Io_uring.lstat uring filename
-    >>| fun res ->
-    result_of_uring_syscall_exn ~name:"lstat" ?fd:None res |> Stats.of_ocaml_uring_statx
+    >>| fun res -> Result.ok_exn res |> Stats.of_ocaml_uring_statx
   | None ->
     In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
 ;;
@@ -484,9 +490,7 @@ let isatty fd = Fd.syscall_in_thread_exn fd ~name:"isatty" Unix.isatty
 
 let unlink filename =
   match Io_uring_raw_singleton.the_one_and_only () with
-  | Some uring ->
-    Io_uring.unlink uring ~dir:false filename
-    >>| result_of_uring_syscall_exn ~name:"unlink" ?fd:None
+  | Some uring -> Io_uring.unlink uring ~dir:false filename >>| Result.ok_exn
   | None -> In_thread.syscall_exn ~name:"unlink" (fun () -> Unix.unlink filename)
 ;;
 
@@ -500,9 +504,7 @@ let rename ~src ~dst =
 
 let link ?force ~target ~link_name () =
   match Io_uring_raw_singleton.the_one_and_only () with
-  | Some uring ->
-    Io_uring.link uring ?force ~target ~link_name ()
-    >>| result_of_uring_syscall_exn ~name:"link" ?fd:None
+  | Some uring -> Io_uring.link uring ?force ~target ~link_name () >>| Result.ok_exn
   | None ->
     In_thread.syscall_exn ~name:"link" (fun () -> Unix.link ?force ~target ~link_name ())
 ;;

@@ -221,6 +221,14 @@ let with_file_descr_deferred t ?(extract_exn = false) f =
      | Error e -> `Error e)
 ;;
 
+let with_file_descr_deferred_result t f =
+  match%map with_file_descr_deferred t f with
+  | `Already_closed -> `Already_closed
+  | `Ok (Ok x) -> `Ok x
+  | `Ok (Error exn) -> `Error exn
+  | `Error exn -> `Error exn
+;;
+
 let with_file_descr_deferred_exn t f =
   match%map with_file_descr_deferred t f with
   | `Ok x -> x

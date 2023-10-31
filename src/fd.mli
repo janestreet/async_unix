@@ -213,6 +213,13 @@ val with_file_descr_deferred
   -> (Unix.File_descr.t -> 'a Deferred.t)
   -> [ `Ok of 'a | `Already_closed | `Error of exn ] Deferred.t
 
+(** Same as [with_file_descr_deferred], but the errors are reported
+    explicitly by the callback. *)
+val with_file_descr_deferred_result
+  :  t
+  -> (Unix.File_descr.t -> ('a, exn) Result.t Deferred.t)
+  -> [ `Ok of 'a | `Already_closed | `Error of exn ] Deferred.t
+
 (** [with_file_descr_deferred_exn] is like [with_file_descr_deferred], except that it
     raises rather than return [`Already_closed] or [`Error]. *)
 val with_file_descr_deferred_exn

@@ -15,7 +15,16 @@ val read
   -> ?off:int
   -> ?len:int
   -> Bigstring.t
-  -> [ `Already_closed | `Error of exn | `Ok of int ] Deferred.t
+  -> (int, Exn.t) Result.t Deferred.t
+
+val read_file_descr
+  :  t
+  -> ?file_offset:int
+  -> File_descr.t
+  -> ?off:int
+  -> ?len:int
+  -> Bigstring.t
+  -> (int, Exn.t) Result.t Deferred.t
 
 val write
   :  t
@@ -24,21 +33,21 @@ val write
   -> ?off:int
   -> ?len:int
   -> Bigstring.t
-  -> [ `Already_closed | `Error of exn | `Ok of int ] Deferred.t
+  -> (int, Exn.t) Result.t Deferred.t
 
 val readv
   :  t
   -> ?file_offset:int
   -> Fd.t
   -> Bigstring.t Unix.IOVec.t Array.t
-  -> [ `Already_closed | `Error of exn | `Ok of int ] Deferred.t
+  -> (int, Exn.t) Result.t Deferred.t
 
 val writev
   :  t
   -> ?file_offset:int
   -> Fd.t
   -> Bigstring.t Unix.IOVec.t array
-  -> [ `Already_closed | `Error of exn | `Ok of int ] Deferred.t
+  -> (int, Exn.t) Result.t Deferred.t
 
 val openat2
   :  t
@@ -49,14 +58,9 @@ val openat2
   -> ?info:Info.t
   -> ?fd:Fd.t
   -> string
-  -> [ `Already_closed | `Error of exn | `Ok of Fd.t ] Deferred.t
+  -> (Fd.t, Exn.t) Result.t Deferred.t
 
-val unlink
-  :  t
-  -> dir:bool
-  -> ?fd:Fd.t
-  -> string
-  -> [ `Already_closed | `Error of exn | `Ok of unit ] Deferred.t
+val unlink : t -> dir:bool -> ?fd:Fd.t -> string -> (unit, Exn.t) Result.t Deferred.t
 
 val link
   :  t
@@ -65,7 +69,7 @@ val link
   -> target:string
   -> link_name:string
   -> unit
-  -> [ `Error of exn | `Ok of unit ] Deferred.t
+  -> (unit, Exn.t) Result.t Deferred.t
 
 val statx
   :  t
@@ -73,24 +77,24 @@ val statx
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> Io_uring_raw.Statx.Flags.t
-  -> [ `Already_closed | `Error of exn | `Ok of Io_uring_raw.Statx.t ] Deferred.t
+  -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val stat
   :  t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
-  -> [ `Error of exn | `Ok of Io_uring_raw.Statx.t ] Deferred.t
+  -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val fstat
   :  t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> Fd.t
-  -> [ `Already_closed | `Error of exn | `Ok of Io_uring_raw.Statx.t ] Deferred.t
+  -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val lstat
   :  t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
-  -> [ `Error of exn | `Ok of Io_uring_raw.Statx.t ] Deferred.t
+  -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val the_one_and_only : unit -> t option
