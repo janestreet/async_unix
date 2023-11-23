@@ -1686,8 +1686,8 @@ let use_synchronous_stdout_and_stderr () =
   let stdout, stderr = Lazy.force stdout_and_stderr in
   let ts_and_channels =
     (stdout, Out_channel.stdout)
-    ::
     (* We only set [stderr] if it is distinct from [stdout]. *)
+    ::
     (match phys_equal stdout stderr with
      | true -> []
      | false -> [ stderr, Out_channel.stderr ])

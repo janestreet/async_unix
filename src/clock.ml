@@ -9,6 +9,10 @@ let at time = at (Time_ns.of_time_float_round_nearest time)
 let after span = after (Time_ns.Span.of_span_float_round_nearest span)
 let with_timeout span d = with_timeout (Time_ns.Span.of_span_float_round_nearest span) d
 
+let with_timeout_exn span d ~error =
+  with_timeout_exn (Time_ns.Span.of_span_float_round_nearest span) d ~error
+;;
+
 module Event = struct
   module Abort_result = Event.Abort_result
   module Fired = Event.Fired

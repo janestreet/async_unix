@@ -1038,7 +1038,7 @@ module Socket = struct
     let nodelay = bool "nodelay" TCP_NODELAY
     let sndbuf = int "sndbuf" SO_SNDBUF
     let rcvbuf = int "rcvbuf" SO_RCVBUF
-    let error = int "error" SO_ERROR
+    let error = int "error" (SO_ERROR [@alert "-deprecated"])
     let typ = int "typ" SO_TYPE
     let rcvlowat = int "rcvlowat" SO_RCVLOWAT
     let sndlowat = int "sndlowat" SO_SNDLOWAT
@@ -1268,7 +1268,7 @@ module Socket = struct
          (* We call [getsockopt] to find out whether the connect has succeed or failed. *)
          (match
             Fd.with_file_descr t.fd (fun file_descr ->
-              Unix.getsockopt_int file_descr SO_ERROR)
+              Unix.getsockopt_int file_descr (SO_ERROR [@alert "-deprecated"]))
           with
           | `Already_closed -> raise_s [%message "close after connect" (t.fd : Fd.t)]
           | `Error exn -> raise exn
