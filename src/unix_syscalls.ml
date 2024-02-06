@@ -773,13 +773,18 @@ let waitpid_exn pid =
           (exit_or_signal : Exit_or_signal.t)]
 ;;
 
+let dns_lookup ~name f =
+  Raw_scheduler.with_t_once_started ~f:(fun t ->
+    Throttle.enqueue t.dns_lookup_throttle (fun () -> In_thread.run ~name f))
+;;
+
 module Inet_addr = struct
   include Unix.Inet_addr
 
   let of_string_or_getbyname s =
     match of_string s with
     | t -> Deferred.return t
-    | exception _ -> In_thread.run (fun () -> of_string_or_getbyname s)
+    | exception _ -> dns_lookup ~name:"getbyname" (fun () -> of_string_or_getbyname s)
   ;;
 end
 
@@ -1330,20 +1335,16 @@ module Host = struct
     ; addresses : Inet_addr.t array
     }
 
-  let getbyname n =
-    In_thread.syscall_exn ~name:"gethostbyname" (fun () -> Unix.Host.getbyname n)
-  ;;
+  let getbyname n = dns_lookup ~name:"gethostbyname" (fun () -> Unix.Host.getbyname n)
 
   let getbyname_exn n =
-    In_thread.syscall_exn ~name:"gethostbyname" (fun () -> Unix.Host.getbyname_exn n)
+    dns_lookup ~name:"gethostbyname" (fun () -> Unix.Host.getbyname_exn n)
   ;;
 
-  let getbyaddr a =
-    In_thread.syscall_exn ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr a)
-  ;;
+  let getbyaddr a = dns_lookup ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr a)
 
   let getbyaddr_exn a =
-    In_thread.syscall_exn ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr_exn a)
+    dns_lookup ~name:"gethostbyaddr" (fun () -> Unix.Host.getbyaddr_exn a)
   ;;
 
   let have_address_in_common = Unix.Host.have_address_in_common
@@ -1403,8 +1404,7 @@ module Addr_info = struct
   [@@deriving bin_io, sexp]
 
   let get ?(service = "") ~host options =
-    In_thread.syscall_exn ~name:"getaddrinfo" (fun () ->
-      Unix.getaddrinfo host service options)
+    dns_lookup ~name:"getaddrinfo" (fun () -> Unix.getaddrinfo host service options)
   ;;
 end
 
@@ -1424,7 +1424,7 @@ module Name_info = struct
   [@@deriving sexp, bin_io]
 
   let get addr options =
-    In_thread.syscall_exn ~name:"getnameinfo" (fun () -> Unix.getnameinfo addr options)
+    dns_lookup ~name:"getnameinfo" (fun () -> Unix.getnameinfo addr options)
   ;;
 end
 
@@ -1500,4 +1500,6 @@ let wordexp =
 
 module Private = struct
   module Wait = Wait
+
+  let dns_lookup = dns_lookup
 end

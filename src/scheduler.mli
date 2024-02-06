@@ -245,6 +245,22 @@ module External : sig
   val is_registered : File_descr.t -> bool
 end
 
+module For_metrics : sig
+  module Thread_pool_stats_subscription : sig
+    type t
+
+    (** [create_exn] will create a subscription to stats for the async scheduler's thread
+        pool. This function will raise if called more than once, as multiple separate
+        callers to [Thread_pool.get_and_reset_stats] will interfere with each other. *)
+    val create_exn : unit -> t
+
+    (** See [Thread_pool.Stats] for documentation. Note that since calling this resets
+        some stats, multiple different callers trying to use this function will interfere
+        with each other. *)
+    val get_and_reset : t -> Thread_pool.Stats.t
+  end
+end
+
 module For_tests : sig
   val warm_up_fds : unit -> unit
 end

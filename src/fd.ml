@@ -33,7 +33,7 @@ module Kind = struct
 
   let kind_from_uring_stat file_descr kind =
     match kind with
-    (* We don't know when the kernel can actually return Unknown, but the Ocaml
+    (* We don't know when the kernel can actually return Unknown, but the OCaml
        implementation of stat defaults to a File in the case there is no match, so we do
        the same. *)
     | `Unknown -> File

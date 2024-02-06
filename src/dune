@@ -1,10 +1,15 @@
-(library (name async_unix) (public_name async_unix)
+(library
+ (foreign_stubs
+  (language c)
+  (names dump_core_on_job_delay_stubs magic_trace_stubs))
+ (name async_unix)
+ (public_name async_unix)
  (libraries async_kernel core_unix.bigstring_unix
-  core_kernel.bounded_int_table core cstruct async_kernel.eager_deferred
-  core_unix.filename_unix core_unix.iobuf_unix core_unix.nano_mutex
-  async_kernel.read_write_pair core_unix.squeue core_unix.sys_unix
-  thread_pool thread_safe_ivar core_unix.time_ns_unix
-  core_unix.time_stamp_counter)
- (c_names dump_core_on_job_delay_stubs magic_trace_stubs)
+   core_kernel.bounded_int_table core cstruct async_kernel.eager_deferred
+   core_unix.filename_unix core_unix.iobuf_unix core_unix.nano_mutex
+   async_kernel.read_write_pair core_unix.squeue core_unix.sys_unix
+   thread_pool thread_safe_ivar core_unix.time_ns_unix
+   core_unix.time_stamp_counter)
  (preprocessor_deps io_uring_config.h)
- (preprocess (pps ppx_jane ppx_optcomp)))
+ (preprocess
+  (pps ppx_jane ppx_optcomp)))

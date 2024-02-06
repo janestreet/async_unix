@@ -117,7 +117,19 @@ val collect_output_and_wait : t -> Output.t Deferred.t
     returns an error if the command does produce output.
 
     [run_forwarding] is like [run] but it forwards the stdout and stderr of the child
-    process to the stdout and stderr of the calling process.
+    process to the stdout and stderr of the calling process. One can choose to share the
+    stdout/stderr file descriptors with the child process ([`Share]) or copy the data
+    ([`Splice] [0], which is the default). Sharing the file descriptors minimizes
+    performance overhead, but it may change behavior. For example if a shared fd
+    corresponds to the terminal then the child process may choose to write colored output
+    where it'd otherwise write ASCII. If there's an error (e.g. SIGPIPE) writing to
+    a shared fd, that will be handled by the child process directly, instead of being
+    handled in the parent. If [`Share] is passed, [run_forwarding] will wait for
+    [Writer.stdout] and [Writer.stderr] to be flushed before spawning the child process to
+    avoid interleaving output with anything previously written to the writers.
+
+    [0] The name splice is a reference to the linux splice syscall, though note that it's
+    not actually used here for portability reasons.
 *)
 type 'a run :=
   ?accept_nonzero_exit:int list (** default is [] *)
@@ -137,8 +149,8 @@ val run_lines : string list Or_error.t run
 val run_lines_exn : string list run
 val run_expect_no_output : unit Or_error.t run
 val run_expect_no_output_exn : unit run
-val run_forwarding : unit Or_error.t run
-val run_forwarding_exn : unit run
+val run_forwarding : ?child_fds:[ `Share | `Splice ] -> unit Or_error.t run
+val run_forwarding_exn : ?child_fds:[ `Share | `Splice ] -> unit run
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
     [run_lines] but work from an existing process instead of creating a new one. *)

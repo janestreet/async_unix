@@ -1028,6 +1028,46 @@ let writev_in_background fd iovecs =
       In_thread.syscall ~name:"writev" (fun () -> Bigstring_unix.writev file_descr iovecs))
 ;;
 
+let update_after_completed_write t ~bytes_written =
+  t.bytes_written <- Int63.(t.bytes_written + of_int bytes_written);
+  if Int63.(t.bytes_written > t.bytes_received)
+  then die t [%message "writer wrote more bytes than it received"];
+  fill_flushes t;
+  t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
+  (* Remove processed iovecs from t.scheduled. *)
+  let rec remove_done bytes_written =
+    assert (bytes_written >= 0);
+    match Deque.dequeue_front t.scheduled with
+    | None ->
+      if bytes_written > 0
+      then die t [%message "writer wrote nonzero amount but IO_queue is empty"]
+    | Some ({ buf; pos; len }, kind) ->
+      if bytes_written >= len
+      then (
+        (* Current I/O-vector completely written.  Internally generated buffers get
+           destroyed immediately unless they are still in use for buffering.  *)
+        (match kind with
+         | Destroy -> Bigstring.unsafe_destroy buf
+         | Keep -> ());
+        remove_done (bytes_written - len))
+      else (
+        (* Partial I/O: update partially written I/O-vector and retry I/O. *)
+        let new_iovec =
+          IOVec.of_bigstring buf ~pos:(pos + bytes_written) ~len:(len - bytes_written)
+        in
+        Deque.enqueue_front t.scheduled (new_iovec, kind))
+  in
+  remove_done bytes_written;
+  (* See if there's anything else to do. *)
+  schedule_unscheduled t Keep;
+  if Deque.is_empty t.scheduled
+  then (
+    t.back <- 0;
+    t.scheduled_back <- 0;
+    `Nothing_left)
+  else `Writes_remaining
+;;
+
 let rec start_write t =
   if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
   assert (is_running t.background_writer_state);
@@ -1090,80 +1130,58 @@ and write_when_ready t =
 and write_finished t bytes_written =
   if debug then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
   assert (is_running t.background_writer_state);
-  t.bytes_written <- Int63.(t.bytes_written + of_int bytes_written);
-  if Int63.(t.bytes_written > t.bytes_received)
-  then die t [%message "writer wrote more bytes than it received"];
-  fill_flushes t;
-  t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
-  (* Remove processed iovecs from t.scheduled. *)
-  let rec remove_done bytes_written =
-    assert (bytes_written >= 0);
-    match Deque.dequeue_front t.scheduled with
-    | None ->
-      if bytes_written > 0
-      then die t [%message "writer wrote nonzero amount but IO_queue is empty"]
-    | Some ({ buf; pos; len }, kind) ->
-      if bytes_written >= len
-      then (
-        (* Current I/O-vector completely written.  Internally generated buffers get
-           destroyed immediately unless they are still in use for buffering.  *)
-        (match kind with
-         | Destroy -> Bigstring.unsafe_destroy buf
-         | Keep -> ());
-        remove_done (bytes_written - len))
-      else (
-        (* Partial I/O: update partially written I/O-vector and retry I/O. *)
-        let new_iovec =
-          IOVec.of_bigstring buf ~pos:(pos + bytes_written) ~len:(len - bytes_written)
-        in
-        Deque.enqueue_front t.scheduled (new_iovec, kind))
-  in
-  remove_done bytes_written;
-  (* See if there's anything else to do. *)
-  schedule_unscheduled t Keep;
-  if Deque.is_empty t.scheduled
-  then (
-    t.back <- 0;
-    t.scheduled_back <- 0;
-    t.background_writer_state <- `Not_running)
-  else (
-    match t.syscall with
-    | `Per_cycle -> start_write t
-    | `Periodic span ->
-      Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
-      >>> fun _ -> start_write t)
+  match update_after_completed_write t ~bytes_written with
+  | `Nothing_left -> t.background_writer_state <- `Not_running
+  | `Writes_remaining ->
+    (match t.syscall with
+     | `Per_cycle -> start_write t
+     | `Periodic span ->
+       Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
+       >>> fun _ -> start_write t)
+;;
+
+let start_writer t =
+  (* since we're writing, ensure the buffer age check is running *)
+  let (_ : _) = force t.check_buffer_age in
+  t.background_writer_state <- `Running;
+  (* We schedule the background writer thread to run with low priority, so that it
+     runs at the end of the cycle and that all of the calls to Writer.write will
+     usually be batched into a single system call. *)
+  schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
+    let open_flags = t.open_flags in
+    let can_write_fd =
+      match open_flags with
+      | `Error _ | `Already_closed -> false
+      | `Ok flags -> Unix.Open_flags.can_write flags
+    in
+    if not can_write_fd
+    then
+      (* The reason we produce a custom error message in this case is that
+         Linux conflates this case with "not a valid file descriptor" (EBADF), which
+         normally indicates a serious bug in file descriptor handling. *)
+      die
+        t
+        [%message
+          "not allowed to write due to file-descriptor flags" (open_flags : open_flags)];
+    start_write t)
+;;
+
+let rec flush_to_backing_out_channel t backing_out_channel =
+  let iovecs, (_ : bool), bytes_written = mk_iovecs t in
+  Array.iter iovecs ~f:(fun iovec ->
+    Backing_out_channel.output_iovec backing_out_channel iovec);
+  match update_after_completed_write t ~bytes_written with
+  | `Nothing_left -> ()
+  | `Writes_remaining -> flush_to_backing_out_channel t backing_out_channel
 ;;
 
 let maybe_start_writer t =
-  match t.background_writer_state with
-  | `Stopped_permanently _ | `Running -> ()
-  | `Not_running ->
-    if bytes_to_write t > 0
-    then (
-      (* since we're writing, ensure the buffer age check is running *)
-      let (_ : _) = force t.check_buffer_age in
-      t.background_writer_state <- `Running;
-      (* We schedule the background writer thread to run with low priority, so that it
-         runs at the end of the cycle and that all of the calls to Writer.write will
-         usually be batched into a single system call. *)
-      schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
-        let open_flags = t.open_flags in
-        let can_write_fd =
-          match open_flags with
-          | `Error _ | `Already_closed -> false
-          | `Ok flags -> Unix.Open_flags.can_write flags
-        in
-        if not can_write_fd
-        then
-          (* The reason we produce a custom error message in this case is that
-             Linux conflates this case with "not a valid file descriptor" (EBADF), which
-             normally indicates a serious bug in file descriptor handling. *)
-          die
-            t
-            [%message
-              "not allowed to write due to file-descriptor flags"
-                (open_flags : open_flags)];
-        start_write t))
+  match t.backing_out_channel with
+  | Some backing_out_channel -> flush_to_backing_out_channel t backing_out_channel
+  | None ->
+    (match t.background_writer_state with
+     | `Stopped_permanently _ | `Running -> ()
+     | `Not_running -> if bytes_to_write t > 0 then start_writer t)
 ;;
 
 let give_buf t desired =
@@ -1222,37 +1240,26 @@ let write_gen_internal
   if is_stopped_permanently t
   then got_bytes t src_len
   else (
-    match t.backing_out_channel with
-    | Some backing_out_channel ->
+    let available = Bigstring.length t.buf - t.back in
+    if available >= src_len
+    then (
       got_bytes t src_len;
-      Backing_out_channel.output
-        backing_out_channel
-        ~blit_to_bigstring
-        ~src
-        ~src_len
-        ~src_pos;
-      t.bytes_written <- Int63.(t.bytes_written + of_int src_len)
-    | None ->
-      let available = Bigstring.length t.buf - t.back in
-      if available >= src_len
-      then (
-        got_bytes t src_len;
-        let dst_pos = t.back in
-        t.back <- dst_pos + src_len;
-        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
-      else if allow_partial_write
-      then (
-        got_bytes t available;
-        let dst_pos = t.back in
-        t.back <- dst_pos + available;
-        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
-        let remaining = src_len - available in
-        let dst, dst_pos = give_buf t remaining in
-        blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
-      else (
-        let dst, dst_pos = give_buf t src_len in
-        blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
-      maybe_start_writer t)
+      let dst_pos = t.back in
+      t.back <- dst_pos + src_len;
+      blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
+    else if allow_partial_write
+    then (
+      got_bytes t available;
+      let dst_pos = t.back in
+      t.back <- dst_pos + available;
+      blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
+      let remaining = src_len - available in
+      let dst, dst_pos = give_buf t remaining in
+      blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
+    else (
+      let dst, dst_pos = give_buf t src_len in
+      blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
+    maybe_start_writer t)
 ;;
 
 let write_direct t ~f =
@@ -1383,21 +1390,15 @@ let write_char t c =
   then got_bytes t 1
   else (
     (* Check for the common case that the char can simply be put in the buffer. *)
-    match t.backing_out_channel with
-    | Some backing_out_channel ->
+    if Bigstring.length t.buf - t.back >= 1
+    then (
       got_bytes t 1;
-      Backing_out_channel.output_char backing_out_channel c;
-      t.bytes_written <- Int63.(t.bytes_written + of_int 1)
-    | None ->
-      if Bigstring.length t.buf - t.back >= 1
-      then (
-        got_bytes t 1;
-        t.buf.{t.back} <- c;
-        t.back <- t.back + 1)
-      else (
-        let dst, dst_pos = give_buf t 1 in
-        dst.{dst_pos} <- c);
-      maybe_start_writer t)
+      t.buf.{t.back} <- c;
+      t.back <- t.back + 1)
+    else (
+      let dst, dst_pos = give_buf t 1 in
+      dst.{dst_pos} <- c);
+    maybe_start_writer t)
 ;;
 
 let newline ?line_ending t =

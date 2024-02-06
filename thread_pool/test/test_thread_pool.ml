@@ -397,5 +397,88 @@ let%test_module _ =
             ~max_num_threads:1)
         (module Quickcheck_cpuset)
     ;;
+
+    let%expect_test "test stats" =
+      let t = ok_exn (create ~max_num_threads:1 ()) in
+      let release_jobs = Thread_safe_ivar.create () in
+      get_and_reset_stats t |> [%sexp_of: Thread_pool.Stats.t] |> print_s;
+      [%expect
+        {|
+        ((num_threads         0)
+         (num_work_completed  0)
+         (unfinished_work     0)
+         (total_working_time  0s)
+         (max_unfinished_work 0)
+         (max_queue_wait      0s)) |}];
+      let first_job_started = Thread_safe_ivar.create () in
+      add_work t (fun () ->
+        Thread_safe_ivar.fill first_job_started ();
+        Thread_safe_ivar.read release_jobs)
+      |> ok_exn;
+      add_work t (fun () -> Thread_safe_ivar.read release_jobs) |> ok_exn;
+      Thread_safe_ivar.read first_job_started;
+      let delay = sec 0.01 in
+      Time_ns.pause delay;
+      let stats = get_and_reset_stats t in
+      [%test_result: int] stats.num_threads ~expect:1;
+      [%test_result: int] stats.num_work_completed ~expect:0;
+      [%test_result: int] stats.unfinished_work ~expect:2;
+      assert (Time_ns.Span.( >= ) stats.total_working_time delay);
+      [%test_result: int] stats.max_unfinished_work ~expect:2;
+      assert (Time_ns.Span.( >= ) stats.max_queue_wait delay);
+      Thread_safe_ivar.fill release_jobs ();
+      wait_until_no_unfinished_work t;
+      (* The stats also include results since the last time that [get_and_reset_stats] was
+         called. *)
+      let stats = get_and_reset_stats t in
+      [%test_result: int] stats.num_work_completed ~expect:2;
+      [%test_result: int] stats.unfinished_work ~expect:0;
+      assert (Time_ns.Span.( >= ) stats.total_working_time delay);
+      [%test_result: int] stats.max_unfinished_work ~expect:2;
+      assert (Time_ns.Span.( >= ) stats.max_queue_wait delay);
+      (* And then the max_ stats are reset *)
+      let stats = get_and_reset_stats t in
+      [%test_result: int] stats.max_unfinished_work ~expect:0;
+      [%test_result: Time_ns.Span.t] stats.max_queue_wait ~expect:Time_ns.Span.zero;
+      finished_with t
+    ;;
+
+    let%expect_test "stats total_working_time handles cases where the internal \
+                     accounting wraps around"
+      =
+      let num_threads = 50 in
+      let t = ok_exn (create ~max_num_threads:num_threads ()) in
+      let release_jobs = Thread_safe_ivar.create () in
+      for _ = 1 to num_threads do
+        let work_started = Thread_safe_ivar.create () in
+        add_work t (fun () ->
+          Thread_safe_ivar.fill work_started ();
+          Thread_safe_ivar.read release_jobs)
+        |> ok_exn;
+        Thread_safe_ivar.read work_started
+      done;
+      let delay = sec 0.01 in
+      let expected_working_time = Time_ns.Span.scale_int delay num_threads in
+      let expected_max_working_time =
+        (* Ensure that we don't end up with crazy numbers due to integer overflow *)
+        Time_ns.Span.of_hr 1.0
+      in
+      Time_ns.pause delay;
+      let stats = get_and_reset_stats t in
+      [%test_result: int] stats.num_threads ~expect:num_threads;
+      assert (Time_ns.Span.( >= ) stats.total_working_time expected_working_time);
+      assert (Time_ns.Span.( <= ) stats.total_working_time expected_max_working_time);
+      [%test_result: int] stats.max_unfinished_work ~expect:50;
+      Thread_safe_ivar.fill release_jobs ();
+      wait_until_no_unfinished_work t;
+      (* The stats also include results since the last time that [get_and_reset_stats] was
+         called. *)
+      let stats = get_and_reset_stats t in
+      [%test_result: int] stats.num_work_completed ~expect:50;
+      [%test_result: int] stats.unfinished_work ~expect:0;
+      assert (Time_ns.Span.( >= ) stats.total_working_time expected_working_time);
+      assert (Time_ns.Span.( <= ) stats.total_working_time expected_max_working_time);
+      finished_with t
+    ;;
   end)
 ;;

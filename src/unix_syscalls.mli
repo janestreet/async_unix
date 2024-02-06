@@ -824,4 +824,9 @@ module Private : sig
     val check_all : unit -> unit
     val do_not_handle_sigchld : unit -> unit
   end
+
+  (** [dns_lookup] exposes the internals of how the DNS lookup functions run on the thread
+      pool, so that we can validate in tests that those functions blocking doesn't block the
+      entire scheduler's thread pool. *)
+  val dns_lookup : name:string -> (unit -> 'a) -> 'a Deferred.t
 end

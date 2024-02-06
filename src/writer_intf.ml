@@ -763,14 +763,12 @@ module type Writer0 = sig
     type t [@@deriving sexp_of]
 
     val create
-      :  output_char:(char -> unit)
-      -> output_chars:(bigstring -> len:int -> unit)
+      :  output:(bigstring -> pos:int -> len:int -> unit)
       -> flush:(unit -> unit)
       -> sexp:(unit -> Sexp.t)
       -> t
 
     val of_out_channel : Out_channel.t -> t
-    val of_output_char : (char -> unit) -> t
   end
 
   val set_synchronous_backing_out_channel : t -> Backing_out_channel.t -> unit Deferred.t

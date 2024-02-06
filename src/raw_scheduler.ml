@@ -128,6 +128,12 @@ type t =
        i.e has not completed a job for one second and has no available threads. *)
     mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
   ; mutable thread_pool_stuck : Thread_pool_stuck_status.t
+  ; dns_lookup_throttle : unit Throttle.t
+      (* [dns_lookup_throttle] exists to prevent the entire thread pool from being used on DNS
+     lookups. DNS is being special-cased here compared to other blocking operations as
+     it's somewhat common for processes to do lots of concurrent DNS lookups, and DNS
+     lookups can block for a long time, especially in the presence network unavailability.
+  *)
   ; mutable next_tsc_calibration : Tsc.t
   ; kernel_scheduler : Kernel_scheduler.t
   ; (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
@@ -337,6 +343,7 @@ let invariant t : unit =
       ~thread_pool:(check Thread_pool.invariant)
       ~handle_thread_pool_stuck:ignore
       ~thread_pool_stuck:ignore
+      ~dns_lookup_throttle:ignore
       ~next_tsc_calibration:ignore
       ~kernel_scheduler:(check Kernel_scheduler.invariant)
       ~max_inter_cycle_timeout:ignore
@@ -730,6 +737,14 @@ Async will be unable to timeout with sub-millisecond precision.|}]
       in
       (module W : File_descr_watcher.S), None, Some uring
   in
+  let dns_lookup_throttle =
+    let max_concurrent_dns_lookups =
+      Int.max (Thread_pool.max_num_threads thread_pool / 2) 1
+    in
+    Throttle.create
+      ~continue_on_error:true
+      ~max_concurrent_jobs:max_concurrent_dns_lookups
+  in
   let kernel_scheduler = Kernel_scheduler.t () in
   let t =
     { mutex
@@ -752,6 +767,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; thread_pool
     ; handle_thread_pool_stuck = default_handle_thread_pool_stuck
     ; thread_pool_stuck = No_unstarted_work
+    ; dns_lookup_throttle
     ; next_tsc_calibration = Tsc.now ()
     ; kernel_scheduler
     ; have_lock_do_cycle = None
@@ -803,30 +819,6 @@ let reset_in_forked_process_without_taking_lock () =
 ;;
 
 let reset_in_forked_process () = reset_in_forked_process ~take_the_lock:true
-
-(* [thread_safe_reset] shuts down Async, exiting the scheduler thread, freeing up all
-   Async resources (file descriptors, threads), and resetting Async global state, so that
-   one can recreate a new Async scheduler afterwards.  [thread_safe_reset] blocks until
-   the shutdown is complete; it must be called from outside Async, e.g. the main
-   thread. *)
-let thread_safe_reset () =
-  match !the_one_and_only_ref with
-  | Not_ready_to_initialize () | Ready_to_initialize _ -> ()
-  | Initialized t ->
-    assert (not (am_holding_lock t));
-    Thread_pool.finished_with t.thread_pool;
-    Thread_pool.block_until_finished t.thread_pool;
-    (* We now schedule a job that, when it runs, exits the scheduler thread.  We then wait
-       for that job to run.  We acquire the Async lock so that we can schedule the job,
-       but release it before we block, so that the scheduler can acquire it. *)
-    let scheduler_thread_finished = Thread_safe_ivar.create () in
-    with_lock t (fun () ->
-      schedule (fun () ->
-        Thread_safe_ivar.fill scheduler_thread_finished ();
-        Thread.exit ()));
-    Thread_safe_ivar.read scheduler_thread_finished;
-    reset_in_forked_process ()
-;;
 
 let make_async_unusable () =
   reset_in_forked_process ();
@@ -1314,6 +1306,12 @@ type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
 
 let t () = the_one_and_only ()
 
+let with_t_once_started ~f =
+  match !the_one_and_only_ref with
+  | Initialized t when is_running t -> f t
+  | _ -> Deferred.bind (return ()) ~f:(fun () -> f (t ()))
+;;
+
 let fold_fields (type a) ~init folder : a =
   let t = t () in
   let f ac field = folder.folder ac t field in
@@ -1337,6 +1335,7 @@ let fold_fields (type a) ~init folder : a =
     ~thread_pool:f
     ~handle_thread_pool_stuck:f
     ~thread_pool_stuck:f
+    ~dns_lookup_throttle:f
     ~next_tsc_calibration:f
     ~kernel_scheduler:f
     ~have_lock_do_cycle:f
@@ -1358,6 +1357,26 @@ let handle_thread_pool_stuck f =
            (fun () -> f ~stuck_for)
            ())
 ;;
+
+module For_metrics = struct
+  module Thread_pool_stats_subscription = struct
+    type t = unit
+
+    let created = ref false
+
+    let create_exn () =
+      if !created
+      then failwith "Thread_pool_stats_subscription.create_exn can only be called once";
+      created := true;
+      ()
+    ;;
+
+    let get_and_reset () =
+      let t = t () in
+      Thread_pool.get_and_reset_stats t.thread_pool
+    ;;
+  end
+end
 
 module External = struct
   let current_thread_can_cycle () =

@@ -50,6 +50,8 @@ module type Require_explicit_time_source = sig
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
+  module Time_float_unix = Time_float
+
   module Time : sig
     include module type of struct
       include Time_float_unix
@@ -84,5 +86,6 @@ module type Require_explicit_time_source = sig
     val now : unit -> t [@@deprecated "[since 2016-02] Use [Time_source]"]
   end
 
+  module Time_ns_unix = Time_ns
   module Clock : Async_kernel.Clock_ns.Clock_deprecated with module Time := Time_float
 end

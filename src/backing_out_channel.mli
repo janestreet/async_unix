@@ -8,27 +8,13 @@ type t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
-type output_chars := bigstring -> len:int -> unit
-
 val of_out_channel : Out_channel.t -> t
-val of_output_char : (char -> unit) -> t
 
 val create
-  :  output_char:(char -> unit)
-  -> output_chars:output_chars
+  :  output:(bigstring -> pos:int -> len:int -> unit)
   -> flush:(unit -> unit)
   -> sexp:(unit -> Sexp.t)
   -> t
 
-val output_char : t -> char -> unit
-
-val output
-  :  t
-  -> blit_to_bigstring:
-       (src:'a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
-  -> src:'a
-  -> src_len:int
-  -> src_pos:int
-  -> unit
-
+val output_iovec : t -> Bigstring.t Core_unix.IOVec.t -> unit
 val flush : t -> unit

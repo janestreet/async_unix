@@ -75,16 +75,6 @@ val run_in_async_wait : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 
 val run_in_async_wait_exn : (unit -> 'a Deferred.t) -> 'a
 
-(** [reset_scheduler] stops the scheduler thread and any associated threads, and resets
-    Async's global state to its initial state.  This is useful if you need to first use
-    Async to compute a value and then to daemonize (in which case you should [daemonize]
-    with [~allow_threads_to_have_been_created:true]).
-
-    [reset_scheduler] can be called from the main thread (before Async is started) or from
-    a thread outside Async.  [reset_scheduler] is known to be imperfect, and to have races
-    in which there are still threads running after it returns. *)
-val reset_scheduler : unit -> unit
-
 (** [without_async_lock f] can not be called from async, usually because [f] is expected
     to block. It's safe to call it in these two circumstances:
     - from a separate thread that's not holding the async lock

@@ -28,3 +28,18 @@ let of_pipe ?time_source info pipe_w =
   in
   writer, `Closed_and_flushed_downstream closed_and_flushed_downstream
 ;;
+
+let splice t ~from =
+  match%map
+    Reader.read_one_chunk_at_a_time from ~handle_chunk:(fun buffer ~pos ~len ->
+      schedule_bigstring t ~pos ~len buffer;
+      match%map flushed_or_failed_with_result t with
+      | Error -> `Stop `Error
+      | Consumer_left -> `Stop `Consumer_left
+      | Flushed (_ : Time_ns.t) -> `Continue)
+  with
+  | `Eof_with_unconsumed_data _ -> assert false
+  (* unreachable because [handle_chunk] only returns [`Stop|`Continue] *)
+  | `Eof -> `Ok
+  | `Stopped result -> result
+;;

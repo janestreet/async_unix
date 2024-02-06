@@ -299,8 +299,9 @@ let run_expect_no_output
 let run_expect_no_output_exn = map_run run_expect_no_output ok_exn
 
 let transfer_and_close reader writer =
-  let%bind () = Reader.transfer reader (writer |> Writer.pipe) in
-  Reader.close reader
+  Reader.with_close reader ~f:(fun () ->
+    let%map (_ : [ `Ok | `Consumer_left | `Error ]) = Writer.splice ~from:reader writer in
+    ())
 ;;
 
 let forward_output_and_wait ?accept_nonzero_exit t =
@@ -324,7 +325,7 @@ let forward_output_and_wait ?accept_nonzero_exit t =
 
 let forward_output_and_wait_exn = map_collect forward_output_and_wait ok_exn
 
-let run_forwarding
+let run_forwarding_with_spliced_fds
   ?accept_nonzero_exit
   ?argv0
   ?env
@@ -340,7 +341,73 @@ let run_forwarding
   | Ok t -> forward_output_and_wait ?accept_nonzero_exit t
 ;;
 
-let run_forwarding_exn = map_run run_forwarding ok_exn
+let run_forwarding_with_shared_fds
+  ?accept_nonzero_exit
+  ?argv0
+  ?env
+  ?prog_search_path
+  ?stdin:write_to_stdin
+  ?working_dir
+  ~prog
+  ~args
+  ()
+  =
+  let%bind () = Writer.flushed (Lazy.force Writer.stdout)
+  and () = Writer.flushed (Lazy.force Writer.stderr) in
+  match%bind
+    In_thread.syscall_exn ~name:"create_process_with_fds" (fun () ->
+      Core_unix.create_process_with_fds
+        ?argv0
+        ?env
+        ?prog_search_path
+        ?working_dir
+        ~prog
+        ~args
+        ~stdin:Generate
+        ~stdout:(Use_this Core_unix.stdout)
+        ~stderr:(Use_this Core_unix.stderr)
+        ())
+  with
+  | { pid; stdin; stdout = _; stderr = _ } ->
+    let%map () =
+      let writer =
+        Fd.create
+          Fifo
+          stdin
+          (Info.create
+             "child process"
+             ~here:[%here]
+             ("stdin", `pid pid, `prog prog, `args args)
+             [%sexp_of:
+               string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]])
+        |> Writer.create
+      in
+      Writer.with_close writer ~f:(fun () ->
+        (match write_to_stdin with
+         | None -> ()
+         | Some write_to_stdin -> Writer.write writer write_to_stdin);
+        Writer.flushed_or_failed_unit writer)
+    and exit_status = Unix.waitpid_prompt pid in
+    (match handle_exit_status ?accept_nonzero_exit exit_status with
+     | Ok _ as ok -> ok
+     | Error exit_status ->
+       Or_error.error_s
+         [%message
+           "Process.run_forwarding_with_shared_fds failed"
+             (prog : string)
+             (args : string list)
+             (working_dir : string option)
+             (env : env option)
+             (exit_status : Unix.Exit_or_signal.error)])
+;;
+
+let run_forwarding ?(child_fds = `Splice) =
+  match child_fds with
+  | `Splice -> run_forwarding_with_spliced_fds
+  | `Share -> run_forwarding_with_shared_fds
+;;
+
+let run_forwarding_exn ?child_fds = map_run (run_forwarding ?child_fds) ok_exn
 
 let send_signal_compat t signal =
   (* We don't force the lazy (and therefore we don't reap the PID) here. We only do

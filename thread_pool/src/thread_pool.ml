@@ -77,9 +77,15 @@ module Internal = struct
            [Linux_ext.pr_set_name]) to[name]. *)
         name : string
       ; doit : unit -> unit
+      ; enqueued_at : Time_ns.t
       ; priority : Priority.t
       }
     [@@deriving sexp_of]
+
+    let enqueued_for t =
+      let now = Time_ns.now () in
+      Time_ns.diff now t.enqueued_at
+    ;;
   end
 
   module Work_queue = struct
@@ -261,6 +267,25 @@ module Internal = struct
        not yet been completed. *)
     ; mutable unfinished_work : int
     ; mutable num_work_completed : int
+    ; mutable num_working_threads : int
+    ; mutable aggregate_working_start_time_since_epoch : Time_ns.Span.t
+        (** [aggregate_working_start_time_since_epoch] is the the sum of, for each working
+        thread, the span from the epoch to when it started that work. This is used to
+        compute a [total_working_time] that includes the currently working threads, by
+        subtracting this number from (the current span since the epoch) times
+        num_working_threads. It's expected that this value may overflow and wrap around,
+        that overflow will get cancelled out when computing the working time. *)
+    ; mutable total_completed_working_time : Time_ns.Span.t
+        (** [total_completed_working_time] is the total time spent working across all
+        completed jobs. This could technically be combined with
+        [aggregate_working_start_time_since_epoch], but this is clearer and the extra
+        bookkeeping is unlikely to be measurable. *)
+    ; mutable max_recent_unfinished_work : int
+        (** [max_recent_unfinished_work] tracks the max seen value of
+        [unfinished_work] since [get_and_reset_stats] was last called. *)
+    ; mutable max_recent_completed_queue_wait : Time_ns.Span.t
+        (** [max_recent_completed_queue_wait] tracks the max time a task has waited in
+        [work_queue] since [get_and_reset_stats] was last called. *)
     }
   [@@deriving fields ~getters ~iterators:iter, sexp_of]
 
@@ -313,6 +338,19 @@ module Internal = struct
         ~unfinished_work:(check (fun unfinished_work -> assert (unfinished_work >= 0)))
         ~num_work_completed:
           (check (fun num_work_completed -> assert (num_work_completed >= 0)))
+        ~num_working_threads:
+          (check (fun num_working_threads ->
+             assert (num_working_threads <= t.num_threads)))
+        ~aggregate_working_start_time_since_epoch:ignore
+        ~total_completed_working_time:
+          (check (fun total_completed_working_time ->
+             assert (Time_ns.Span.( >= ) total_completed_working_time Time_ns.Span.zero)))
+        ~max_recent_unfinished_work:
+          (check (fun max_recent_unfinished_work ->
+             assert (max_recent_unfinished_work >= t.unfinished_work)))
+        ~max_recent_completed_queue_wait:
+          (check (fun max_recent_completed_queue_wait ->
+             assert (Time_ns.Span.( >= ) max_recent_completed_queue_wait Time_ns.Span.zero)))
     with
     | exn ->
       raise_s [%message "Thread_pool.invariant failed" (exn : exn) ~thread_pool:(t : t)]
@@ -363,6 +401,11 @@ module Internal = struct
         ; work_queue = Queue.create ()
         ; unfinished_work = 0
         ; num_work_completed = 0
+        ; num_working_threads = 0
+        ; aggregate_working_start_time_since_epoch = Time_ns.Span.zero
+        ; total_completed_working_time = Time_ns.Span.zero
+        ; max_recent_unfinished_work = 0
+        ; max_recent_completed_queue_wait = Time_ns.Span.zero
         }
       in
       Ok t)
@@ -392,7 +435,12 @@ module Internal = struct
           ~available_threads:(set [])
           ~work_queue:ignore
           ~unfinished_work:ignore
-          ~num_work_completed:ignore)
+          ~num_work_completed:ignore
+          ~num_working_threads:ignore
+          ~aggregate_working_start_time_since_epoch:ignore
+          ~total_completed_working_time:ignore
+          ~max_recent_unfinished_work:ignore
+          ~max_recent_completed_queue_wait:ignore)
   ;;
 
   let finished_with t =
@@ -412,7 +460,11 @@ module Internal = struct
   let make_thread_available t thread =
     if !debug then debug_log "make_thread_available" (thread, t) [%sexp_of: Thread.t * t];
     match Queue.dequeue t.work_queue with
-    | Some work -> assign_work_to_thread thread work
+    | Some work ->
+      let enqueued_for = Work.enqueued_for work in
+      if Time_ns.Span.( > ) enqueued_for t.max_recent_completed_queue_wait
+      then t.max_recent_completed_queue_wait <- enqueued_for;
+      assign_work_to_thread thread work
     | None ->
       thread.state <- `Available;
       t.available_threads <- thread :: t.available_threads;
@@ -443,6 +495,13 @@ module Internal = struct
               match Squeue.pop thread.work_queue with
               | Stop -> ()
               | Work work ->
+                let started_working_at = Time_ns.now () in
+                Mutex.critical_section t.mutex ~f:(fun () ->
+                  t.aggregate_working_start_time_since_epoch
+                    <- Time_ns.Span.( + )
+                         t.aggregate_working_start_time_since_epoch
+                         (Time_ns.to_span_since_epoch started_working_at);
+                  t.num_working_threads <- t.num_working_threads + 1);
                 if !debug
                 then
                   debug_log
@@ -460,8 +519,18 @@ module Internal = struct
                     "thread finished with work"
                     (work, thread, t)
                     [%sexp_of: Work.t * Thread.t * t];
+                let stopped_working_at = Time_ns.now () in
                 Mutex.critical_section t.mutex ~f:(fun () ->
                   t.unfinished_work <- t.unfinished_work - 1;
+                  t.num_working_threads <- t.num_working_threads - 1;
+                  t.total_completed_working_time
+                    <- Time_ns.Span.( + )
+                         t.total_completed_working_time
+                         (Time_ns.diff stopped_working_at started_working_at);
+                  t.aggregate_working_start_time_since_epoch
+                    <- Time_ns.Span.( - )
+                         t.aggregate_working_start_time_since_epoch
+                         (Time_ns.to_span_since_epoch started_working_at);
                   thread.unfinished_work <- thread.unfinished_work - 1;
                   match thread.state with
                   | `Available ->
@@ -513,7 +582,13 @@ module Internal = struct
             `None_available))
   ;;
 
-  let inc_unfinished_work t = t.unfinished_work <- t.unfinished_work + 1
+  let inc_unfinished_work t =
+    let unfinished_work = t.unfinished_work + 1 in
+    t.unfinished_work <- unfinished_work;
+    if unfinished_work > t.max_recent_unfinished_work
+    then t.max_recent_unfinished_work <- unfinished_work
+  ;;
+
   let default_thread_name = "thread-pool thread"
 
   let add_work ?priority ?name t doit =
@@ -524,6 +599,7 @@ module Internal = struct
       let work =
         { Work.doit
         ; name = Option.value name ~default:default_thread_name
+        ; enqueued_at = Time_ns.now ()
         ; priority = Option.value priority ~default:t.default_priority
         }
       in
@@ -606,6 +682,7 @@ module Internal = struct
           { Work.name =
               Option.value name ~default:(Helper_thread.default_name helper_thread)
           ; doit
+          ; enqueued_at = Time_ns.now ()
           ; priority =
               Option.value
                 priority
@@ -634,6 +711,51 @@ module Internal = struct
       | `In_use ->
         helper_thread.state <- `Finishing;
         maybe_finish_helper_thread t helper_thread)
+  ;;
+
+  module Stats = struct
+    type t =
+      { num_threads : int
+      ; num_work_completed : int
+      ; unfinished_work : int
+      ; total_working_time : Time_ns.Span.t
+      ; max_unfinished_work : int
+      ; max_queue_wait : Time_ns.Span.t
+      }
+    [@@deriving sexp_of]
+  end
+
+  let get_and_reset_stats t =
+    let current_queue_wait =
+      match Queue.peek t.work_queue with
+      | None -> Time_ns.Span.zero
+      | Some work -> Work.enqueued_for work
+    in
+    let max_queue_wait =
+      Time_ns.Span.max current_queue_wait t.max_recent_completed_queue_wait
+    in
+    let total_working_time =
+      let total_active_working_time =
+        Time_ns.Span.( - )
+          (Time_ns.Span.scale_int
+             (Time_ns.Span.since_unix_epoch ())
+             t.num_working_threads)
+          t.aggregate_working_start_time_since_epoch
+      in
+      Time_ns.Span.( + ) t.total_completed_working_time total_active_working_time
+    in
+    let stats : Stats.t =
+      { num_threads = t.num_threads
+      ; num_work_completed = t.num_work_completed
+      ; unfinished_work = t.unfinished_work
+      ; total_working_time
+      ; max_unfinished_work = t.max_recent_unfinished_work
+      ; max_queue_wait
+      }
+    in
+    t.max_recent_unfinished_work <- t.unfinished_work;
+    t.max_recent_completed_queue_wait <- Time_ns.Span.zero;
+    stats
   ;;
 end
 
@@ -708,6 +830,10 @@ let add_work_for_helper_thread ?priority ?name t helper_thread doit =
 let finished_with_helper_thread t helper_thread =
   critical_section t ~f:(fun () -> finished_with_helper_thread t helper_thread)
 ;;
+
+module Stats = Stats
+
+let get_and_reset_stats t = critical_section t ~f:(fun () -> get_and_reset_stats t)
 
 module Private = struct
   let check_invariant = check_invariant
