@@ -74,7 +74,17 @@ let create
       ; args
       ; working_dir
       ; env
-      ; wait = lazy (Unix.waitpid_prompt pid)
+      ; wait =
+          (* It's ok that we're not using [Lazy_deferred] here because
+             there are no known exceptions that [waitpid] can raise.
+             Also, we need the deferred to be determined in the same Async job
+             that makes the syscall, to make [send_signal] safe, so we can't use
+             [Lazy_deferred] as is.
+             The reason we don't want to eagerly reap the process is that the user might
+             want to refer to this process by pid. The only way to do this safely
+             is to do it before calling [wait].
+          *)
+          lazy (Unix.waitpid_prompt pid)
       }
     in
     (match write_to_stdin with
@@ -299,9 +309,7 @@ let run_expect_no_output
 let run_expect_no_output_exn = map_run run_expect_no_output ok_exn
 
 let transfer_and_close reader writer =
-  Reader.with_close reader ~f:(fun () ->
-    let%map (_ : [ `Ok | `Consumer_left | `Error ]) = Writer.splice ~from:reader writer in
-    ())
+  Reader.with_close reader ~f:(fun () -> Writer.splice ~from:reader writer)
 ;;
 
 let forward_output_and_wait ?accept_nonzero_exit t =
@@ -409,13 +417,13 @@ let run_forwarding ?(child_fds = `Splice) =
 
 let run_forwarding_exn ?child_fds = map_run (run_forwarding ?child_fds) ok_exn
 
-let send_signal_compat t signal =
+let send_signal_internal t signal =
   (* We don't force the lazy (and therefore we don't reap the PID) here. We only do
      that if the user calls [wait] explicitly. *)
   if Lazy.is_val t.wait && Deferred.is_determined (Lazy.force t.wait)
   then
     (* The process was reaped, so it's not safe to send signals to this pid. *)
-    `No_such_process
+    `No_such_process_internal
   else (
     match Signal_unix.send signal (`Pid t.pid) with
     | `No_such_process ->
@@ -429,8 +437,14 @@ let send_signal_compat t signal =
          prevent.
 
          The right fix would be to prevent users from calling [waitpid] on our pid. *)
-      `No_such_process
+      `No_such_process_OS
     | `Ok -> `Ok)
+;;
+
+let send_signal_compat t signal =
+  match send_signal_internal t signal with
+  | `No_such_process_OS | `No_such_process_internal -> `No_such_process
+  | `Ok -> `Ok
 ;;
 
 let send_signal_compat_exn t signal =
@@ -475,4 +489,8 @@ module Aliases = struct
     -> 'a Deferred.t
 
   type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
+end
+
+module For_tests = struct
+  let send_signal_internal = send_signal_internal
 end

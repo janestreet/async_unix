@@ -702,7 +702,8 @@ end = struct
     type t =
       | T :
           { kind : ('q, 'r) Kind.t
-          ; result : ('r, exn) Result.t Ivar.t
+          ; monitor : Monitor.t
+          ; result : 'r Ivar.t
           ; wait_on : 'q
           }
           -> t
@@ -712,16 +713,20 @@ end = struct
       match Kind.wait_nohang t.kind t.wait_on with
       | None -> false
       | Some x ->
-        Ivar.fill_exn t.result (Ok x);
+        Ivar.fill_exn t.result x;
         true
       | exception exn ->
-        Ivar.fill_exn t.result (Error exn);
+        Monitor.send_exn t.monitor exn;
         true
     ;;
   end
 
   let waits : Wait.t list ref = ref []
-  let add ~kind ~result ~wait_on = waits := T { kind; result; wait_on } :: !waits
+
+  let add ~kind ~result ~wait_on ~monitor =
+    waits := T { kind; result; wait_on; monitor } :: !waits
+  ;;
+
   let check_all () = waits := List.filter !waits ~f:(Fn.non Wait.check)
   let should_handle_sigchld = ref true
   let am_handling_sigchld = ref false
@@ -736,7 +741,13 @@ end = struct
       (if !should_handle_sigchld
        then (
          am_handling_sigchld := true;
-         Async_signal.handle [ Signal.chld ] ~f:(fun _ -> check_all ())))
+         (* since [check_all] manages its own monitors and does not raise exceptions, we
+            execute the [Async_signal.handle] in the main execution context to avoid it
+            keeping a reference to whatever monitor is current when
+            [install_sigchld_handler_the_first_time] is first computed *)
+         Scheduler.Private.(with_execution_context (t ()))
+           Execution_context.main
+           ~f:(fun () -> Async_signal.handle [ Signal.chld ] ~f:(fun _ -> check_all ()))))
   ;;
 
   let deferred_wait (type q r) (wait_on : q) ~(kind : (q, r) Kind.t) =
@@ -749,7 +760,9 @@ end = struct
     Lazy.force install_sigchld_handler_the_first_time;
     match Kind.wait_nohang kind wait_on with
     | Some result -> return result
-    | None -> Deferred.create (fun result -> add ~kind ~result ~wait_on) >>| Result.ok_exn
+    | None ->
+      Deferred.create (fun result ->
+        add ~kind ~result ~wait_on ~monitor:(Monitor.current ()))
   ;;
 
   let wait wait_on = deferred_wait wait_on ~kind:Normal

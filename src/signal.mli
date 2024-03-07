@@ -51,6 +51,7 @@ val manage_by_async : t list -> unit
 
     Various signals whose [default_sys_behavior] is [`Terminate] are not included:
 
+
     {v
        | kill   | it's not allowed to be handled                            |
        | pipe   | Async already ignores this signal, since it handles EPIPE |

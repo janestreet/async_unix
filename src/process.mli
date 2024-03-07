@@ -204,3 +204,10 @@ module Aliases : sig
   type nonrec 'a run = 'a run
   type nonrec 'a collect = 'a collect
 end
+
+module For_tests : sig
+  val send_signal_internal
+    :  t
+    -> Signal.t
+    -> [ `Ok | `No_such_process_internal | `No_such_process_OS ]
+end

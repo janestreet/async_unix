@@ -19,6 +19,7 @@ module Flush_result = struct
   type t =
     | Error
     | Consumer_left
+    | Force_closed
     | Flushed of Time_ns_suppress_sexp_in_test.t
   [@@deriving sexp_of]
 end
@@ -87,6 +88,7 @@ end
 module Stop_reason = struct
   type t =
     | Error
+    | Closed
     | (* [Consumer_left] is only reported when [raise_when_consumer_leaves = false],
          otherwise an [Error] is reported. *)
       Consumer_left
@@ -560,6 +562,7 @@ let flushed_or_failed_with_result t =
     else (
       match t.background_writer_state with
       | `Stopped_permanently Error -> return Flush_result.Error
+      | `Stopped_permanently Closed -> return Flush_result.Force_closed
       | `Stopped_permanently Consumer_left -> return Flush_result.Consumer_left
       | `Running | `Not_running ->
         if Ivar.is_full t.close_finished
@@ -583,7 +586,7 @@ let flushed_or_failed_unit t = eager_map (flushed_or_failed_with_result t) ~f:ig
 let flushed_time_ns t =
   eager_bind (flushed_or_failed_with_result t) ~f:(function
     | Flushed t -> Deferred.return t
-    | Error | Consumer_left -> Deferred.never ())
+    | Error | Consumer_left | Force_closed -> Deferred.never ())
 ;;
 
 let flushed_time t = eager_map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
@@ -665,6 +668,21 @@ let is_closed t =
 let is_open t = not (is_closed t)
 let writers_to_flush_at_shutdown : t Bag.t = Bag.create ()
 
+let eval_force ?force t =
+  match force with
+  | Some fc -> fc
+  | None ->
+    (* We used to use [after (sec 5.)] as the default value for [force] for all kinds
+       of underlying fds.  This was problematic, because it silently caused data in
+       the writer's buffer to be dropped when it kicked in.  We care about data
+       getting out only for the files, when we want to get data to disk.  When we
+       close socket writers, we usually just want to drop the connection, so using
+       [after (sec 5.)]  makes sense. *)
+    (match Fd.kind t.fd with
+     | File -> Deferred.never ()
+     | Char | Fifo | Socket _ -> Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
+;;
+
 let final_flush ?force t =
   let producers_flushed =
     (* Note that each element of [producers_to_flush_at_close] checks that the upstream
@@ -676,21 +694,7 @@ let final_flush ?force t =
       ~f:(fun f -> f ())
       (Bag.to_list t.producers_to_flush_at_close)
   in
-  let force =
-    match force with
-    | Some fc -> fc
-    | None ->
-      (* We used to use [after (sec 5.)] as the default value for [force] for all kinds
-         of underlying fds.  This was problematic, because it silently caused data in
-         the writer's buffer to be dropped when it kicked in.  We care about data
-         getting out only for the files, when we want to get data to disk.  When we
-         close socket writers, we usually just want to drop the connection, so using
-         [after (sec 5.)]  makes sense. *)
-      (match Fd.kind t.fd with
-       | File -> Deferred.never ()
-       | Char | Fifo | Socket _ ->
-         Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
-  in
+  let force = eval_force ?force t in
   Deferred.any_unit
     [ (* If the consumer leaves, there's no more writing we can do. *)
       consumer_left t
@@ -699,6 +703,30 @@ let final_flush ?force t =
     ; (* The buffer-age check might fire while we're waiting. *)
       Check_buffer_age.too_old (Lazy.force t.check_buffer_age)
     ]
+;;
+
+let stop_background_writer_if_not_running_now t =
+  match t.background_writer_state with
+  | `Not_running ->
+    t.background_writer_state <- `Stopped_permanently Closed;
+    Ivar.fill_if_empty t.background_writer_stopped ()
+  | _ -> ()
+;;
+
+let stop_background_writer_and_close_fd t =
+  (* it's important that we set [close_state = `Closed], otherwise the background writer
+     won't stop (see [write_finished]) *)
+  (match t.close_state with
+   | `Closed -> ()
+   | `Closed_and_flushing | `Open -> assert false);
+  stop_background_writer_if_not_running_now t;
+  (* closing the fd *causes* the background writer to be stopped (the call to [ready_to]
+     unblocks due to this) *)
+  let%bind () = Unix.close t.fd in
+  (* [background_writer_stopped] is pretty much always determined here because
+     [Unix.close] is much slower, but theoretically it's still necessary in case
+     the ordering changes. *)
+  Ivar.read t.background_writer_stopped
 ;;
 
 let do_close_noflush t =
@@ -711,7 +739,7 @@ let do_close_noflush t =
     (match t.flush_at_shutdown_elt with
      | None -> assert false
      | Some elt -> Bag.remove writers_to_flush_at_shutdown elt);
-    Unix.close t.fd >>> fun () -> Ivar.fill_exn t.close_finished ()
+    stop_background_writer_and_close_fd t >>> fun () -> Ivar.fill_exn t.close_finished ()
   | `Closed -> ()
 ;;
 
@@ -773,7 +801,8 @@ let stop_permanently t (outcome : Stop_reason.t) =
       ivar
       (match outcome with
        | Error -> Flush_result.Error
-       | Consumer_left -> Flush_result.Consumer_left));
+       | Consumer_left -> Flush_result.Consumer_left
+       | Closed -> Flush_result.Force_closed));
   Queue.clear t.flushes
 ;;
 
@@ -953,773 +982,833 @@ let with_file
     if exclusive then with_writer_exclusive t (fun () -> f t) else f t)
 ;;
 
-let got_bytes t n = t.bytes_received <- Int63.(t.bytes_received + of_int n)
+module Buffer_management = struct
+  let got_bytes t n = t.bytes_received <- Int63.(t.bytes_received + of_int n)
 
-let add_iovec t kind (iovec : _ IOVec.t) ~count_bytes_as_received =
-  assert (t.scheduled_back = t.back);
-  if count_bytes_as_received then got_bytes t iovec.len;
-  if not (is_stopped_permanently t)
-  then (
-    t.scheduled_bytes <- t.scheduled_bytes + iovec.len;
-    Deque.enqueue_back t.scheduled (iovec, kind));
-  assert (t.scheduled_back = t.back)
-;;
+  let add_iovec t kind (iovec : _ IOVec.t) ~count_bytes_as_received =
+    assert (t.scheduled_back = t.back);
+    if count_bytes_as_received then got_bytes t iovec.len;
+    if not (is_stopped_permanently t)
+    then (
+      t.scheduled_bytes <- t.scheduled_bytes + iovec.len;
+      Deque.enqueue_back t.scheduled (iovec, kind));
+    assert (t.scheduled_back = t.back)
+  ;;
 
-let schedule_unscheduled t kind =
-  let need_to_schedule = t.back - t.scheduled_back in
-  assert (need_to_schedule >= 0);
-  if need_to_schedule > 0
-  then (
-    let pos = t.scheduled_back in
-    t.scheduled_back <- t.back;
-    add_iovec
-      t
-      kind
-      (IOVec.of_bigstring t.buf ~pos ~len:need_to_schedule)
-      ~count_bytes_as_received:false
-    (* they were already counted *))
-;;
-
-let dummy_iovec = IOVec.empty IOVec.bigstring_kind
-
-let mk_iovecs t =
-  schedule_unscheduled t Keep;
-  let n_iovecs = Int.min (Deque.length t.scheduled) (Lazy.force IOVec.max_iovecs) in
-  let iovecs = Array.create ~len:n_iovecs dummy_iovec in
-  let contains_mmapped_ref = ref false in
-  let iovecs_len = ref 0 in
-  with_return (fun r ->
-    let i = ref 0 in
-    Deque.iter t.scheduled ~f:(fun (iovec, _) ->
-      if !i >= n_iovecs then r.return ();
-      if (not !contains_mmapped_ref) && Bigstring.is_mmapped iovec.buf
-      then contains_mmapped_ref := true;
-      iovecs_len := !iovecs_len + iovec.len;
-      iovecs.(!i) <- iovec;
-      incr i));
-  iovecs, !contains_mmapped_ref, !iovecs_len
-;;
-
-(* Size of I/O- or blit operation for which a helper thread should be used.  This number
-   (a power of two) is somewhat empirically motivated, but there is no reason why it
-   should be the best. *)
-let thread_io_cutoff = 262_144
-
-let is_running = function
-  | `Running -> true
-  | _ -> false
-;;
-
-(* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
-   monkeying around with the fd behind our back, and we should complain.
-
-   There are some libraries that close the fd without closing the writer, e.g. Tcp,
-   usually for no good reason. In those cases any writes happening after fd is closed
-   will run into this error. *)
-let fd_closed t =
-  if not (is_closed t) then die t [%message "writer fd unexpectedly closed "]
-;;
-
-let writev_in_background fd iovecs =
-  Fd.with_file_descr_deferred_result fd (fun file_descr ->
-    match Io_uring_raw_singleton.the_one_and_only () with
-    | Some uring -> Io_uring.writev uring fd iovecs
-    | None ->
-      In_thread.syscall ~name:"writev" (fun () -> Bigstring_unix.writev file_descr iovecs))
-;;
-
-let update_after_completed_write t ~bytes_written =
-  t.bytes_written <- Int63.(t.bytes_written + of_int bytes_written);
-  if Int63.(t.bytes_written > t.bytes_received)
-  then die t [%message "writer wrote more bytes than it received"];
-  fill_flushes t;
-  t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
-  (* Remove processed iovecs from t.scheduled. *)
-  let rec remove_done bytes_written =
-    assert (bytes_written >= 0);
-    match Deque.dequeue_front t.scheduled with
-    | None ->
-      if bytes_written > 0
-      then die t [%message "writer wrote nonzero amount but IO_queue is empty"]
-    | Some ({ buf; pos; len }, kind) ->
-      if bytes_written >= len
-      then (
-        (* Current I/O-vector completely written.  Internally generated buffers get
-           destroyed immediately unless they are still in use for buffering.  *)
-        (match kind with
-         | Destroy -> Bigstring.unsafe_destroy buf
-         | Keep -> ());
-        remove_done (bytes_written - len))
-      else (
-        (* Partial I/O: update partially written I/O-vector and retry I/O. *)
-        let new_iovec =
-          IOVec.of_bigstring buf ~pos:(pos + bytes_written) ~len:(len - bytes_written)
-        in
-        Deque.enqueue_front t.scheduled (new_iovec, kind))
-  in
-  remove_done bytes_written;
-  (* See if there's anything else to do. *)
-  schedule_unscheduled t Keep;
-  if Deque.is_empty t.scheduled
-  then (
-    t.back <- 0;
-    t.scheduled_back <- 0;
-    `Nothing_left)
-  else `Writes_remaining
-;;
-
-let rec start_write t =
-  if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
-  assert (is_running t.background_writer_state);
-  let iovecs, contains_mmapped, iovecs_len = mk_iovecs t in
-  let handle_write_result = function
-    | `Already_closed -> fd_closed t
-    | `Ok n ->
-      if n >= 0
-      then write_finished t n
-      else die t [%message "write system call returned negative result" (n : int)]
-    | `Error (Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _)) -> write_when_ready t
-    | `Error (Unix.Unix_error (EBADF, _, _)) -> die t [%message "write got EBADF"]
-    | `Error
-        (Unix.Unix_error
-           ( ( EPIPE
-             | ECONNRESET
-             | EHOSTUNREACH
-             | ENETDOWN
-             | ENETRESET
-             | ENETUNREACH
-             | ETIMEDOUT )
-           , _
-           , _ ) as exn) ->
-      (* [t.consumer_left] is empty since once we reach this point, we stop the writer
-         permanently, and so will never reach here again. *)
-      assert (Ivar.is_empty t.consumer_left);
-      Ivar.fill_exn t.consumer_left ();
-      if t.raise_when_consumer_leaves
-      then (
-        stop_permanently t Error;
-        raise exn)
-      else stop_permanently t Consumer_left
-    | `Error exn -> die t [%message "" ~_:(exn : Exn.t)]
-  in
-  let should_write_in_thread =
-    (not (Fd.supports_nonblock t.fd))
-    (* Though the write will not block in this case, a memory-mapped bigstring in an
-       I/O-vector may cause a page fault, which would cause the async scheduler thread
-       to block.  So, we write in a separate thread, and the [Bigstring.writev] releases
-       the OCaml lock, allowing the async scheduler thread to continue. *)
-    || iovecs_len > thread_io_cutoff
-    || contains_mmapped
-  in
-  if should_write_in_thread
-  then writev_in_background t.fd iovecs >>> handle_write_result
-  else
-    handle_write_result
-      (Fd.syscall t.fd ~nonblocking:true (fun file_descr ->
-         Bigstring_unix.writev_assume_fd_is_nonblocking file_descr iovecs))
-
-and write_when_ready t =
-  if debug then Debug.log "Writer.write_when_ready" t [%sexp_of: t];
-  assert (is_running t.background_writer_state);
-  Fd.ready_to t.fd `Write
-  >>> function
-  | `Bad_fd -> die t [%message "writer ready_to got Bad_fd"]
-  | `Closed -> fd_closed t
-  | `Ready -> start_write t
-
-and write_finished t bytes_written =
-  if debug then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
-  assert (is_running t.background_writer_state);
-  match update_after_completed_write t ~bytes_written with
-  | `Nothing_left -> t.background_writer_state <- `Not_running
-  | `Writes_remaining ->
-    (match t.syscall with
-     | `Per_cycle -> start_write t
-     | `Periodic span ->
-       Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
-       >>> fun _ -> start_write t)
-;;
-
-let start_writer t =
-  (* since we're writing, ensure the buffer age check is running *)
-  let (_ : _) = force t.check_buffer_age in
-  t.background_writer_state <- `Running;
-  (* We schedule the background writer thread to run with low priority, so that it
-     runs at the end of the cycle and that all of the calls to Writer.write will
-     usually be batched into a single system call. *)
-  schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
-    let open_flags = t.open_flags in
-    let can_write_fd =
-      match open_flags with
-      | `Error _ | `Already_closed -> false
-      | `Ok flags -> Unix.Open_flags.can_write flags
-    in
-    if not can_write_fd
-    then
-      (* The reason we produce a custom error message in this case is that
-         Linux conflates this case with "not a valid file descriptor" (EBADF), which
-         normally indicates a serious bug in file descriptor handling. *)
-      die
+  let schedule_unscheduled t kind =
+    let need_to_schedule = t.back - t.scheduled_back in
+    assert (need_to_schedule >= 0);
+    if need_to_schedule > 0
+    then (
+      let pos = t.scheduled_back in
+      t.scheduled_back <- t.back;
+      add_iovec
         t
-        [%message
-          "not allowed to write due to file-descriptor flags" (open_flags : open_flags)];
-    start_write t)
-;;
-
-let rec flush_to_backing_out_channel t backing_out_channel =
-  let iovecs, (_ : bool), bytes_written = mk_iovecs t in
-  Array.iter iovecs ~f:(fun iovec ->
-    Backing_out_channel.output_iovec backing_out_channel iovec);
-  match update_after_completed_write t ~bytes_written with
-  | `Nothing_left -> ()
-  | `Writes_remaining -> flush_to_backing_out_channel t backing_out_channel
-;;
-
-let maybe_start_writer t =
-  match t.backing_out_channel with
-  | Some backing_out_channel -> flush_to_backing_out_channel t backing_out_channel
-  | None ->
-    (match t.background_writer_state with
-     | `Stopped_permanently _ | `Running -> ()
-     | `Not_running -> if bytes_to_write t > 0 then start_writer t)
-;;
-
-let give_buf t desired =
-  assert (desired >= 0);
-  assert (not (is_stopped_permanently t));
-  got_bytes t desired;
-  let buf_len = Bigstring.length t.buf in
-  let available = buf_len - t.back in
-  if desired <= available
-  then (
-    (* Data fits into buffer *)
-    let pos = t.back in
-    t.back <- t.back + desired;
-    t.buf, pos)
-  else if (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
-             exactly the desired size if the desired size is more than half the buffer length.
-             If we only created a new buffer when the desired size was greater than the buffer
-             length, then multiple consecutive writes of slightly more than half the buffer
-             length would each waste slightly less than half of the buffer.  Although, it is
-             still the case that multiple consecutive writes of slightly more than one quarter
-             of the buffer length will waste slightly less than one quarter of the buffer. *)
-          desired > buf_len / 2
-  then (
-    schedule_unscheduled t Keep;
-    (* Preallocation size too small; allocate dedicated buffer *)
-    let buf = Bigstring.create desired in
-    add_iovec
-      t
-      Destroy
-      (IOVec.of_bigstring ~len:desired buf)
-      ~count_bytes_as_received:false;
-    (* we already counted them above *)
-    buf, 0)
-  else (
-    schedule_unscheduled t Destroy;
-    (* Preallocation size sufficient; preallocate new buffer *)
-    let buf = Bigstring.create buf_len in
-    t.buf <- buf;
-    t.scheduled_back <- 0;
-    t.back <- desired;
-    buf, 0)
-;;
-
-(* If [blit_to_bigstring] raises, [write_gen_unchecked] may leave some unexpected bytes in
-   the bigstring.  However it leaves [t.back] and [t.bytes_received] in agreement. *)
-let write_gen_internal
-  (type a)
-  t
-  src
-  ~src_pos
-  ~src_len
-  ~allow_partial_write
-  ~(blit_to_bigstring :
-      src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
-  =
-  if is_stopped_permanently t
-  then got_bytes t src_len
-  else (
-    let available = Bigstring.length t.buf - t.back in
-    if available >= src_len
-    then (
-      got_bytes t src_len;
-      let dst_pos = t.back in
-      t.back <- dst_pos + src_len;
-      blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
-    else if allow_partial_write
-    then (
-      got_bytes t available;
-      let dst_pos = t.back in
-      t.back <- dst_pos + available;
-      blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
-      let remaining = src_len - available in
-      let dst, dst_pos = give_buf t remaining in
-      blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
-    else (
-      let dst, dst_pos = give_buf t src_len in
-      blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
-    maybe_start_writer t)
-;;
-
-let write_direct t ~f =
-  if is_stopped_permanently t
-  then None
-  else (
-    let pos = t.back in
-    let len = Bigstring.length t.buf - pos in
-    let x, written = f t.buf ~pos ~len in
-    if written < 0 || written > len
-    then
-      raise_s
-        [%message
-          "[write_direct]'s [~f] argument returned invalid [written]"
-            (written : int)
-            (len : int)
-            ~writer:(t : t)];
-    t.back <- pos + written;
-    got_bytes t written;
-    maybe_start_writer t;
-    Some x)
-;;
-
-let write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length =
-  let src_pos, src_len =
-    Ordered_collection_common.get_pos_len_exn () ?pos ?len ~total_length:(length src)
-  in
-  write_gen_internal t src ~src_pos ~src_len ~allow_partial_write:true ~blit_to_bigstring
-;;
-
-let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
-  let src_len = length src in
-  write_gen_internal
-    t
-    src
-    ~src_pos:0
-    ~src_len
-    ~allow_partial_write:false
-    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-    assert (src_pos = 0);
-    assert (len = src_len);
-    blit_to_bigstring src dst ~pos:dst_pos)
-;;
-
-let write_bytes ?pos ?len t src =
-  write_gen_unchecked
-    ?pos
-    ?len
-    t
-    src
-    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-      Bigstring.From_bytes.blit ~src ~src_pos ~dst ~dst_pos ~len)
-    ~length:Bytes.length
-;;
-
-let write ?pos ?len t src =
-  write_gen_unchecked
-    ?pos
-    ?len
-    t
-    src
-    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-      Bigstring.From_string.blit ~src ~src_pos ~dst ~dst_pos ~len)
-    ~length:String.length
-;;
-
-let write_bigstring ?pos ?len t src =
-  write_gen_unchecked
-    ?pos
-    ?len
-    t
-    src
-    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-      Bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
-    ~length:(fun buf -> Bigstring.length buf)
-;;
-
-let write_iobuf ?pos ?len t iobuf =
-  let iobuf = Iobuf.read_only (Iobuf.no_seek iobuf) in
-  write_gen_unchecked
-    ?pos
-    ?len
-    t
-    iobuf
-    ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
-      Iobuf.Peek.To_bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
-    ~length:(fun buf -> Iobuf.length buf)
-;;
-
-let write_substring t substring =
-  write_bytes
-    t
-    (Substring.base substring)
-    ~pos:(Substring.pos substring)
-    ~len:(Substring.length substring)
-;;
-
-let write_bigsubstring t bigsubstring =
-  write_bigstring
-    t
-    (Bigsubstring.base bigsubstring)
-    ~pos:(Bigsubstring.pos bigsubstring)
-    ~len:(Bigsubstring.length bigsubstring)
-;;
-
-let writef t = ksprintf (fun s -> write t s)
-
-let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
-  try write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length with
-  | exn -> die t [%message "Writer.write_gen: error writing value" (exn : exn)]
-;;
-
-let write_gen_whole t src ~blit_to_bigstring ~length =
-  try write_gen_whole_unchecked t src ~blit_to_bigstring ~length with
-  | exn -> die t [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
-;;
-
-let to_formatter t =
-  Format.make_formatter
-    (fun str pos len ->
-      ensure_can_write t;
-      write ~pos ~len t str)
-    ignore
-;;
-
-let write_char t c =
-  if is_stopped_permanently t
-  then got_bytes t 1
-  else (
-    (* Check for the common case that the char can simply be put in the buffer. *)
-    if Bigstring.length t.buf - t.back >= 1
-    then (
-      got_bytes t 1;
-      t.buf.{t.back} <- c;
-      t.back <- t.back + 1)
-    else (
-      let dst, dst_pos = give_buf t 1 in
-      dst.{dst_pos} <- c);
-    maybe_start_writer t)
-;;
-
-let newline ?line_ending t =
-  let line_ending =
-    match line_ending with
-    | Some x -> x
-    | None -> t.line_ending
-  in
-  (match line_ending with
-   | Unix -> ()
-   | Dos -> write_char t '\r');
-  write_char t '\n'
-;;
-
-let write_line ?line_ending t s =
-  write t s;
-  newline t ?line_ending
-;;
-
-let write_byte t i = write_char t (char_of_int (i % 256))
-
-module Terminate_with = struct
-  type t =
-    | Newline
-    | Space_if_needed
-  [@@deriving sexp_of]
+        kind
+        (IOVec.of_bigstring t.buf ~pos ~len:need_to_schedule)
+        ~count_bytes_as_received:false
+      (* they were already counted *))
+  ;;
 end
 
-let write_sexp_internal ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp =
-  if hum
-  then Format.fprintf (to_formatter t) "%a@?" Sexp.pp_hum sexp
-  else Sexp.to_buffer_gen ~buf:t ~add_char:write_char ~add_string:write sexp;
-  match terminate_with with
-  | Newline -> newline t
-  | Space_if_needed ->
-    (* If the string representation doesn't start/end with paren or double quote, we add
-       a space after it to ensure that the parser can recognize the end of the sexp.
+module Background_writer = struct
+  open Buffer_management
 
-       Concretely, starting with '(' occurs IFF the sexp is a [Sexp.List], while
-       starting with '"' occurs IFF the sexp is a [Sexp.Atom] where the atom needs
-       escaping. *)
-    let space_is_needed =
-      match sexp with
-      | List _ -> false
-      | Atom str -> not (Sexplib.Pre_sexp.must_escape str)
+  let dummy_iovec = IOVec.empty IOVec.bigstring_kind
+
+  let mk_iovecs t =
+    schedule_unscheduled t Keep;
+    let n_iovecs = Int.min (Deque.length t.scheduled) (Lazy.force IOVec.max_iovecs) in
+    let iovecs = Array.create ~len:n_iovecs dummy_iovec in
+    let contains_mmapped_ref = ref false in
+    let iovecs_len = ref 0 in
+    with_return (fun r ->
+      let i = ref 0 in
+      Deque.iter t.scheduled ~f:(fun (iovec, _) ->
+        if !i >= n_iovecs then r.return ();
+        if (not !contains_mmapped_ref) && Bigstring.is_mmapped iovec.buf
+        then contains_mmapped_ref := true;
+        iovecs_len := !iovecs_len + iovec.len;
+        iovecs.(!i) <- iovec;
+        incr i));
+    iovecs, !contains_mmapped_ref, !iovecs_len
+  ;;
+
+  (* Size of I/O- or blit operation for which a helper thread should be used.  This number
+     (a power of two) is somewhat empirically motivated, but there is no reason why it
+     should be the best. *)
+  let thread_io_cutoff = 262_144
+
+  let is_running = function
+    | `Running -> true
+    | _ -> false
+  ;;
+
+  (* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
+     monkeying around with the fd behind our back, and we should complain.
+
+     There are some libraries that close the fd without closing the writer, e.g. Tcp,
+     usually for no good reason. In those cases any writes happening after fd is closed
+     will run into this error. *)
+  let fd_closed t =
+    if is_closed t
+    then stop_permanently t Closed
+    else die t [%message "writer fd unexpectedly closed "]
+  ;;
+
+  let writev_in_background fd iovecs =
+    Fd.with_file_descr_deferred_result fd (fun file_descr ->
+      match Io_uring_raw_singleton.the_one_and_only () with
+      | Some uring -> Io_uring.writev uring fd iovecs
+      | None ->
+        In_thread.syscall ~name:"writev" (fun () ->
+          Bigstring_unix.writev file_descr iovecs))
+  ;;
+
+  let update_after_completed_write t ~bytes_written =
+    t.bytes_written <- Int63.(t.bytes_written + of_int bytes_written);
+    if Int63.(t.bytes_written > t.bytes_received)
+    then die t [%message "writer wrote more bytes than it received"];
+    fill_flushes t;
+    t.scheduled_bytes <- t.scheduled_bytes - bytes_written;
+    (* Remove processed iovecs from t.scheduled. *)
+    let rec remove_done bytes_written =
+      assert (bytes_written >= 0);
+      match Deque.dequeue_front t.scheduled with
+      | None ->
+        if bytes_written > 0
+        then die t [%message "writer wrote nonzero amount but IO_queue is empty"]
+      | Some ({ buf; pos; len }, kind) ->
+        if bytes_written >= len
+        then (
+          (* Current I/O-vector completely written.  Internally generated buffers get
+             destroyed immediately unless they are still in use for buffering.  *)
+          (match kind with
+           | Destroy -> Bigstring.unsafe_destroy buf
+           | Keep -> ());
+          remove_done (bytes_written - len))
+        else (
+          (* Partial I/O: update partially written I/O-vector and retry I/O. *)
+          let new_iovec =
+            IOVec.of_bigstring buf ~pos:(pos + bytes_written) ~len:(len - bytes_written)
+          in
+          Deque.enqueue_front t.scheduled (new_iovec, kind))
     in
-    if space_is_needed then write_char t ' '
-;;
+    remove_done bytes_written;
+    (* See if there's anything else to do. *)
+    schedule_unscheduled t Keep;
+    if Deque.is_empty t.scheduled
+    then (
+      t.back <- 0;
+      t.scheduled_back <- 0;
+      `Nothing_left)
+    else `Writes_remaining
+  ;;
 
-let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =
-  write_sexp_internal t sexp ?hum ~terminate_with
-;;
+  let rec start_write t =
+    if debug then Debug.log "Writer.start_write" t [%sexp_of: t];
+    assert (is_running t.background_writer_state);
+    let iovecs, contains_mmapped, iovecs_len = mk_iovecs t in
+    let handle_write_result = function
+      | `Already_closed -> fd_closed t
+      | `Ok n ->
+        if n >= 0
+        then write_finished t n
+        else die t [%message "write system call returned negative result" (n : int)]
+      | `Error (Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _)) -> write_when_ready t
+      | `Error (Unix.Unix_error (EBADF, _, _)) -> die t [%message "write got EBADF"]
+      | `Error
+          (Unix.Unix_error
+             ( ( EPIPE
+               | ECONNRESET
+               | EHOSTUNREACH
+               | ENETDOWN
+               | ENETRESET
+               | ENETUNREACH
+               | ETIMEDOUT )
+             , _
+             , _ ) as exn) ->
+        (* [t.consumer_left] is empty since once we reach this point, we stop the writer
+           permanently, and so will never reach here again. *)
+        assert (Ivar.is_empty t.consumer_left);
+        Ivar.fill_exn t.consumer_left ();
+        if t.raise_when_consumer_leaves
+        then (
+          stop_permanently t Error;
+          raise exn)
+        else stop_permanently t Consumer_left
+      | `Error exn -> die t [%message "" ~_:(exn : Exn.t)]
+    in
+    let should_write_in_thread =
+      (not (Fd.supports_nonblock t.fd))
+      (* Though the write will not block in this case, a memory-mapped bigstring in an
+         I/O-vector may cause a page fault, which would cause the async scheduler thread
+         to block.  So, we write in a separate thread, and the [Bigstring.writev] releases
+         the OCaml lock, allowing the async scheduler thread to continue. *)
+      || iovecs_len > thread_io_cutoff
+      || contains_mmapped
+    in
+    if should_write_in_thread
+    then writev_in_background t.fd iovecs >>> handle_write_result
+    else
+      handle_write_result
+        (Fd.syscall t.fd ~nonblocking:true (fun file_descr ->
+           Bigstring_unix.writev_assume_fd_is_nonblocking file_descr iovecs))
 
-let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
-  let len = writer.size v in
-  let tot_len = len + Bin_prot.Utils.size_header_length in
-  if is_stopped_permanently t
-  then got_bytes t tot_len
-  else (
-    let buf, start_pos = give_buf t tot_len in
-    ignore
-      (Bigstring.write_bin_prot_known_size buf ~pos:start_pos ~size:len writer.write v
-        : int);
-    maybe_start_writer t)
-;;
+  and write_when_ready t =
+    if debug then Debug.log "Writer.write_when_ready" t [%sexp_of: t];
+    assert (is_running t.background_writer_state);
+    Fd.ready_to t.fd `Write
+    >>> function
+    | `Bad_fd -> die t [%message "writer ready_to got Bad_fd"]
+    | `Closed -> fd_closed t
+    | `Ready -> start_write t
 
-let write_bin_prot_no_size_header t ~size write v =
-  if is_stopped_permanently t
-  then got_bytes t size
-  else (
-    let buf, start_pos = give_buf t size in
-    let end_pos = write buf ~pos:start_pos v in
-    let written = end_pos - start_pos in
-    if written <> size
-    then
-      raise_s
-        [%message
-          "Writer.write_bin_prot_no_size_header bug!" (written : int) (size : int)];
-    maybe_start_writer t)
-;;
+  and write_finished t bytes_written =
+    if debug then Debug.log "Writer.write_finished" (bytes_written, t) [%sexp_of: int * t];
+    assert (is_running t.background_writer_state);
+    match update_after_completed_write t ~bytes_written with
+    | `Nothing_left ->
+      (match t.close_state with
+       | `Open | `Closed_and_flushing -> t.background_writer_state <- `Not_running
+       | `Closed ->
+         t.background_writer_state <- `Stopped_permanently Closed;
+         Ivar.fill_if_empty t.background_writer_stopped ())
+    | `Writes_remaining ->
+      (match t.syscall with
+       | `Per_cycle -> start_write t
+       | `Periodic span ->
+         Time_source.after t.time_source (Time_ns.Span.of_span_float_round_nearest span)
+         >>> fun _ -> start_write t)
+  ;;
 
-let send t s =
-  write t (string_of_int (String.length s) ^ "\n");
-  write t s
-;;
+  let start_writer t =
+    (* since we're writing, ensure the buffer age check is running *)
+    let (_ : _) = force t.check_buffer_age in
+    t.background_writer_state <- `Running;
+    (* We schedule the background writer thread to run with low priority, so that it
+       runs at the end of the cycle and that all of the calls to Writer.write will
+       usually be batched into a single system call. *)
+    schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
+      let open_flags = t.open_flags in
+      let can_write_fd =
+        match open_flags with
+        | `Error _ | `Already_closed -> false
+        | `Ok flags -> Unix.Open_flags.can_write flags
+      in
+      if not can_write_fd
+      then
+        (* The reason we produce a custom error message in this case is that
+           Linux conflates this case with "not a valid file descriptor" (EBADF), which
+           normally indicates a serious bug in file descriptor handling. *)
+        die
+          t
+          [%message
+            "not allowed to write due to file-descriptor flags" (open_flags : open_flags)];
+      start_write t)
+  ;;
 
-let schedule_iovec ?(destroy_or_keep = Destroy_or_keep.Keep) t iovec =
-  schedule_unscheduled t Keep;
-  add_iovec t destroy_or_keep iovec ~count_bytes_as_received:true;
-  maybe_start_writer t
-;;
+  let rec flush_to_backing_out_channel t backing_out_channel =
+    let iovecs, (_ : bool), bytes_written = mk_iovecs t in
+    Array.iter iovecs ~f:(fun iovec ->
+      Backing_out_channel.output_iovec backing_out_channel iovec);
+    match update_after_completed_write t ~bytes_written with
+    | `Nothing_left -> ()
+    | `Writes_remaining -> flush_to_backing_out_channel t backing_out_channel
+  ;;
 
-let schedule_iovecs t iovecs =
-  schedule_unscheduled t Keep;
-  Queue.iter iovecs ~f:(add_iovec t Keep ~count_bytes_as_received:true);
-  Queue.clear iovecs;
-  maybe_start_writer t
-;;
+  let maybe_start_writer t =
+    match t.backing_out_channel with
+    | Some backing_out_channel -> flush_to_backing_out_channel t backing_out_channel
+    | None ->
+      (match t.background_writer_state with
+       | `Stopped_permanently _ | `Running -> ()
+       | `Not_running -> if bytes_to_write t > 0 then start_writer t)
+  ;;
+end
 
-let schedule_bigstring ?destroy_or_keep t ?pos ?len bstr =
-  schedule_iovec t (IOVec.of_bigstring ?pos ?len bstr) ?destroy_or_keep
-;;
+let maybe_start_writer = Background_writer.maybe_start_writer
 
-let schedule_bigsubstring t bigsubstring =
-  schedule_bigstring
+module Writes = struct
+  open Buffer_management
+
+  let give_buf t desired =
+    assert (desired >= 0);
+    assert (not (is_stopped_permanently t));
+    got_bytes t desired;
+    let buf_len = Bigstring.length t.buf in
+    let available = buf_len - t.back in
+    if desired <= available
+    then (
+      (* Data fits into buffer *)
+      let pos = t.back in
+      t.back <- t.back + desired;
+      t.buf, pos)
+    else if (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
+               exactly the desired size if the desired size is more than half the buffer length.
+               If we only created a new buffer when the desired size was greater than the buffer
+               length, then multiple consecutive writes of slightly more than half the buffer
+               length would each waste slightly less than half of the buffer.  Although, it is
+               still the case that multiple consecutive writes of slightly more than one quarter
+               of the buffer length will waste slightly less than one quarter of the buffer. *)
+            desired > buf_len / 2
+    then (
+      schedule_unscheduled t Keep;
+      (* Preallocation size too small; allocate dedicated buffer *)
+      let buf = Bigstring.create desired in
+      add_iovec
+        t
+        Destroy
+        (IOVec.of_bigstring ~len:desired buf)
+        ~count_bytes_as_received:false;
+      (* we already counted them above *)
+      buf, 0)
+    else (
+      schedule_unscheduled t Destroy;
+      (* Preallocation size sufficient; preallocate new buffer *)
+      let buf = Bigstring.create buf_len in
+      t.buf <- buf;
+      t.scheduled_back <- 0;
+      t.back <- desired;
+      buf, 0)
+  ;;
+
+  (* If [blit_to_bigstring] raises, [write_gen_unchecked] may leave some unexpected bytes in
+     the bigstring.  However it leaves [t.back] and [t.bytes_received] in agreement. *)
+  let write_gen_internal
+    (type a)
     t
-    (Bigsubstring.base bigsubstring)
-    ~pos:(Bigsubstring.pos bigsubstring)
-    ~len:(Bigsubstring.length bigsubstring)
-;;
+    src
+    ~src_pos
+    ~src_len
+    ~allow_partial_write
+    ~(blit_to_bigstring :
+        src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
+    =
+    if is_stopped_permanently t
+    then got_bytes t src_len
+    else (
+      let available = Bigstring.length t.buf - t.back in
+      if available >= src_len
+      then (
+        got_bytes t src_len;
+        let dst_pos = t.back in
+        t.back <- dst_pos + src_len;
+        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
+      else if allow_partial_write
+      then (
+        got_bytes t available;
+        let dst_pos = t.back in
+        t.back <- dst_pos + available;
+        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
+        let remaining = src_len - available in
+        let dst, dst_pos = give_buf t remaining in
+        blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
+      else (
+        let dst, dst_pos = give_buf t src_len in
+        blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
+      maybe_start_writer t)
+  ;;
 
-let schedule_iobuf_peek t ?pos ?len iobuf =
-  schedule_iovec t (Iobuf_unix.Expert.to_iovec_shared ?pos ?len iobuf)
-;;
+  let write_direct t ~f =
+    if is_stopped_permanently t
+    then None
+    else (
+      let pos = t.back in
+      let len = Bigstring.length t.buf - pos in
+      let x, written = f t.buf ~pos ~len in
+      if written < 0 || written > len
+      then
+        raise_s
+          [%message
+            "[write_direct]'s [~f] argument returned invalid [written]"
+              (written : int)
+              (len : int)
+              ~writer:(t : t)];
+      t.back <- pos + written;
+      got_bytes t written;
+      maybe_start_writer t;
+      Some x)
+  ;;
 
-let schedule_iobuf_consume t ?len iobuf =
-  let iovec = Iobuf_unix.Expert.to_iovec_shared ?len iobuf in
-  let len = iovec.len in
-  schedule_iovec t iovec;
-  let%map _ = flushed_time t in
-  Iobuf.advance iobuf len
-;;
+  let write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length =
+    let src_pos, src_len =
+      Ordered_collection_common.get_pos_len_exn () ?pos ?len ~total_length:(length src)
+    in
+    write_gen_internal
+      t
+      src
+      ~src_pos
+      ~src_len
+      ~allow_partial_write:true
+      ~blit_to_bigstring
+  ;;
 
-(* The code below ensures that no calls happen on a closed writer. *)
-let fsync t =
-  ensure_can_write t;
-  let%bind () = flushed t in
-  Unix.fsync t.fd
-;;
+  let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
+    let src_len = length src in
+    write_gen_internal
+      t
+      src
+      ~src_pos:0
+      ~src_len
+      ~allow_partial_write:false
+      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      assert (src_pos = 0);
+      assert (len = src_len);
+      blit_to_bigstring src dst ~pos:dst_pos)
+  ;;
 
-let fdatasync t =
-  ensure_can_write t;
-  let%bind () = flushed t in
-  Unix.fdatasync t.fd
-;;
+  let write_bytes ?pos ?len t src =
+    write_gen_unchecked
+      ?pos
+      ?len
+      t
+      src
+      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+        Bigstring.From_bytes.blit ~src ~src_pos ~dst ~dst_pos ~len)
+      ~length:Bytes.length
+  ;;
 
-let write_bin_prot t sw_arg v =
-  ensure_can_write t;
-  write_bin_prot t sw_arg v
-;;
+  let write ?pos ?len t src =
+    write_gen_unchecked
+      ?pos
+      ?len
+      t
+      src
+      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+        Bigstring.From_string.blit ~src ~src_pos ~dst ~dst_pos ~len)
+      ~length:String.length
+  ;;
 
-let send t s =
-  ensure_can_write t;
-  send t s
-;;
+  let write_bigstring ?pos ?len t src =
+    write_gen_unchecked
+      ?pos
+      ?len
+      t
+      src
+      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+        Bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
+      ~length:(fun buf -> Bigstring.length buf)
+  ;;
 
-let schedule_iovec ?destroy_or_keep t iovec =
-  ensure_can_write t;
-  schedule_iovec ?destroy_or_keep t iovec
-;;
+  let write_iobuf ?pos ?len t iobuf =
+    let iobuf = Iobuf.read_only (Iobuf.no_seek iobuf) in
+    write_gen_unchecked
+      ?pos
+      ?len
+      t
+      iobuf
+      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+        Iobuf.Peek.To_bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
+      ~length:(fun buf -> Iobuf.length buf)
+  ;;
 
-let schedule_iovecs t iovecs =
-  ensure_can_write t;
-  schedule_iovecs t iovecs
-;;
+  let write_substring t substring =
+    write_bytes
+      t
+      (Substring.base substring)
+      ~pos:(Substring.pos substring)
+      ~len:(Substring.length substring)
+  ;;
 
-let schedule_bigstring t ?pos ?len bstr =
-  ensure_can_write t;
-  schedule_bigstring t ?pos ?len bstr
-;;
+  let write_bigsubstring t bigsubstring =
+    write_bigstring
+      t
+      (Bigsubstring.base bigsubstring)
+      ~pos:(Bigsubstring.pos bigsubstring)
+      ~len:(Bigsubstring.length bigsubstring)
+  ;;
 
-let schedule_bigsubstring t bigsubstring =
-  ensure_can_write t;
-  schedule_bigsubstring t bigsubstring
-;;
+  let writef t = ksprintf (fun s -> write t s)
 
-let schedule_iobuf_peek t ?pos ?len iobuf =
-  ensure_can_write t;
-  schedule_iobuf_peek t ?pos ?len iobuf
-;;
+  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
+    try write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length with
+    | exn -> die t [%message "Writer.write_gen: error writing value" (exn : exn)]
+  ;;
 
-let schedule_iobuf_consume t ?len iobuf =
-  ensure_can_write t;
-  schedule_iobuf_consume t ?len iobuf
-;;
+  let write_gen_whole t src ~blit_to_bigstring ~length =
+    try write_gen_whole_unchecked t src ~blit_to_bigstring ~length with
+    | exn -> die t [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
+  ;;
 
-let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
-  ensure_can_write t;
-  write_gen ?pos ?len t src ~blit_to_bigstring ~length
-;;
+  let to_formatter t =
+    Format.make_formatter
+      (fun str pos len ->
+        ensure_can_write t;
+        write ~pos ~len t str)
+      ignore
+  ;;
 
-let write_bytes ?pos ?len t s =
-  ensure_can_write t;
-  write_bytes ?pos ?len t s
-;;
+  let write_char t c =
+    if is_stopped_permanently t
+    then got_bytes t 1
+    else (
+      (* Check for the common case that the char can simply be put in the buffer. *)
+      if Bigstring.length t.buf - t.back >= 1
+      then (
+        got_bytes t 1;
+        t.buf.{t.back} <- c;
+        t.back <- t.back + 1)
+      else (
+        let dst, dst_pos = give_buf t 1 in
+        dst.{dst_pos} <- c);
+      maybe_start_writer t)
+  ;;
 
-let write ?pos ?len t s =
-  ensure_can_write t;
-  write ?pos ?len t s
-;;
+  let newline ?line_ending t =
+    let line_ending =
+      match line_ending with
+      | Some x -> x
+      | None -> t.line_ending
+    in
+    (match line_ending with
+     | Unix -> ()
+     | Dos -> write_char t '\r');
+    write_char t '\n'
+  ;;
 
-let write_line ?line_ending t s =
-  ensure_can_write t;
-  write_line t s ?line_ending
-;;
+  let write_line ?line_ending t s =
+    write t s;
+    newline t ?line_ending
+  ;;
 
-let writef t =
-  ensure_can_write t;
-  writef t
-;;
+  let write_byte t i = write_char t (char_of_int (i % 256))
 
-let write_sexp ?hum ?terminate_with t s =
-  ensure_can_write t;
-  write_sexp ?hum ?terminate_with t s
-;;
+  module Terminate_with = struct
+    type t =
+      | Newline
+      | Space_if_needed
+    [@@deriving sexp_of]
+  end
 
-let write_iobuf ?pos ?len t iobuf =
-  ensure_can_write t;
-  write_iobuf ?pos ?len t iobuf
-;;
+  let write_sexp_internal ~(terminate_with : Terminate_with.t) ?(hum = false) t sexp =
+    if hum
+    then Format.fprintf (to_formatter t) "%a@?" Sexp.pp_hum sexp
+    else Sexp.to_buffer_gen ~buf:t ~add_char:write_char ~add_string:write sexp;
+    match terminate_with with
+    | Newline -> newline t
+    | Space_if_needed ->
+      (* If the string representation doesn't start/end with paren or double quote, we add
+         a space after it to ensure that the parser can recognize the end of the sexp.
 
-let write_bigstring ?pos ?len t src =
-  ensure_can_write t;
-  write_bigstring ?pos ?len t src
-;;
+         Concretely, starting with '(' occurs IFF the sexp is a [Sexp.List], while
+         starting with '"' occurs IFF the sexp is a [Sexp.Atom] where the atom needs
+         escaping. *)
+      let space_is_needed =
+        match sexp with
+        | List _ -> false
+        | Atom str -> not (Sexplib.Pre_sexp.must_escape str)
+      in
+      if space_is_needed then write_char t ' '
+  ;;
 
-let write_bigsubstring t s =
-  ensure_can_write t;
-  write_bigsubstring t s
-;;
+  let write_sexp ?hum ?(terminate_with = Terminate_with.Space_if_needed) t sexp =
+    write_sexp_internal t sexp ?hum ~terminate_with
+  ;;
 
-let write_substring t s =
-  ensure_can_write t;
-  write_substring t s
-;;
+  let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
+    let len = writer.size v in
+    let tot_len = len + Bin_prot.Utils.size_header_length in
+    if is_stopped_permanently t
+    then got_bytes t tot_len
+    else (
+      let buf, start_pos = give_buf t tot_len in
+      ignore
+        (Bigstring.write_bin_prot_known_size buf ~pos:start_pos ~size:len writer.write v
+          : int);
+      maybe_start_writer t)
+  ;;
 
-let write_byte t b =
-  ensure_can_write t;
-  write_byte t b
-;;
+  let write_bin_prot_no_size_header t ~size write v =
+    if is_stopped_permanently t
+    then got_bytes t size
+    else (
+      let buf, start_pos = give_buf t size in
+      let end_pos = write buf ~pos:start_pos v in
+      let written = end_pos - start_pos in
+      if written <> size
+      then
+        raise_s
+          [%message
+            "Writer.write_bin_prot_no_size_header bug!" (written : int) (size : int)];
+      maybe_start_writer t)
+  ;;
 
-let write_char t c =
-  ensure_can_write t;
-  write_char t c
-;;
+  let send t s =
+    write t (string_of_int (String.length s) ^ "\n");
+    write t s
+  ;;
 
-let newline ?line_ending t =
-  ensure_can_write t;
-  newline ?line_ending t
-;;
+  let schedule_iovec ?(destroy_or_keep = Destroy_or_keep.Keep) t iovec =
+    schedule_unscheduled t Keep;
+    add_iovec t destroy_or_keep iovec ~count_bytes_as_received:true;
+    maybe_start_writer t
+  ;;
 
-let stdout_and_stderr_behave_nicely_in_pipeline = ref ignore
+  let schedule_iovecs t iovecs =
+    schedule_unscheduled t Keep;
+    Queue.iter iovecs ~f:(add_iovec t Keep ~count_bytes_as_received:true);
+    Queue.clear iovecs;
+    maybe_start_writer t
+  ;;
 
-let stdout_and_stderr =
-  lazy
-    (* We [create] the writers inside [Monitor.main] so that it is their monitors'
-       parent. *)
-    (match
-       Scheduler.within_v ~monitor:Monitor.main (fun () ->
-         let stdout = Fd.stdout () in
-         let stderr = Fd.stderr () in
-         let t = create stdout in
-         let dev_and_ino fd =
-           let stats = Core_unix.fstat (Fd.file_descr_exn fd) in
-           stats.st_dev, stats.st_ino
-         in
-         match am_test_runner with
-         | true ->
-           (* In tests, we use synchronous output to improve determinism, especially
-              when mixing libraries that use Core and Async printing. *)
-           set_backing_out_channel
-             t
-             (Backing_out_channel.of_out_channel Out_channel.stdout);
-           t, t
-         | false ->
-           let stdout, stderr =
-             if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
-             then
-               (* If stdout and stderr point to the same file, we must share a single writer
-                  between them.  See the comment in writer.mli for details. *)
-               t, t
-             else t, create stderr
+  let schedule_bigstring ?destroy_or_keep t ?pos ?len bstr =
+    schedule_iovec t (IOVec.of_bigstring ?pos ?len bstr) ?destroy_or_keep
+  ;;
+
+  let schedule_bigsubstring t bigsubstring =
+    schedule_bigstring
+      t
+      (Bigsubstring.base bigsubstring)
+      ~pos:(Bigsubstring.pos bigsubstring)
+      ~len:(Bigsubstring.length bigsubstring)
+  ;;
+
+  let schedule_iobuf_peek t ?pos ?len iobuf =
+    schedule_iovec t (Iobuf_unix.Expert.to_iovec_shared ?pos ?len iobuf)
+  ;;
+
+  let schedule_iobuf_consume t ?len iobuf =
+    let iovec = Iobuf_unix.Expert.to_iovec_shared ?len iobuf in
+    let len = iovec.len in
+    schedule_iovec t iovec;
+    let%map _ = flushed_time t in
+    Iobuf.advance iobuf len
+  ;;
+end
+
+module Checked_writes = struct
+  (* The code in this module ensures that no calls happen on a closed writer. *)
+
+  open Writes
+
+  let fsync t =
+    ensure_can_write t;
+    let%bind () = flushed t in
+    Unix.fsync t.fd
+  ;;
+
+  let fdatasync t =
+    ensure_can_write t;
+    let%bind () = flushed t in
+    Unix.fdatasync t.fd
+  ;;
+
+  let write_bin_prot t sw_arg v =
+    ensure_can_write t;
+    write_bin_prot t sw_arg v
+  ;;
+
+  let send t s =
+    ensure_can_write t;
+    send t s
+  ;;
+
+  let schedule_iovec ?destroy_or_keep t iovec =
+    ensure_can_write t;
+    schedule_iovec ?destroy_or_keep t iovec
+  ;;
+
+  let schedule_iovecs t iovecs =
+    ensure_can_write t;
+    schedule_iovecs t iovecs
+  ;;
+
+  let schedule_bigstring t ?pos ?len bstr =
+    ensure_can_write t;
+    schedule_bigstring t ?pos ?len bstr
+  ;;
+
+  let schedule_bigsubstring t bigsubstring =
+    ensure_can_write t;
+    schedule_bigsubstring t bigsubstring
+  ;;
+
+  let schedule_iobuf_peek t ?pos ?len iobuf =
+    ensure_can_write t;
+    schedule_iobuf_peek t ?pos ?len iobuf
+  ;;
+
+  let schedule_iobuf_consume t ?len iobuf =
+    ensure_can_write t;
+    schedule_iobuf_consume t ?len iobuf
+  ;;
+
+  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
+    ensure_can_write t;
+    write_gen ?pos ?len t src ~blit_to_bigstring ~length
+  ;;
+
+  let write_bytes ?pos ?len t s =
+    ensure_can_write t;
+    write_bytes ?pos ?len t s
+  ;;
+
+  let write ?pos ?len t s =
+    ensure_can_write t;
+    write ?pos ?len t s
+  ;;
+
+  let write_line ?line_ending t s =
+    ensure_can_write t;
+    write_line t s ?line_ending
+  ;;
+
+  let writef t =
+    ensure_can_write t;
+    writef t
+  ;;
+
+  let write_sexp ?hum ?terminate_with t s =
+    ensure_can_write t;
+    write_sexp ?hum ?terminate_with t s
+  ;;
+
+  let write_sexp_internal ~terminate_with ?hum t sexp =
+    ensure_can_write t;
+    write_sexp_internal ~terminate_with ?hum t sexp
+  ;;
+
+  let write_iobuf ?pos ?len t iobuf =
+    ensure_can_write t;
+    write_iobuf ?pos ?len t iobuf
+  ;;
+
+  let write_bigstring ?pos ?len t src =
+    ensure_can_write t;
+    write_bigstring ?pos ?len t src
+  ;;
+
+  let write_bigsubstring t s =
+    ensure_can_write t;
+    write_bigsubstring t s
+  ;;
+
+  let write_substring t s =
+    ensure_can_write t;
+    write_substring t s
+  ;;
+
+  let write_byte t b =
+    ensure_can_write t;
+    write_byte t b
+  ;;
+
+  let write_char t c =
+    ensure_can_write t;
+    write_char t c
+  ;;
+
+  let newline ?line_ending t =
+    ensure_can_write t;
+    newline ?line_ending t
+  ;;
+
+  let write_bin_prot_no_size_header t ~size write v =
+    ensure_can_write t;
+    write_bin_prot_no_size_header t ~size write v
+  ;;
+
+  let write_direct t ~f =
+    ensure_can_write t;
+    write_direct t ~f
+  ;;
+
+  let write_gen_whole t src ~blit_to_bigstring ~length =
+    ensure_can_write t;
+    write_gen_whole t src ~blit_to_bigstring ~length
+  ;;
+
+  module Terminate_with = Writes.Terminate_with
+
+  (* this one already calls [ensure_can_write] *)
+  let to_formatter = Writes.to_formatter
+end
+
+include Checked_writes
+
+module Stdout_and_stderr = struct
+  let stdout_and_stderr_behave_nicely_in_pipeline = ref ignore
+
+  let stdout_and_stderr =
+    lazy
+      (* We [create] the writers inside [Monitor.main] so that it is their monitors'
+         parent. *)
+      (match
+         Scheduler.within_v ~monitor:Monitor.main (fun () ->
+           let stdout = Fd.stdout () in
+           let stderr = Fd.stderr () in
+           let t = create stdout in
+           let dev_and_ino fd =
+             let stats = Core_unix.fstat (Fd.file_descr_exn fd) in
+             stats.st_dev, stats.st_ino
            in
-           !stdout_and_stderr_behave_nicely_in_pipeline stdout;
-           !stdout_and_stderr_behave_nicely_in_pipeline stderr;
-           stdout, stderr)
-     with
-     | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
-     | Some v -> v)
-;;
+           match am_test_runner with
+           | true ->
+             (* In tests, we use synchronous output to improve determinism, especially
+                when mixing libraries that use Core and Async printing. *)
+             set_backing_out_channel
+               t
+               (Backing_out_channel.of_out_channel Out_channel.stdout);
+             t, t
+           | false ->
+             let stdout, stderr =
+               if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
+               then
+                 (* If stdout and stderr point to the same file, we must share a single writer
+                    between them.  See the comment in writer.mli for details. *)
+                 t, t
+               else t, create stderr
+             in
+             !stdout_and_stderr_behave_nicely_in_pipeline stdout;
+             !stdout_and_stderr_behave_nicely_in_pipeline stderr;
+             stdout, stderr)
+       with
+       | None -> raise_s [%message [%here] "unable to create stdout/stderr"]
+       | Some v -> v)
+  ;;
 
-let stdout = lazy (fst (Lazy.force stdout_and_stderr))
-let stderr = lazy (snd (Lazy.force stdout_and_stderr))
+  let stdout = lazy (fst (Lazy.force stdout_and_stderr))
+  let stderr = lazy (snd (Lazy.force stdout_and_stderr))
 
-let use_synchronous_stdout_and_stderr () =
-  let stdout, stderr = Lazy.force stdout_and_stderr in
-  let ts_and_channels =
-    (stdout, Out_channel.stdout)
-    (* We only set [stderr] if it is distinct from [stdout]. *)
-    ::
-    (match phys_equal stdout stderr with
-     | true -> []
-     | false -> [ stderr, Out_channel.stderr ])
-  in
-  List.map ts_and_channels ~f:(fun (t, out_channel) ->
-    set_synchronous_out_channel t out_channel)
-  |> Deferred.all_unit
-;;
+  let use_synchronous_stdout_and_stderr () =
+    let stdout, stderr = Lazy.force stdout_and_stderr in
+    let ts_and_channels =
+      (stdout, Out_channel.stdout)
+      (* We only set [stderr] if it is distinct from [stdout]. *)
+      ::
+      (match phys_equal stdout stderr with
+       | true -> []
+       | false -> [ stderr, Out_channel.stderr ])
+    in
+    List.map ts_and_channels ~f:(fun (t, out_channel) ->
+      set_synchronous_out_channel t out_channel)
+    |> Deferred.all_unit
+  ;;
 
-(* This test is here rather than in a [test] directory because we want it to run
-   immediately after [stdout] and [stderr] are defined, so that they haven't yet been
-   forced. *)
-let%expect_test "stdout and stderr are always the same in tests" =
-  print_s [%message (Lazy.is_val stdout : bool)];
-  [%expect {| ("Lazy.is_val stdout" false) |}];
-  print_s [%message (Lazy.is_val stderr : bool)];
-  [%expect {| ("Lazy.is_val stderr" false) |}];
-  let module U = Core_unix in
-  let saved_stderr = U.dup U.stderr in
-  (* Make sure fd 1 and 2 have different inodes at the point that we force them. *)
-  let pipe_r, pipe_w = U.pipe () in
-  U.dup2 ~src:pipe_w ~dst:U.stderr ();
-  U.close pipe_r;
-  U.close pipe_w;
-  let stdout = Lazy.force stdout in
-  let stderr = Lazy.force stderr in
-  U.dup2 ~src:saved_stderr ~dst:U.stderr ();
-  U.close saved_stderr;
-  print_s [%message (phys_equal stdout stderr : bool)];
-  [%expect {| ("phys_equal stdout stderr" true) |}]
-;;
+  (* This test is here rather than in a [test] directory because we want it to run
+     immediately after [stdout] and [stderr] are defined, so that they haven't yet been
+     forced. *)
+  let%expect_test "stdout and stderr are always the same in tests" =
+    print_s [%message (Lazy.is_val stdout : bool)];
+    [%expect {| ("Lazy.is_val stdout" false) |}];
+    print_s [%message (Lazy.is_val stderr : bool)];
+    [%expect {| ("Lazy.is_val stderr" false) |}];
+    let module U = Core_unix in
+    let saved_stderr = U.dup U.stderr in
+    (* Make sure fd 1 and 2 have different inodes at the point that we force them. *)
+    let pipe_r, pipe_w = U.pipe () in
+    U.dup2 ~src:pipe_w ~dst:U.stderr ();
+    U.close pipe_r;
+    U.close pipe_w;
+    let stdout = Lazy.force stdout in
+    let stderr = Lazy.force stderr in
+    U.dup2 ~src:saved_stderr ~dst:U.stderr ();
+    U.close saved_stderr;
+    print_s [%message (phys_equal stdout stderr : bool)];
+    [%expect {| ("phys_equal stdout stderr" true) |}]
+  ;;
+end
 
 let make_writer_behave_nicely_in_pipeline writer =
   set_buffer_age_limit writer `Unlimited;
@@ -1733,6 +1822,7 @@ let behave_nicely_in_pipeline ?writers () =
   match writers with
   | Some l -> List.iter l ~f:make_writer_behave_nicely_in_pipeline
   | None ->
+    let open Stdout_and_stderr in
     if Lazy.is_val stdout_and_stderr
     then (
       let stdout, stderr = force stdout_and_stderr in
@@ -1744,157 +1834,159 @@ let behave_nicely_in_pipeline ?writers () =
       stdout_and_stderr_behave_nicely_in_pipeline := make_writer_behave_nicely_in_pipeline
 ;;
 
-let with_file_atomic
-  ?temp_file
-  ?perm
-  ?fsync:(do_fsync = false)
-  ?(replace_special = false)
-  ?time_source
-  file
-  ~f
-  =
-  let%bind current_file_permissions =
-    match%map Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.stat file) with
-    | Ok stats ->
-      (match stats.kind with
-       | `File -> Some stats.perm
-       | `Directory ->
-         raise_s
-           [%message
-             "Writer.with_file_atomic: not replacing a directory" ~_:(file : string)]
-       | `Char | `Block | `Fifo | `Socket ->
-         (match replace_special with
-          | true -> Some stats.perm
-          | false ->
-            raise_s
-              [%message
-                "Writer.with_file_atomic: not replacing special file" ~_:(file : string)])
-       | `Link ->
-         (* [Unix.stat] resolves the symlinks already.
-            Unfortunately, this means we won't be able to replace a "broken" symlink. *)
-         assert false)
-    | Error _ -> None
-  in
-  let initial_permissions =
-    match perm with
-    | Some p -> p
-    | None ->
-      (match current_file_permissions with
-       | None -> 0o666
-       | Some p -> p)
-  in
-  let%bind temp_file, fd =
-    let temp_file = Option.value temp_file ~default:file in
-    let%map temp_file, fd =
-      let dir = Filename.dirname temp_file in
-      let prefix = Filename.basename temp_file in
-      In_thread.run (fun () ->
-        Filename_unix.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
+module Filesystem_stuff = struct
+  let with_file_atomic
+    ?temp_file
+    ?perm
+    ?fsync:(do_fsync = false)
+    ?(replace_special = false)
+    ?time_source
+    file
+    ~f
+    =
+    let%bind current_file_permissions =
+      match%map Monitor.try_with ~run:`Now ~rest:`Raise (fun () -> Unix.stat file) with
+      | Ok stats ->
+        (match stats.kind with
+         | `File -> Some stats.perm
+         | `Directory ->
+           raise_s
+             [%message
+               "Writer.with_file_atomic: not replacing a directory" ~_:(file : string)]
+         | `Char | `Block | `Fifo | `Socket ->
+           (match replace_special with
+            | true -> Some stats.perm
+            | false ->
+              raise_s
+                [%message
+                  "Writer.with_file_atomic: not replacing special file" ~_:(file : string)])
+         | `Link ->
+           (* [Unix.stat] resolves the symlinks already.
+              Unfortunately, this means we won't be able to replace a "broken" symlink. *)
+           assert false)
+      | Error _ -> None
     in
-    temp_file, Fd.create File fd (Info.of_string temp_file)
-  in
-  let t = create ?time_source fd in
-  (let%bind.Deferred.Result f_result =
-     Monitor.try_with_or_error (fun () -> f t)
-     >>| Result.map_error ~f:(fun e -> `f_raised e)
-   in
-   match%map
-     let%bind.Deferred.Or_error () =
-       Result.ok_if_true
-         (not (is_closed t))
-         ~error:(Error.create_s [%message "writer closed by [f]" ~_:(file : string)])
-       |> Deferred.return
+    let initial_permissions =
+      match perm with
+      | Some p -> p
+      | None ->
+        (match current_file_permissions with
+         | None -> 0o666
+         | Some p -> p)
+    in
+    let%bind temp_file, fd =
+      let temp_file = Option.value temp_file ~default:file in
+      let%map temp_file, fd =
+        let dir = Filename.dirname temp_file in
+        let prefix = Filename.basename temp_file in
+        In_thread.run (fun () ->
+          Filename_unix.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
+      in
+      temp_file, Fd.create File fd (Info.of_string temp_file)
+    in
+    let t = create ?time_source fd in
+    (let%bind.Deferred.Result f_result =
+       Monitor.try_with_or_error (fun () -> f t)
+       >>| Result.map_error ~f:(fun e -> `f_raised e)
      in
-     Monitor.try_with_or_error (fun () ->
-       let%bind () =
-         match current_file_permissions with
-         | None ->
-           (* We don't need to change the permissions here.
-              The [initial_permissions] (with umask applied by the OS) should be good. *)
-           return ()
-         | Some _ ->
-           (* We are overwriting permissions here to undo the umask that was applied
-              by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
-              behavior. *)
-           Unix.fchmod fd ~perm:initial_permissions
+     match%map
+       let%bind.Deferred.Or_error () =
+         Result.ok_if_true
+           (not (is_closed t))
+           ~error:(Error.create_s [%message "writer closed by [f]" ~_:(file : string)])
+         |> Deferred.return
        in
-       let%bind () = if do_fsync then fsync t else return () in
-       let%bind () = close t in
-       Unix.rename ~src:temp_file ~dst:file)
-   with
-   | Error e -> Error (`final_steps_raised e)
-   | Ok () -> Ok f_result)
-  >>= function
-  | Ok res -> return res
-  | Error error ->
-    let%bind unlink_result =
-      Monitor.try_with_or_error (fun () -> Unix.unlink temp_file)
-    in
-    (* NB we may have tried to close above, but that's OK because close is
-       idempotent. *)
-    let%map close_result = Monitor.try_with_or_error (fun () -> close t) in
-    (match Or_error.combine_errors_unit [ close_result; unlink_result ] with
-     | Ok () ->
-       (match error with
-        | `f_raised f_error ->
-          (* We do not tag an error arising in [f] *)
-          Error.raise f_error
-        | `final_steps_raised our_error -> our_error)
-     | Error cleanup_error ->
-       let initial_error =
-         match error with
-         | `final_steps_raised e | `f_raised e -> e
-       in
-       Error.of_list [ initial_error; cleanup_error ])
-    |> Error.tag_s ~tag:[%message "Error in Writer.with_file_atomic" (file : string)]
-    |> Error.raise
-;;
+       Monitor.try_with_or_error (fun () ->
+         let%bind () =
+           match current_file_permissions with
+           | None ->
+             (* We don't need to change the permissions here.
+                The [initial_permissions] (with umask applied by the OS) should be good. *)
+             return ()
+           | Some _ ->
+             (* We are overwriting permissions here to undo the umask that was applied
+                by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
+                behavior. *)
+             Unix.fchmod fd ~perm:initial_permissions
+         in
+         let%bind () = if do_fsync then fsync t else return () in
+         let%bind () = close t in
+         Unix.rename ~src:temp_file ~dst:file)
+     with
+     | Error e -> Error (`final_steps_raised e)
+     | Ok () -> Ok f_result)
+    >>= function
+    | Ok res -> return res
+    | Error error ->
+      let%bind unlink_result =
+        Monitor.try_with_or_error (fun () -> Unix.unlink temp_file)
+      in
+      (* NB we may have tried to close above, but that's OK because close is
+         idempotent. *)
+      let%map close_result = Monitor.try_with_or_error (fun () -> close t) in
+      (match Or_error.combine_errors_unit [ close_result; unlink_result ] with
+       | Ok () ->
+         (match error with
+          | `f_raised f_error ->
+            (* We do not tag an error arising in [f] *)
+            Error.raise f_error
+          | `final_steps_raised our_error -> our_error)
+       | Error cleanup_error ->
+         let initial_error =
+           match error with
+           | `final_steps_raised e | `f_raised e -> e
+         in
+         Error.of_list [ initial_error; cleanup_error ])
+      |> Error.tag_s ~tag:[%message "Error in Writer.with_file_atomic" (file : string)]
+      |> Error.raise
+  ;;
 
-let save ?temp_file ?perm ?fsync ?replace_special file ~contents =
-  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
-    write t contents;
-    return ())
-;;
+  let save ?temp_file ?perm ?fsync ?replace_special file ~contents =
+    with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
+      write t contents;
+      return ())
+  ;;
 
-let save_lines ?temp_file ?perm ?fsync ?replace_special file lines =
-  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
-    List.iter lines ~f:(fun line ->
-      write t line;
-      newline t);
-    return ())
-;;
+  let save_lines ?temp_file ?perm ?fsync ?replace_special file lines =
+    with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
+      List.iter lines ~f:(fun line ->
+        write t line;
+        newline t);
+      return ())
+  ;;
 
-let save_sexp ?temp_file ?perm ?fsync ?replace_special ?(hum = true) file sexp =
-  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
-    write_sexp_internal t sexp ~hum ~terminate_with:Newline;
-    return ())
-;;
+  let save_sexp ?temp_file ?perm ?fsync ?replace_special ?(hum = true) file sexp =
+    with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
+      write_sexp_internal t sexp ~hum ~terminate_with:Newline;
+      return ())
+  ;;
 
-let save_sexps_conv
-  ?temp_file
-  ?perm
-  ?fsync
-  ?replace_special
-  ?(hum = true)
-  file
-  xs
-  sexp_of_x
-  =
-  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
-    List.iter xs ~f:(fun x ->
-      write_sexp_internal t (sexp_of_x x) ~hum ~terminate_with:Newline);
-    return ())
-;;
+  let save_sexps_conv
+    ?temp_file
+    ?perm
+    ?fsync
+    ?replace_special
+    ?(hum = true)
+    file
+    xs
+    sexp_of_x
+    =
+    with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
+      List.iter xs ~f:(fun x ->
+        write_sexp_internal t (sexp_of_x x) ~hum ~terminate_with:Newline);
+      return ())
+  ;;
 
-let save_sexps ?temp_file ?perm ?fsync ?replace_special ?hum file sexps =
-  save_sexps_conv ?temp_file ?perm ?fsync ?replace_special ?hum file sexps Fn.id
-;;
+  let save_sexps ?temp_file ?perm ?fsync ?replace_special ?hum file sexps =
+    save_sexps_conv ?temp_file ?perm ?fsync ?replace_special ?hum file sexps Fn.id
+  ;;
 
-let save_bin_prot ?temp_file ?perm ?fsync ?replace_special file bin_writer a =
-  with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
-    write_bin_prot t bin_writer a;
-    return ())
-;;
+  let save_bin_prot ?temp_file ?perm ?fsync ?replace_special file bin_writer a =
+    with_file_atomic ?temp_file ?perm ?fsync ?replace_special file ~f:(fun t ->
+      write_bin_prot t bin_writer a;
+      return ())
+  ;;
+end
 
 let with_flushed_at_close t ~flushed ~f =
   let producers_to_flush_at_close_elt = Bag.add t.producers_to_flush_at_close flushed in
@@ -1903,71 +1995,75 @@ let with_flushed_at_close t ~flushed ~f =
     return ())
 ;;
 
-let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r write_f =
-  let consumer =
-    Pipe.add_consumer pipe_r ~downstream_flushed:(fun () ->
-      let%map () = flushed t in
-      `Ok)
-  in
-  let end_of_pipe_r = Ivar.create () in
-  (* The only reason we can't use [Pipe.iter] is because it doesn't accept
-     [?max_num_values_per_read]. *)
-  let rec iter () =
-    if Ivar.is_full t.consumer_left || (not (can_write t)) || Deferred.is_determined stop
-    then
-      (* The [choose] in [doit] will become determined and [doit] will do the right
-         thing. *)
-      ()
-    else (
-      let read_result =
-        match max_num_values_per_read with
-        | None -> Pipe.read_now' pipe_r ~consumer
-        | Some max_queue_length -> Pipe.read_now' pipe_r ~consumer ~max_queue_length
-      in
-      match read_result with
-      | `Eof -> Ivar.fill_exn end_of_pipe_r ()
-      | `Nothing_available -> Pipe.values_available pipe_r >>> fun _ -> iter ()
-      | `Ok q ->
-        write_f q ~cont:(fun () ->
-          Pipe.Consumer.values_sent_downstream consumer;
-          flushed t >>> iter))
-  in
-  let doit () =
-    (* Concurrecy between [iter] and [choose] is essential.  Even if [iter] gets blocked,
-       for example on [flushed], the result of [doit] can still be determined by [choice]s
-       other than [end_of_pipe_r]. *)
-    iter ();
-    match%map
-      choose
-        [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
-        ; choice stop (fun () -> `Stop)
-        ; choice (close_finished t) (fun () -> `Writer_closed)
-        ; choice (consumer_left t) (fun () -> `Consumer_left)
-        ]
-    with
-    | `End_of_pipe_r | `Stop -> ()
-    | `Writer_closed | `Consumer_left -> Pipe.close_read pipe_r
-  in
-  with_flushed_at_close t ~f:doit ~flushed:(fun () ->
-    Deferred.ignore_m (Pipe.upstream_flushed pipe_r))
-;;
+module Streaming = struct
+  let make_transfer ?(stop = Deferred.never ()) ?max_num_values_per_read t pipe_r write_f =
+    let consumer =
+      Pipe.add_consumer pipe_r ~downstream_flushed:(fun () ->
+        let%map () = flushed t in
+        `Ok)
+    in
+    let end_of_pipe_r = Ivar.create () in
+    (* The only reason we can't use [Pipe.iter] is because it doesn't accept
+       [?max_num_values_per_read]. *)
+    let rec iter () =
+      if Ivar.is_full t.consumer_left
+         || (not (can_write t))
+         || Deferred.is_determined stop
+      then
+        (* The [choose] in [doit] will become determined and [doit] will do the right
+           thing. *)
+        ()
+      else (
+        let read_result =
+          match max_num_values_per_read with
+          | None -> Pipe.read_now' pipe_r ~consumer
+          | Some max_queue_length -> Pipe.read_now' pipe_r ~consumer ~max_queue_length
+        in
+        match read_result with
+        | `Eof -> Ivar.fill_exn end_of_pipe_r ()
+        | `Nothing_available -> Pipe.values_available pipe_r >>> fun _ -> iter ()
+        | `Ok q ->
+          write_f q ~cont:(fun () ->
+            Pipe.Consumer.values_sent_downstream consumer;
+            flushed t >>> iter))
+    in
+    let doit () =
+      (* Concurrecy between [iter] and [choose] is essential.  Even if [iter] gets blocked,
+         for example on [flushed], the result of [doit] can still be determined by [choice]s
+         other than [end_of_pipe_r]. *)
+      iter ();
+      match%map
+        choose
+          [ choice (Ivar.read end_of_pipe_r) (fun () -> `End_of_pipe_r)
+          ; choice stop (fun () -> `Stop)
+          ; choice (close_finished t) (fun () -> `Writer_closed)
+          ; choice (consumer_left t) (fun () -> `Consumer_left)
+          ]
+      with
+      | `End_of_pipe_r | `Stop -> ()
+      | `Writer_closed | `Consumer_left -> Pipe.close_read pipe_r
+    in
+    with_flushed_at_close t ~f:doit ~flushed:(fun () ->
+      Deferred.ignore_m (Pipe.upstream_flushed pipe_r))
+  ;;
 
-let transfer ?stop ?max_num_values_per_read t pipe_r write_f =
-  make_transfer ?stop ?max_num_values_per_read t pipe_r (fun q ~cont ->
-    Queue.iter q ~f:write_f;
-    cont ())
-;;
+  let transfer ?stop ?max_num_values_per_read t pipe_r write_f =
+    make_transfer ?stop ?max_num_values_per_read t pipe_r (fun q ~cont ->
+      Queue.iter q ~f:write_f;
+      cont ())
+  ;;
 
-let transfer' ?stop ?max_num_values_per_read t pipe_r write_f =
-  make_transfer ?stop ?max_num_values_per_read t pipe_r (fun q ~cont ->
-    write_f q >>> cont)
-;;
+  let transfer' ?stop ?max_num_values_per_read t pipe_r write_f =
+    make_transfer ?stop ?max_num_values_per_read t pipe_r (fun q ~cont ->
+      write_f q >>> cont)
+  ;;
 
-let pipe t =
-  let pipe_r, pipe_w = Pipe.create () in
-  don't_wait_for (transfer t pipe_r (fun s -> write t s));
-  pipe_w
-;;
+  let pipe t =
+    let pipe_r, pipe_w = Pipe.create () in
+    don't_wait_for (transfer t pipe_r (fun s -> write t s));
+    pipe_w
+  ;;
+end
 
 module Private = struct
   let set_bytes_received t i =
@@ -1979,3 +2075,7 @@ module Private = struct
 
   module Check_buffer_age = Check_buffer_age
 end
+
+include Stdout_and_stderr
+include Filesystem_stuff
+include Streaming
