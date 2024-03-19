@@ -47,6 +47,9 @@ module Kind : sig
         | `Bound (** the result of [bind()] *)
         | `Passive (** the result of [listen()] *)
         | `Active (** the result of [connect()] or [accept()] *)
+        | `Unknown
+          (** this should only happen when trying to [infer_using_stat] on platforms whose
+              [getsockopt] does not support [SO_ACCEPTCONN] (e.g., MacOS). *)
         ]
   [@@deriving sexp_of]
 

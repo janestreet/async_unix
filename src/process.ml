@@ -363,7 +363,7 @@ let run_forwarding_with_shared_fds
   let%bind () = Writer.flushed (Lazy.force Writer.stdout)
   and () = Writer.flushed (Lazy.force Writer.stderr) in
   match%bind
-    In_thread.syscall_exn ~name:"create_process_with_fds" (fun () ->
+    In_thread.syscall ~name:"create_process_with_fds" (fun () ->
       Core_unix.create_process_with_fds
         ?argv0
         ?env
@@ -376,7 +376,8 @@ let run_forwarding_with_shared_fds
         ~stderr:(Use_this Core_unix.stderr)
         ())
   with
-  | { pid; stdin; stdout = _; stderr = _ } ->
+  | Error exn -> Deferred.Or_error.of_exn exn
+  | Ok { pid; stdin; stdout = `Did_not_create_fd; stderr = `Did_not_create_fd } ->
     let%map () =
       let writer =
         Fd.create

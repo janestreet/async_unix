@@ -22,12 +22,14 @@ module Where_to_connect : sig
   val of_host_and_port
     :  ?bind_to_address:Unix.Inet_addr.t (** default is chosen by OS *)
     -> ?bind_to_port:int (** default is chosen by OS *)
+    -> ?show_port_in_test:bool (** default is [false] *)
     -> Host_and_port.t
     -> inet
 
   val of_inet_address
     :  ?bind_to_address:Unix.Inet_addr.t (** default is chosen by OS *)
     -> ?bind_to_port:int (** default is chosen by OS *)
+    -> ?show_port_in_test:bool (** default is [false] *)
     -> Socket.Address.Inet.t
     -> inet
 

@@ -119,7 +119,7 @@ let remove_handler t handler =
 ;;
 
 let handle_delivered t =
-  (* The [@local] annotation is there to make sure the closure can't be allocated on the
+  (* The local_ annotation is there to make sure the closure can't be allocated on the
      heap *)
   let () =
     Raw_signal_manager.iter_delivered

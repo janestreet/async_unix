@@ -44,5 +44,5 @@ let read t =
            | Some v -> v
            | None -> loop ())
       in
-      loop ())
+      loop () [@nontail]) [@nontail]
 ;;

@@ -27,7 +27,11 @@ module Where_to_connect = struct
       Some (Socket.Address.Inet.create ~port inet_addr)
   ;;
 
-  let of_host_and_port ?bind_to_address ?bind_to_port ({ Host_and_port.host; port } as hp)
+  let of_host_and_port
+    ?bind_to_address
+    ?bind_to_port
+    ?(show_port_in_test = false)
+    ({ Host_and_port.host; port } as hp)
     =
     { socket_type = Socket.Type.tcp
     ; remote_address =
@@ -35,7 +39,10 @@ module Where_to_connect = struct
           Unix.Inet_addr.of_string_or_getbyname host
           >>| fun inet_addr -> Socket.Address.Inet.create inet_addr ~port)
     ; local_address = create_local_address ~bind_to_address ~bind_to_port
-    ; info = [%sexp (hp : Host_and_port.t)]
+    ; info =
+        (match show_port_in_test with
+         | true -> [%sexp (hp : Host_and_port.t)]
+         | false -> [%sexp (hp : Host_and_port.Hide_port_in_test.t)])
     }
   ;;
 
@@ -47,11 +54,14 @@ module Where_to_connect = struct
     }
   ;;
 
-  let of_inet_address ?bind_to_address ?bind_to_port address =
+  let of_inet_address ?bind_to_address ?bind_to_port ?(show_port_in_test = false) address =
     { socket_type = Socket.Type.tcp
     ; remote_address = (fun () -> return address)
     ; local_address = create_local_address ~bind_to_address ~bind_to_port
-    ; info = [%sexp_of: Socket.Address.Inet.t] address
+    ; info =
+        (match show_port_in_test with
+         | true -> [%sexp (address : Socket.Address.Inet.Show_port_in_test.t)]
+         | false -> [%sexp (address : Socket.Address.Inet.t)])
     }
   ;;
 

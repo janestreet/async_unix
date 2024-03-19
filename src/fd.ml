@@ -17,13 +17,21 @@ let with_file_descr_exn = with_file_descr_exn
 module Kind = struct
   include Fd.Kind
 
+  let get_socket_state file_descr =
+    match Unix.getsockopt file_descr SO_ACCEPTCONN with
+    | true -> `Passive
+    | false -> `Active
+    | exception Unix.Unix_error (ENOPROTOOPT, _, _) ->
+      (* [SO_ACCEPTCONN] is not supported on some platforms. *)
+      `Unknown
+  ;;
+
   let kind_from_fstat file_descr (kind : Core_unix.file_kind) : Fd.Kind.t =
     match kind with
     | S_REG | S_DIR | S_BLK | S_LNK -> File
     | S_CHR -> Char
     | S_FIFO -> Fifo
-    | S_SOCK ->
-      Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN then `Passive else `Active)
+    | S_SOCK -> Socket (get_socket_state file_descr)
   ;;
 
   let blocking_infer_using_stat file_descr =
@@ -40,8 +48,7 @@ module Kind = struct
     | `Regular_file | `Directory | `Block_device | `Symbolic_link -> File
     | `Character_special -> Char
     | `Fifo -> Fifo
-    | `Socket ->
-      Socket (if Unix.getsockopt file_descr SO_ACCEPTCONN then `Passive else `Active)
+    | `Socket -> Socket (get_socket_state file_descr)
   ;;
 
   let infer_using_uring_stat file_descr uring =

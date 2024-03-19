@@ -359,7 +359,8 @@ let%test_module _ =
         ("validation failed" (
           ()
           ("validation errors" (("" "value 0 < bound 1")))
-          lib/thread_pool_cpu_affinity/src/thread_pool_cpu_affinity.ml:LINE:COL)) |}]
+          lib/thread_pool_cpu_affinity/src/thread_pool_cpu_affinity.ml:LINE:COL))
+        |}]
     ;;
 
     let%expect_test "can affinitize to a single core" =
@@ -409,7 +410,8 @@ let%test_module _ =
          (unfinished_work     0)
          (total_working_time  0s)
          (max_unfinished_work 0)
-         (max_queue_wait      0s)) |}];
+         (max_queue_wait      0s))
+        |}];
       let first_job_started = Thread_safe_ivar.create () in
       add_work t (fun () ->
         Thread_safe_ivar.fill first_job_started ();

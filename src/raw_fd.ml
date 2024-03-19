@@ -10,7 +10,7 @@ module Kind = struct
     | Char
     | Fifo
     | File
-    | Socket of [ `Unconnected | `Bound | `Passive | `Active ]
+    | Socket of [ `Unconnected | `Bound | `Passive | `Active | `Unknown ]
   [@@deriving sexp_of]
 end
 
