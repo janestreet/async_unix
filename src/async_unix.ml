@@ -1,4 +1,5 @@
 module Async_config = Config
+module Busy_poller = Busy_poller
 module Clock = Clock
 module Dump_core_on_job_delay = Dump_core_on_job_delay
 module Fd = Fd

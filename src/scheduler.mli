@@ -197,7 +197,13 @@ val thread_pool_has_unfinished_work : unit -> bool
 
     Pollers run in the main monitor.
 *)
-val add_busy_poller : t -> max_busy_wait_duration:Time_ns.Span.t -> (unit -> int) -> unit
+val add_busy_poller
+  :  t
+  -> max_busy_wait_duration:Time_ns.Span.t
+  -> Busy_poller.packed
+  -> unit
+
+val num_busy_pollers : t -> int
 
 (** Instead of calling Scheduler.go, the [External] module can be used to drive Async with
     an external loop, manually running regular Async cycles. This is useful to integrate

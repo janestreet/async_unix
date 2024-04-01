@@ -1,3 +1,5 @@
+- The results of functions `Writer.flushed_or_failed_unit`, `Writer.flushed_or_failed_result`,and `Writer.stopped_permanently` are now determined if the writer is force-closed.
+
 ## Release v0.16.0
 
 - Improve scheduling fairness in `Async_unix`:
@@ -16,7 +18,7 @@
     - `run_forwarding_exn`
     - `forward_output_and_wait`
     - `forward_output_and_wait_exn`
-    
+
 - Changes in `Async.Reader`:
   *  Removed function `Reader.io_stats` (also in `Writer`)
   * Added `Reader.bytes_read`: returns the number of bytes read by a specific reader, including bytes in the internal buffer
@@ -41,7 +43,7 @@
 
 - Changes in `Async.Tcp`:
   * Rename `Tcp.with_connect_options` to `Tcp.Aliases.with_connect_options`.
-  
+
 - Changes in `Unix_syscalls`:
   * Add `Socket.bind_keep_opts`
     - Behaves like `bind`, but preserves existing socket options and the CLOEXEC flag

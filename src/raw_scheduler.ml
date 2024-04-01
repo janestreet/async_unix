@@ -89,7 +89,7 @@ type t =
     fds_whose_watching_has_changed : Fd.t Stack.t
   ; file_descr_watcher : File_descr_watcher.t
   ; (* Returns how many events the poll has processed. *)
-    busy_pollers : (unit -> int) Uniform_array.t
+    busy_pollers : (Busy_poller.packed Uniform_array.t[@sexp.opaque])
   ; mutable num_busy_pollers : int
   ; mutable time_spent_waiting_for_io : Tsc.Span.t
   ; (* [fd_by_descr] holds every file descriptor that Async manages.  Fds are added
@@ -425,7 +425,16 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
               : (Sexp.t option[@sexp.option]))]
     in
     if should_abort
-    then Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))
+    then (
+      (* Core dumps are exceptionally useful when investigating thread pool stuck errors,
+         since they give you access to all the call stacks that got stuck, so dump it here
+         (core dump in [be_the_scheduler] is not kicking in here because this error is
+         classified as [`User_uncaught], not [`Async_uncaught]).
+
+         Not dumping when [am_running_test] to avoid potentially making some existing
+         tests slower in case they are deliberately testing this scenario. *)
+      if not am_running_test then Dump_core_on_job_delay.dump_core ();
+      Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message)))
     else Core.Debug.eprint_s message)
 ;;
 
@@ -751,7 +760,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; start_type = Not_started
     ; fds_whose_watching_has_changed = Stack.create ()
     ; file_descr_watcher
-    ; busy_pollers = Uniform_array.create ~len:256 (fun () -> 0)
+    ; busy_pollers = Uniform_array.create ~len:256 Busy_poller.empty
     ; num_busy_pollers = 0
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
@@ -930,6 +939,8 @@ let dump_core_on_job_delay () =
       ~how_to_dump
 ;;
 
+let num_busy_pollers t = t.num_busy_pollers
+
 let add_busy_poller t ~max_busy_wait_duration f =
   if t.num_busy_pollers = Uniform_array.length t.busy_pollers
   then raise_s [%message "[add_busy_poller] maximum number of pollers exceeded"];
@@ -1036,12 +1047,12 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   F.post_check F.watcher check_result
 ;;
 
-let[@inline always] run_busy_pollers_once t =
+let[@inline always] run_busy_pollers_once t ~deadline =
   let did_work = ref false in
   (try
      for i = 0 to t.num_busy_pollers - 1 do
-       let poll = Uniform_array.unsafe_get t.busy_pollers i in
-       if poll () > 0 then did_work := true
+       let poller = Uniform_array.unsafe_get t.busy_pollers i in
+       if Busy_poller.poll poller ~deadline > 0 then did_work := true
      done
    with
    | exn -> Monitor.send_exn Monitor.main exn);
@@ -1050,26 +1061,26 @@ let[@inline always] run_busy_pollers_once t =
 
 let run_busy_pollers t ~timeout =
   let calibrator = force Tsc.calibrator in
-  let timeout =
+  let deadline =
     ref (Tsc.add (Tsc.now ()) (Tsc.Span.of_time_ns_span timeout ~calibrator))
   in
   while
-    let pollers_did_something = run_busy_pollers_once t in
+    let pollers_did_something = run_busy_pollers_once t ~deadline:!deadline in
     let now = Tsc.now () in
     if pollers_did_something
     then
       if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-      then timeout := now
+      then deadline := now
       else if Kernel_scheduler.has_upcoming_event t.kernel_scheduler
       then (
         let new_timeout =
           Time_ns.diff
             (Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler)
-            (Time_ns.now ())
+            (Tsc.to_time_ns now ~calibrator)
           |> Tsc.Span.of_time_ns_span ~calibrator
         in
-        timeout := Tsc.min !timeout (Tsc.add now new_timeout));
-    Tsc.( < ) now !timeout
+        deadline := Tsc.min !deadline (Tsc.add now new_timeout));
+    Tsc.( < ) now !deadline
   do
     ()
   done
@@ -1134,7 +1145,7 @@ let compute_timeout_and_check_file_descr_watcher t =
   in
   if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
   then (
-    ignore (run_busy_pollers_once t : bool);
+    ignore (run_busy_pollers_once t ~deadline:Tsc.zero : bool);
     check_file_descr_watcher t ~timeout:Immediately ())
   else if have_busy_pollers
   then (
