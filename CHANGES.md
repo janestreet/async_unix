@@ -1,4 +1,57 @@
+## Release v0.17.0
+
 - The results of functions `Writer.flushed_or_failed_unit`, `Writer.flushed_or_failed_result`,and `Writer.stopped_permanently` are now determined if the writer is force-closed.
+
+
+- Expose `Async_unix.setgid`
+
+- Split away `Async_unix.Log` into a separate library `Async_log`
+
+- `Async_log`: fix log rotation issues when a relative path is specified
+
+- Add `Async_log.create_null` for a log that discards all entries
+
+- Add the interface `Scheduler.External` to allow driving Async from an external loop
+
+- Fix a bug where Async scheduler can go to sleep even though
+  `Scheduler.yield_until_no_jobs_remain` is waiting
+
+- Add a function `Signal.manage_by_async` that makes on-shutdown and at-exit 
+  handlers run on signal, without the need to specify or override a custom
+  signal handler
+
+- `Async.Writer`:
+    * Allow writes of size 0 in `write_bin_prot_no_size_header`
+    * Fix a bug where `with_file` leaves the writer open on a background write error
+    * Fix a bug where `with_file` gets stuck on a background write error
+    * Add `splice`, to transfer data from a `Reader` with a relatively small overhead
+    * All write functions now respect `Writer.set_synchronous_backing_out_channel`
+    * `flushed_or_failed` no longer gets stuck when writer is force-closed
+
+- Experimental io_uring support: currently disabled by conditional compilation
+
+- In `Process.run_forwarding`, add support for sharing stderr and stdout fds
+  with the child process
+
+- Add a separate throttle wrapping the blocking DNS operations, so they can't
+  hog the thread pool
+
+- Remove the `reset_scheduler` functionality, which is unused.
+
+- Fixed a race condition where `Process.send_signal` can send a signal after
+  the process is reaped
+
+- Added a new ``Unknown` case to `Fd.Kind.Socket` for platforms that do not support
+  `SO_ACCEPTCONN`, such as MacOS.
+
+- Add `Fd.deregister`, which a more discoverable variant 
+  of `Fd.close ~file_descriptor_handling:Do_not_close`
+
+- Make `Reader.get_data_until` no longer allocate all memory upfront. 
+  This avoids an unnecessary crash with OOM when parsing a corrupted message.
+
+- Change the default `max_len` in `Reader.load_bin_prot_exn` to
+  Int.max_vaue.
 
 ## Release v0.16.0
 
