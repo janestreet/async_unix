@@ -275,9 +275,9 @@ let determine_nonblock_status t =
       Core_unix.Open_flags.is_subset Core_unix.Open_flags.nonblock ~of_:flags
     in
     t.nonblock_status
-      <- (match nonblock with
-          | false -> Blocking
-          | true -> Nonblocking);
+    <- (match nonblock with
+        | false -> Blocking
+        | true -> Nonblocking);
     nonblock
   | Nonblocking -> true
   | Blocking -> false

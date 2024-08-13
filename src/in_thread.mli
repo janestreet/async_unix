@@ -41,13 +41,13 @@ val pipe_of_squeue : 'a Squeue.t -> 'a Pipe.Reader.t
 module When_finished : sig
   type t =
     | Notify_the_scheduler
-        (** The helper thread notifies the Async scheduler that the result is ready, so that
+    (** The helper thread notifies the Async scheduler that the result is ready, so that
         the scheduler will wake up in a timely manner and run a cycle. *)
     | Take_the_async_lock
-        (** The helper thread blocks until it can acquire the Async lock, at which point it
+    (** The helper thread blocks until it can acquire the Async lock, at which point it
         runs a cycle. *)
     | Try_to_take_the_async_lock
-        (** If the [thread_pool_cpu_affinity] is [Inherit], then the helper hread tries to
+    (** If the [thread_pool_cpu_affinity] is [Inherit], then the helper hread tries to
         take the Async lock and run a cycle.  If the [thread_pool_cpu_affinity] is
         [Cpuset] or the helper thread is unable to acquire the Async lock, then it
         behaves as in [Notify_the_scheduler]. *)

@@ -56,8 +56,8 @@ let[@inline never] [@specialise never] [@local never] thread_safe_interrupt t =
       (Read_write_pair.get t.pipe `Write)
       ~nonblocking:true
       (fun file_descr ->
-      try ignore (Unix.write_assume_fd_is_nonblocking file_descr bytes_w : int) with
-      | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ()))
+         try ignore (Unix.write_assume_fd_is_nonblocking file_descr bytes_w : int) with
+         | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> ()))
 ;;
 
 let clear t =

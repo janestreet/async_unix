@@ -6,8 +6,8 @@ open! Import
     [Core.Signal.Expert] if they need. *)
 include
   module type of Core.Signal
-    with type t = Core.Signal.t
-    with module Expert := Core.Signal.Expert
+  with type t = Core.Signal.t
+  with module Expert := Core.Signal.Expert
 
 (** We override values from [Core.Signal] that we don't want people to use with
     Async. *)

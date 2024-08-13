@@ -85,6 +85,12 @@ val stat
   -> string
   -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
+val stat_or_unix_error
+  :  t
+  -> ?mask:Io_uring_raw.Statx.Mask.t
+  -> string
+  -> (Io_uring_raw.Statx.t, Unix.Error.t) Result.t Deferred.t
+
 val fstat
   :  t
   -> ?mask:Io_uring_raw.Statx.Mask.t
@@ -96,5 +102,11 @@ val lstat
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
+
+val lstat_or_unix_error
+  :  t
+  -> ?mask:Io_uring_raw.Statx.Mask.t
+  -> string
+  -> (Io_uring_raw.Statx.t, Unix.Error.t) Result.t Deferred.t
 
 val the_one_and_only : unit -> t option

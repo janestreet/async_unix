@@ -34,7 +34,7 @@ let start_watching ~dump_if_delayed_by ~how_to_dump =
        ~on_uncaught_exn:`Print_to_stderr
        (fun () -> watch dump_if_delayed_by_sec dump_type)
        ()
-      : Thread.t);
+     : Thread.t);
   Clock.every tick_interval tick
 ;;
 

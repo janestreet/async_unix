@@ -138,16 +138,16 @@ module Close = struct
     | Some uring ->
       Io_uring_raw.syscall_result (Io_uring_raw.close uring file_descr)
       >>| (function
-      | Error err ->
-        raise
-          (Unix.Unix_error
-             ( err
-             , "close"
-             , Core_unix.Private.sexp_to_string_hum
-                 [%sexp { fd : File_descr.t = file_descr }] ))
-      | Ok result ->
-        assert (result = 0);
-        ())
+       | Error err ->
+         raise
+           (Unix.Unix_error
+              ( err
+              , "close"
+              , Core_unix.Private.sexp_to_string_hum
+                  [%sexp { fd : File_descr.t = file_descr }] ))
+       | Ok result ->
+         assert (result = 0);
+         ())
     | None -> In_thread.syscall_exn ~name:"close" (fun () -> Unix.close file_descr)
   ;;
 
@@ -266,15 +266,15 @@ let stop_watching_upon_interrupt t read_or_write ivar ~interrupt =
        ; choice (Ivar.read ivar) (fun _ -> `Not_interrupted)
        ])
     (function
-     | `Not_interrupted -> ()
-     | `Interrupted ->
-       if Ivar.is_empty ivar
-       then
-         Scheduler.request_stop_watching
-           (the_one_and_only ())
-           t
-           read_or_write
-           `Interrupted)
+      | `Not_interrupted -> ()
+      | `Interrupted ->
+        if Ivar.is_empty ivar
+        then
+          Scheduler.request_stop_watching
+            (the_one_and_only ())
+            t
+            read_or_write
+            `Interrupted)
 ;;
 
 let interruptible_ready_to t read_or_write ~interrupt =
@@ -418,12 +418,12 @@ module Private = struct
     else (
       t.kind <- kind;
       t.info
-        <- (match info with
-            | `Set i -> i
-            | `Extend i ->
-              Info.create
-                "replaced"
-                (i, `previously_was t.info)
-                [%sexp_of: Info.t * [ `previously_was of Info.t ]]))
+      <- (match info with
+          | `Set i -> i
+          | `Extend i ->
+            Info.create
+              "replaced"
+              (i, `previously_was t.info)
+              [%sexp_of: Info.t * [ `previously_was of Info.t ]]))
   ;;
 end

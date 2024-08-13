@@ -5,10 +5,13 @@
  (name async_unix)
  (public_name async_unix)
  (libraries async_kernel core_unix.bigstring_unix
-   core_kernel.bounded_int_table core cstruct async_kernel.eager_deferred
-   core_unix.filename_unix core_unix.iobuf_unix core_unix.nano_mutex
-   async_kernel.read_write_pair core_unix.squeue core_unix.sys_unix
-   thread_pool thread_safe_ivar core_unix.time_ns_unix
+   core_kernel.bounded_int_table core_kernel.caml_unix core
+   core_unix.core_thread core_unix cstruct async_kernel.eager_deferred
+   core_unix.filename_unix core_kernel.iobuf core_unix.iobuf_unix
+   core_unix.linux_ext core_unix.nano_mutex async_kernel.read_write_pair
+   sexplib core_unix.signal_unix core_unix.squeue core_unix.sys_unix
+   thread_pool thread_safe_ivar core_kernel.thread_safe_queue
+   core_unix.time_float_unix core_unix.time_ns_unix
    core_unix.time_stamp_counter)
  (preprocessor_deps io_uring_config.h)
  (preprocess

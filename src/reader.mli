@@ -287,7 +287,7 @@ val read_until_bounded
   -> keep_delim:bool
   -> max:int
   -> [ `Ok of string | `Eof_without_delim of string | `Eof | `Max_exceeded of string ]
-     Deferred.t
+       Deferred.t
 
 (** [read_line t] reads up to and including the next newline ([\n]) character (or [\r\n])
     and returns a freshly-allocated string containing everything up to but not including

@@ -199,8 +199,12 @@ let statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
     | Ok res -> Ok res)
 ;;
 
+let stat_or_unix_error t ?mask filename =
+  do_statx t ?mask filename Io_uring_raw.Statx.Flags.empty
+;;
+
 let stat t ?mask filename =
-  match%map do_statx t ?mask filename Io_uring_raw.Statx.Flags.empty with
+  match%map stat_or_unix_error t ?mask filename with
   | Error err ->
     Error
       (Unix.Unix_error
@@ -220,8 +224,12 @@ let fstat t ?mask fd =
            , Core_unix.Private.sexp_to_string_hum [%sexp { fd : File_descr.t }] )))
 ;;
 
+let lstat_or_unix_error t ?mask filename =
+  do_statx t ?mask filename Io_uring_raw.Statx.Flags.symlink_nofollow
+;;
+
 let lstat t ?mask filename =
-  match%map do_statx t ?mask filename Io_uring_raw.Statx.Flags.symlink_nofollow with
+  match%map lstat_or_unix_error t ?mask filename with
   | Ok res -> Ok res
   | Error err ->
     Error

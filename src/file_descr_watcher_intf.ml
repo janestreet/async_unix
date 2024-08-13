@@ -42,13 +42,13 @@ module type S = sig
   type 'a additional_create_args
 
   (** [create ~num_file_descrs] creates a new file-descr-watcher that is able to watch
-      file descriptors in {[ [0, num_file_descrs) ]}. *)
+      file descriptors in [\[0, num_file_descrs)]. *)
   val create
     : (num_file_descrs:int
        -> handle_fd_read_ready:(File_descr.t -> unit)
        -> handle_fd_write_ready:(File_descr.t -> unit)
        -> t)
-      additional_create_args
+        additional_create_args
 
   val backend : Config.File_descr_watcher.t
 

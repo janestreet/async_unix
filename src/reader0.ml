@@ -347,11 +347,11 @@ module Internal = struct
                       in
                       res, Scheduler.cycle_start ()))
                    (function
-                    (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
+                     (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
                         But we don't trust the OS.  So, in case it does, we just try
                         again. *)
-                    | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
-                    | exn -> raise exn))
+                     | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
+                     | exn -> raise exn))
           in
           loop ()))
   ;;
@@ -587,9 +587,10 @@ module Internal = struct
   ;;
 
   module Read
-    (S : Substring_intf.S) (Name : sig
-      val name : string
-    end) =
+      (S : Substring_intf.S)
+      (Name : sig
+         val name : string
+       end) =
   struct
     let read_available t s =
       let len = Int.min t.available (S.length s) in
@@ -995,8 +996,8 @@ module Internal = struct
              else
                get_data_until t ~available_at_least:need
                >>> (function
-               | `Eof n -> handle_eof ~need n
-               | `Ok -> read_loop ())
+                | `Eof n -> handle_eof ~need n
+                | `Ok -> read_loop ())
            | Error error -> k (Error error)
            | exception exn -> k (Or_error.of_exn exn))
       in
@@ -1118,8 +1119,8 @@ module Internal = struct
            let buf = Bytes.create length in
            really_read t buf
            >>> (function
-           | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
-           | `Ok -> Ivar.fill_exn i (`Ok buf))))
+            | `Eof _ -> raise_s [%message "Reader.recv got unexpected EOF"]
+            | `Ok -> Ivar.fill_exn i (`Ok buf))))
   ;;
 
   let transfer t pipe_w =
@@ -1348,7 +1349,7 @@ let get_error
          (match sexp_kind with
           | Plain -> (Sexp.Annotated.get_sexp annotated_sexp : sexp)
           | Annotated -> (annotated_sexp : sexp))
-        : a);
+       : a);
     Ok ()
   with
   | exn ->
@@ -1387,11 +1388,11 @@ let gen_load_exn
       Monitor.try_with ~run:`Schedule ~rest:`Log ~extract_exn:true (fun () ->
         with_file ?exclusive file ~f:(fun t ->
           (may_load_file_multiple_times
-             := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
+           := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
                     kinds.  We can only load it multiple times if it has kind [File]. *)
-                match Fd.kind (fd t) with
-                | File -> true
-                | Char | Fifo | Socket _ -> false);
+              match Fd.kind (fd t) with
+              | File -> true
+              | Char | Fifo | Socket _ -> false);
           use t;
           Pipe.to_list (gen_read_sexps t ~sexp_kind)))
     with

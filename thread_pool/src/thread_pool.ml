@@ -130,8 +130,7 @@ module Internal = struct
       ; mutable priority : Priority.t
           (* A thread can be "available", meaning that it isn't working on anything, or
          doing work added to the thread pool, or serving as a helper thread.  *)
-      ; mutable
-          state :
+      ; mutable state :
           [ `Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t ]
           (* [unfinished_work] is the amount of work remaining for this thread to do.  It
          includes all the work in [work_queue], plus perhaps an additional work that is
@@ -228,7 +227,7 @@ module Internal = struct
   (* [Thread_pool.t] *)
   type t =
     { id : Pool_id.t
-        (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
+    (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
         [finished_with], it transitions to [`Finishing].  When the last work is done, it
         transitions to [`Finished] and fills [finished]. *)
     ; mutable state : [ `In_use | `Finishing | `Finished ]
@@ -236,7 +235,7 @@ module Internal = struct
         (* [mutex] is used to protect all access to [t] and its substructures, since the
        threads actually doing the work need to access[t]. *)
     ; mutex : Mutex.t
-        (** [default_priority] is the priority that will be used for work unless that work is
+    (** [default_priority] is the priority that will be used for work unless that work is
         added with an overriding priority.  It is set to whatever the priority is when the
         thread pool is created. *)
     ; default_priority : Priority.t
@@ -269,22 +268,22 @@ module Internal = struct
     ; mutable num_work_completed : int
     ; mutable num_working_threads : int
     ; mutable aggregate_working_start_time_since_epoch : Time_ns.Span.t
-        (** [aggregate_working_start_time_since_epoch] is the the sum of, for each working
+    (** [aggregate_working_start_time_since_epoch] is the the sum of, for each working
         thread, the span from the epoch to when it started that work. This is used to
         compute a [total_working_time] that includes the currently working threads, by
         subtracting this number from (the current span since the epoch) times
         num_working_threads. It's expected that this value may overflow and wrap around,
         that overflow will get cancelled out when computing the working time. *)
     ; mutable total_completed_working_time : Time_ns.Span.t
-        (** [total_completed_working_time] is the total time spent working across all
+    (** [total_completed_working_time] is the total time spent working across all
         completed jobs. This could technically be combined with
         [aggregate_working_start_time_since_epoch], but this is clearer and the extra
         bookkeeping is unlikely to be measurable. *)
     ; mutable max_recent_unfinished_work : int
-        (** [max_recent_unfinished_work] tracks the max seen value of
+    (** [max_recent_unfinished_work] tracks the max seen value of
         [unfinished_work] since [get_and_reset_stats] was last called. *)
     ; mutable max_recent_completed_queue_wait : Time_ns.Span.t
-        (** [max_recent_completed_queue_wait] tracks the max time a task has waited in
+    (** [max_recent_completed_queue_wait] tracks the max time a task has waited in
         [work_queue] since [get_and_reset_stats] was last called. *)
     }
   [@@deriving fields ~getters ~iterators:iter, sexp_of]
@@ -498,9 +497,9 @@ module Internal = struct
                 let started_working_at = Time_ns.now () in
                 Mutex.critical_section t.mutex ~f:(fun () ->
                   t.aggregate_working_start_time_since_epoch
-                    <- Time_ns.Span.( + )
-                         t.aggregate_working_start_time_since_epoch
-                         (Time_ns.to_span_since_epoch started_working_at);
+                  <- Time_ns.Span.( + )
+                       t.aggregate_working_start_time_since_epoch
+                       (Time_ns.to_span_since_epoch started_working_at);
                   t.num_working_threads <- t.num_working_threads + 1);
                 if !debug
                 then
@@ -524,13 +523,13 @@ module Internal = struct
                   t.unfinished_work <- t.unfinished_work - 1;
                   t.num_working_threads <- t.num_working_threads - 1;
                   t.total_completed_working_time
-                    <- Time_ns.Span.( + )
-                         t.total_completed_working_time
-                         (Time_ns.diff stopped_working_at started_working_at);
+                  <- Time_ns.Span.( + )
+                       t.total_completed_working_time
+                       (Time_ns.diff stopped_working_at started_working_at);
                   t.aggregate_working_start_time_since_epoch
-                    <- Time_ns.Span.( - )
-                         t.aggregate_working_start_time_since_epoch
-                         (Time_ns.to_span_since_epoch started_working_at);
+                  <- Time_ns.Span.( - )
+                       t.aggregate_working_start_time_since_epoch
+                       (Time_ns.to_span_since_epoch started_working_at);
                   thread.unfinished_work <- thread.unfinished_work - 1;
                   match thread.state with
                   | `Available ->

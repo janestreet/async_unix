@@ -68,7 +68,7 @@ end
 module Lock_mechanism : sig
   type t =
     | Lockf
-        (** Lockf refers to the ocaml [lockf] function, which, despite the name, does not call
+    (** Lockf refers to the ocaml [lockf] function, which, despite the name, does not call
         the UNIX lockf() system call, but rather calls fcntl() with F_SETLKW. *)
     | Flock
   [@@deriving compare, enumerate, sexp]
@@ -208,7 +208,9 @@ end
 
 val fstat : Fd.t -> Stats.t Deferred.t
 val stat : string -> Stats.t Deferred.t
+val stat_or_unix_error : string -> (Stats.t, Unix.Error.t) Result.t Deferred.t
 val lstat : string -> Stats.t Deferred.t
+val lstat_or_unix_error : string -> (Stats.t, Unix.Error.t) Result.t Deferred.t
 val isatty : Fd.t -> bool Deferred.t
 val unlink : string -> unit Deferred.t
 val remove : string -> unit Deferred.t
@@ -455,6 +457,7 @@ module Socket : sig
     val udp : Address.Inet.t t
     val unix : Address.Unix.t t
     val unix_dgram : Address.Unix.t t
+    val unix_seqpacket : Address.Unix.t t
     val family : 'a t -> 'a Family.t
   end
 
@@ -513,7 +516,7 @@ module Socket : sig
     :  ([ `Passive ], 'addr) t
     -> interrupt:unit Deferred.t
     -> [ `Ok of ([ `Active ], 'addr) t * 'addr | `Socket_closed | `Interrupted ]
-       Deferred.t
+         Deferred.t
 
   (** [accept_at_most] is like [accept], but will return up to [limit] connections before
       yielding, where [limit >= 1].  [accept_at_most] first waits for one connection and
@@ -542,7 +545,7 @@ module Socket : sig
     -> limit:int
     -> interrupt:unit Deferred.t
     -> [ `Ok of (([ `Active ], 'addr) t * 'addr) list | `Socket_closed | `Interrupted ]
-       Deferred.t
+         Deferred.t
 
   val shutdown : ('a, 'addr) t -> [ `Receive | `Send | `Both ] -> unit
   val fd : ('a, 'addr) t -> Fd.t
@@ -596,7 +599,7 @@ module Socket : sig
       {!Core_unix.mcast_set_ifname}. *)
   val bind_to_interface_exn
     : (([ `Unconnected ], Address.t) t -> Linux_ext.Bound_to_interface.t -> unit)
-      Or_error.t
+        Or_error.t
 end
 
 val bind_to_interface_exn : (Fd.t -> Linux_ext.Bound_to_interface.t -> unit) Or_error.t
@@ -723,7 +726,7 @@ module Terminal_io : sig
     ; mutable c_clocal : bool (** Ignore modem status lines. *)
     ; mutable c_isig : bool (** Generate signal on INTR, QUIT, SUSP. *)
     ; mutable c_icanon : bool
-        (** Enable canonical processing
+    (** Enable canonical processing
         (line buffering and editing) *)
     ; mutable c_noflsh : bool (** Disable flush after INTR, QUIT, SUSP. *)
     ; mutable c_echo : bool (** Echo input characters. *)
@@ -737,7 +740,7 @@ module Terminal_io : sig
     ; mutable c_veof : char (** End-of-file character (usually ctrl-D). *)
     ; mutable c_veol : char (** Alternate end-of-line char. (usually none). *)
     ; mutable c_vmin : int
-        (** Minimum number of characters to read
+    (** Minimum number of characters to read
         before the read request is satisfied. *)
     ; mutable c_vtime : int (** Maximum read wait (in 0.1s units). *)
     ; mutable c_vstart : char (** Start character (usually ctrl-Q). *)
@@ -806,7 +809,7 @@ val getlogin : unit -> string Deferred.t
 
 val wordexp
   : (?flags:[ `No_cmd | `Show_err | `Undef ] list -> string -> string array Deferred.t)
-    Or_error.t
+      Or_error.t
 
 module Private : sig
   (** [Wait] exposes some internals of the implementation of [wait] and [wait_untraced].

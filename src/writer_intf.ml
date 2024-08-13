@@ -395,16 +395,16 @@ module type Writer0 = sig
   module Flush_result : sig
     type t =
       | Error
-          (** [Error] is accompanied by a detailed error being sent to the writer's monitor. *)
+      (** [Error] is accompanied by a detailed error being sent to the writer's monitor. *)
       | Consumer_left
-          (** [Consumer_left] is returned when the consumer leaves (see {!consumer_left}) and
+      (** [Consumer_left] is returned when the consumer leaves (see {!consumer_left}) and
           {!raise_when_consumer_leaves} is set to [false]. If that flag is set to [true],
           then you get an [Error] instead. *)
       | Force_closed
-          (** [Force_closed] is returned when [Writer.close] is forced before all data is
+      (** [Force_closed] is returned when [Writer.close] is forced before all data is
           flushed (see [?force_close]). *)
       | Flushed of Time_ns.t
-          (** The time just after the [write()] system call returned or
+      (** The time just after the [write()] system call returned or
           the time [flushed_*] was called if all the writes were already flushed by then. *)
     [@@deriving sexp_of]
   end

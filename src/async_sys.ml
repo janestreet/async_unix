@@ -15,16 +15,60 @@ let concat_quoted = Sys.concat_quoted
 let getcwd = wrap1 Sys_unix.getcwd
 let home_directory = wrap1 Sys_unix.home_directory
 let ls_dir = wrap1 Sys_unix.ls_dir
+let ls_dir_detailed = wrap1 Core_unix.ls_dir_detailed
 let readdir = wrap1 Sys_unix.readdir
 let remove = wrap1 Sys_unix.remove
 let rename = wrap2 Sys_unix.rename
-let wrap_is f ?follow_symlinks path = In_thread.run (fun () -> f ?follow_symlinks path)
-let file_exists = wrap_is Sys_unix.file_exists
-let file_exists_exn = wrap_is Sys_unix.file_exists_exn
-let is_directory = wrap_is Sys_unix.is_directory
-let is_directory_exn = wrap_is Sys_unix.is_directory_exn
-let is_file = wrap_is Sys_unix.is_file
-let is_file_exn = wrap_is Sys_unix.is_file_exn
+
+let raise_stat_exn ~follow_symlinks path err =
+  let syscall_name = if follow_symlinks then "stat" else "lstat" in
+  raise
+    (Unix.Unix_error
+       ( err
+       , syscall_name
+       , Core_unix.Private.sexp_to_string_hum [%sexp { filename : string = path }] ))
+;;
+
+let stat_check_exn f ?(follow_symlinks = true) path =
+  let stat =
+    if follow_symlinks
+    then Unix_syscalls.stat_or_unix_error
+    else Unix_syscalls.lstat_or_unix_error
+  in
+  stat path
+  >>| function
+  | Ok stat -> f stat
+  | Error (ENOENT | ENOTDIR) -> false
+  | Error err -> raise_stat_exn ~follow_symlinks path err
+;;
+
+let stat_check f ?(follow_symlinks = true) path =
+  let stat =
+    if follow_symlinks
+    then Unix_syscalls.stat_or_unix_error
+    else Unix_syscalls.lstat_or_unix_error
+  in
+  stat path
+  >>| function
+  | Ok stat -> if f stat then `Yes else `No
+  | Error (ENOENT | ENOTDIR) -> `No
+  | Error (EACCES | ELOOP) -> `Unknown
+  | Error err -> raise_stat_exn ~follow_symlinks path err
+;;
+
+let file_exists = stat_check (fun _ -> true)
+let file_exists_exn = stat_check_exn (fun _ -> true)
+
+let is_directory =
+  stat_check (fun stat -> [%equal: Unix.File_kind.t] stat.kind `Directory)
+;;
+
+let is_directory_exn =
+  stat_check_exn (fun stat -> [%equal: Unix.File_kind.t] stat.kind `Directory)
+;;
+
+let is_file = stat_check (fun stat -> [%equal: Unix.File_kind.t] stat.kind `File)
+let is_file_exn = stat_check_exn (fun stat -> [%equal: Unix.File_kind.t] stat.kind `File)
 
 let when_file_changes
   ?(time_source = Time_source.wall_clock ())

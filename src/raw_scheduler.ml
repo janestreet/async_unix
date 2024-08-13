@@ -33,10 +33,10 @@ module Which_watcher = struct
   module Custom = struct
     module type S =
       File_descr_watcher_intf.S
-        with type 'a additional_create_args =
-          handle_fd_read_bad:(File_descr.t -> unit)
-          -> handle_fd_write_bad:(File_descr.t -> unit)
-          -> 'a
+      with type 'a additional_create_args =
+        handle_fd_read_bad:(File_descr.t -> unit)
+        -> handle_fd_write_bad:(File_descr.t -> unit)
+        -> 'a
 
     type t = (module S)
   end
@@ -133,7 +133,7 @@ type t =
      lookups. DNS is being special-cased here compared to other blocking operations as
      it's somewhat common for processes to do lots of concurrent DNS lookups, and DNS
      lookups can block for a long time, especially in the presence network unavailability.
-  *)
+      *)
   ; mutable next_tsc_calibration : Tsc.t
   ; kernel_scheduler : Kernel_scheduler.t
   ; (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
@@ -252,7 +252,7 @@ let create_fd_registration t fd =
           (backtrace : (Backtrace.t option[@sexp.option]))
           ~scheduler:
             (if Ppx_inline_test_lib.am_running then None else Some t
-              : (t option[@sexp.option]))]
+             : (t option[@sexp.option]))]
 ;;
 
 let create_fd ?avoid_setting_nonblock kind file_descr info =
@@ -407,7 +407,7 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
       then text
       else
         sprintf
-          "%s, and will raise an exception in %s"
+          "%s, and will abort in %s"
           text
           (Time_ns.Span.to_short_string
              (Time_ns.Span.( - ) Config.abort_after_thread_pool_stuck_for stuck_for))
@@ -422,8 +422,9 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
           ~max_num_threads:(Thread_pool.max_num_threads thread_pool : int)
           ~last_thread_creation_failure:
             (Thread_pool.last_thread_creation_failure thread_pool
-              : (Sexp.t option[@sexp.option]))]
+             : (Sexp.t option[@sexp.option]))]
     in
+    Core.Debug.eprint_s message;
     if should_abort
     then (
       (* Core dumps are exceptionally useful when investigating thread pool stuck errors,
@@ -433,9 +434,9 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
 
          Not dumping when [am_running_test] to avoid potentially making some existing
          tests slower in case they are deliberately testing this scenario. *)
-      if not am_running_test then Dump_core_on_job_delay.dump_core ();
-      Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message)))
-    else Core.Debug.eprint_s message)
+      if not am_running_test
+      then Dump_core_on_job_delay.dump_core ~how_to_dump:Call_abort ();
+      Monitor.send_exn Monitor.main (Error.to_exn (Error.create_s message))))
 ;;
 
 let thread_pool_has_unfinished_work t = Thread_pool.unfinished_work t.thread_pool <> 0
@@ -558,7 +559,7 @@ let post_check_handle_fd t file_descr read_or_write (event_type : [ `Ready | `Ba
 ;;
 
 external magic_trace_long_async_cycle : unit -> unit = "magic_trace_long_async_cycle"
-  [@@noalloc]
+[@@noalloc]
 
 let cycle_took_longer_than_100us =
   let open Bool.Non_short_circuiting in
@@ -833,9 +834,9 @@ let make_async_unusable () =
   reset_in_forked_process ();
   Kernel_scheduler.make_async_unusable ();
   the_one_and_only_ref
-    := Ready_to_initialize
-         (fun () ->
-           raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])
+  := Ready_to_initialize
+       (fun () ->
+         raise_s [%sexp "Async is unusable due to [Scheduler.make_async_unusable]"])
 ;;
 
 let thread_safe_enqueue_external_job t f =
@@ -918,7 +919,7 @@ let maybe_calibrate_tsc t =
       let calibrator = force Tsc.calibrator in
       Tsc.Calibrator.calibrate calibrator;
       t.next_tsc_calibration
-        <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000) ~calibrator)))
+      <- Tsc.add now (Tsc.Span.of_ns (Int63.of_int 1_000_000_000) ~calibrator)))
 ;;
 
 let create_job ?execution_context t f x =
@@ -947,10 +948,10 @@ let add_busy_poller t ~max_busy_wait_duration f =
   Uniform_array.set t.busy_pollers t.num_busy_pollers f;
   t.num_busy_pollers <- t.num_busy_pollers + 1;
   t.max_inter_cycle_timeout
-    <- Max_inter_cycle_timeout.create_exn
-         (Time_ns.Span.min
-            (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
-            max_busy_wait_duration)
+  <- Max_inter_cycle_timeout.create_exn
+       (Time_ns.Span.min
+          (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
+          max_busy_wait_duration)
 ;;
 
 let init t =
@@ -999,10 +1000,10 @@ let fds_may_produce_events t =
     *)
     (not (Fd.equal fd interruptor_fd))
     && Read_write_pair.exists (Fd.watching fd) ~f:(fun watching ->
-         match (watching : Fd.Watching.t) with
-         | Not_watching -> false
-         (* Stop_requested will enqueue a single job, so we have jobs to do still at this point. *)
-         | Watch_once _ | Watch_repeatedly _ | Stop_requested -> true))
+      match (watching : Fd.Watching.t) with
+      | Not_watching -> false
+      (* Stop_requested will enqueue a single job, so we have jobs to do still at this point. *)
+      | Watch_once _ | Watch_repeatedly _ | Stop_requested -> true))
 ;;
 
 (* We avoid allocation in [check_file_descr_watcher], since it is called every time in
@@ -1030,7 +1031,7 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
   let after = Tsc.now () in
   t.time_spent_waiting_for_io
-    <- Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);
+  <- Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);
   lock t;
   (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
      processing that needs to happen in response to [thread_safe_interrupt].  That
@@ -1281,9 +1282,9 @@ let go_main
   let mutex = Nano_mutex.create () in
   Nano_mutex.lock_exn mutex;
   the_one_and_only_ref
-    := Ready_to_initialize
-         (fun () ->
-           create ~mutex ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
+  := Ready_to_initialize
+       (fun () ->
+         create ~mutex ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
   Deferred.upon (return ()) main;
   go ?raise_unhandled_exn ()
 ;;
@@ -1310,7 +1311,7 @@ let set_detect_invalid_access_from_thread bool =
 
 let set_max_inter_cycle_timeout span =
   (the_one_and_only ()).max_inter_cycle_timeout
-    <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span_float_round_nearest span)
+  <- Max_inter_cycle_timeout.create_exn (Time_ns.Span.of_span_float_round_nearest span)
 ;;
 
 type 'b folder = { folder : 'a. 'b -> t -> (t, 'a) Field.t -> 'b }
@@ -1361,12 +1362,12 @@ let handle_thread_pool_stuck f =
   let kernel_scheduler = t.kernel_scheduler in
   let execution_context = Kernel_scheduler.current_execution_context kernel_scheduler in
   t.handle_thread_pool_stuck
-    <- (fun _ ~stuck_for ->
-         Kernel_scheduler.enqueue
-           kernel_scheduler
-           execution_context
-           (fun () -> f ~stuck_for)
-           ())
+  <- (fun _ ~stuck_for ->
+       Kernel_scheduler.enqueue
+         kernel_scheduler
+         execution_context
+         (fun () -> f ~stuck_for)
+         ())
 ;;
 
 module For_metrics = struct

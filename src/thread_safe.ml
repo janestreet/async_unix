@@ -93,7 +93,7 @@ let ensure_the_scheduler_is_started t =
                  lock t;
                  never_returns (be_the_scheduler t)))
              ()
-            : Core_thread.t);
+           : Core_thread.t);
         (* Block until the scheduler has run the above job. *)
         Thread_safe_ivar.read scheduler_ran_a_job))
 ;;

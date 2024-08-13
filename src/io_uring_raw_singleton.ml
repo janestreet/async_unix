@@ -58,12 +58,12 @@ module Eventfd_driver = struct
        raise_s
          [%sexp
            (("unexpected result when asked to watch eventfd", result)
-             : string * [ `Already_closed | `Already_watching ])]);
+            : string * [ `Already_closed | `Already_watching ])]);
     Deferred.upon (Ivar.read finished_watching) (fun reason ->
       raise_s
         [%sexp
           (("unexpectedly stopped watching eventfd", reason)
-            : string * [ `Bad_fd | `Closed | `Interrupted | `Unsupported ])])
+           : string * [ `Bad_fd | `Closed | `Interrupted | `Unsupported ])])
   ;;
 
   let force_uring_exn () =

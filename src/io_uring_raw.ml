@@ -145,7 +145,7 @@ let prepare_internal f =
            [%sexp
              (( "Io_uring_raw syscall found in unexpected state while submitting"
               , Handle.status handle )
-               : string * Status.t)]
+              : string * Status.t)]
      in
      submit_until_success 0);
   Deferred.upon (Ivar.read ivar) (fun _ ->

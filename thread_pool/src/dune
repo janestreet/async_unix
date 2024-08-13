@@ -1,8 +1,8 @@
 (library
  (name thread_pool)
  (public_name async_unix.thread_pool)
- (libraries core core_unix.linux_ext core_unix.nano_mutex core_unix.squeue
-   core_kernel.thread_pool_cpu_affinity thread_safe_ivar
-   core_unix.time_ns_unix)
+ (libraries core core_unix.core_thread core_unix.linux_ext
+   core_unix.nano_mutex core_unix.squeue core_kernel.thread_pool_cpu_affinity
+   thread_safe_ivar core_unix.time_ns_unix)
  (preprocess
   (pps ppx_jane)))

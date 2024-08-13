@@ -189,25 +189,25 @@ module Stats : sig
   type t =
     { num_threads : int (** [num_threads] is the number of currently open threads. *)
     ; num_work_completed : int
-        (** [num_completed_work] is the total number of jobs that the thread pool has
+    (** [num_completed_work] is the total number of jobs that the thread pool has
         completed, including work completed by reserved helper threads. The previous value
         of [num_completed_work] can be subtracted from this to get the number of jobs
         completed since the previous stats. *)
     ; unfinished_work : int
-        (** [unfinished_work] is the current total number of jobs that have been added to
+    (** [unfinished_work] is the current total number of jobs that have been added to
         the thread pool but not completed, including work added to helper threads via
         [add_work_for_helper_thread]. *)
     ; total_working_time : Time_ns.Span.t
-        (** [total_working_time] is the total amount of time spent working on jobs across all
+    (** [total_working_time] is the total amount of time spent working on jobs across all
         threads, including jobs that are currently in progress. E.g. if 5 threads each run
         a 1s job, this will be 5s. The previous value of [total_working_time] can be
         subtracted from this to get the amount of time spent working since the last
         previous stats. *)
     ; max_unfinished_work : int
-        (** [max_unfinished_work] is the max observed value of [unfinished_work] since the
+    (** [max_unfinished_work] is the max observed value of [unfinished_work] since the
         last time stats were collected. *)
     ; max_queue_wait : Time_ns.Span.t
-        (** [max_queue_wait] is the max observed time that work has waited in the queue to be
+    (** [max_queue_wait] is the max observed time that work has waited in the queue to be
         assigned an available thread to run on. This includes both work that has started,
         and work that is waiting to start. This does not include work added directly to
         helper threads via [add_work_for_helper_thread]. *)

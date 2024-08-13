@@ -474,6 +474,23 @@ let stat filename =
     In_thread.syscall_exn ~name:"stat" (fun () -> Unix.stat filename) >>| Stats.of_unix
 ;;
 
+let catch_unix_error f =
+  match f () with
+  | exception Unix_error (err, _, _) -> Error err
+  | res -> Ok res
+;;
+
+let stat_or_unix_error filename =
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.stat_or_unix_error uring filename
+    >>| fun res -> Result.map res ~f:Stats.of_ocaml_uring_statx
+  | None ->
+    In_thread.syscall_exn ~name:"stat" (fun () ->
+      catch_unix_error (fun () -> Caml_unix.LargeFile.stat filename))
+    >>| fun res -> Result.map res ~f:Stats.of_unix
+;;
+
 let lstat filename =
   match Io_uring_raw_singleton.the_one_and_only () with
   | Some uring ->
@@ -481,6 +498,17 @@ let lstat filename =
     >>| fun res -> Result.ok_exn res |> Stats.of_ocaml_uring_statx
   | None ->
     In_thread.syscall_exn ~name:"lstat" (fun () -> Unix.lstat filename) >>| Stats.of_unix
+;;
+
+let lstat_or_unix_error filename =
+  match Io_uring_raw_singleton.the_one_and_only () with
+  | Some uring ->
+    Io_uring.lstat_or_unix_error uring filename
+    >>| fun res -> Result.map ~f:Stats.of_ocaml_uring_statx res
+  | None ->
+    In_thread.syscall_exn ~name:"lstat" (fun () ->
+      catch_unix_error (fun () -> Caml_unix.LargeFile.lstat filename))
+    >>| fun res -> Result.map ~f:Stats.of_unix res
 ;;
 
 (* We treat [isatty] as a blocking operation, because it acts on a file. *)
@@ -961,6 +989,7 @@ module Socket = struct
     let udp = { family = Family.inet; socket_type = SOCK_DGRAM }
     let unix = { family = Family.unix; socket_type = SOCK_STREAM }
     let unix_dgram = { family = Family.unix; socket_type = SOCK_DGRAM }
+    let unix_seqpacket = { family = Family.unix; socket_type = SOCK_SEQPACKET }
     let phys_same (t1 : _ t) (t2 : _ t) = phys_same t1 t2
   end
 

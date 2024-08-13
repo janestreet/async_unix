@@ -7,9 +7,9 @@ open! Core
 open! Import
 
 val argv : string array
-  [@@deprecated
-    "[since 2019-08] Use [Sys.get_argv] instead, which has the correct behavior when \
-     [caml_sys_modify_argv] is called."]
+[@@deprecated
+  "[since 2019-08] Use [Sys.get_argv] instead, which has the correct behavior when \
+   [caml_sys_modify_argv] is called."]
 
 val get_argv : unit -> string array
 val executable_name : string
@@ -52,6 +52,7 @@ val chdir : string -> unit Deferred.t
 val getcwd : unit -> string Deferred.t
 val readdir : string -> string array Deferred.t
 val ls_dir : string -> string list Deferred.t
+val ls_dir_detailed : string -> Core_unix.Readdir_detailed.t list Deferred.t
 val home_directory : unit -> string Deferred.t
 val opaque_identity : 'a -> 'a
 val interactive : bool ref

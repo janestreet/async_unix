@@ -1,6 +1,6 @@
 (library
  (name thread_safe_pipe)
  (public_name async_unix.thread_safe_pipe)
- (libraries async_unix)
+ (libraries async_kernel async_unix core)
  (preprocess
   (pps ppx_jane)))

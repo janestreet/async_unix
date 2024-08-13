@@ -125,7 +125,7 @@ let handle_delivered t =
     Raw_signal_manager.iter_delivered
       t.raw_signal_manager
       ~f:(fun ~original_disposition signal ->
-      Signal_dispatcher.dispatch ~original_disposition t.signal_dispatcher signal)
+        Signal_dispatcher.dispatch ~original_disposition t.signal_dispatcher signal)
   in
   ()
 ;;

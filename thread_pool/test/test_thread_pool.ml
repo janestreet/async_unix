@@ -35,7 +35,7 @@ let%test_module _ =
     (* Error cases for [create]. *)
     let%expect_test _ =
       List.iter [ -1; 0 ] ~f:(fun max_num_threads ->
-        require [%here] (Result.is_error (create ~max_num_threads ())))
+        require (Result.is_error (create ~max_num_threads ())))
     ;;
 
     (* Error cases for [add_work]. *)
@@ -114,7 +114,7 @@ let%test_module _ =
                        then Thread_safe_ivar.fill worker_threads_have_fully_started ();
                        incr num_concurrent_jobs;
                        max_observed_concurrent_jobs
-                         := max !max_observed_concurrent_jobs !num_concurrent_jobs;
+                       := max !max_observed_concurrent_jobs !num_concurrent_jobs;
                        assert (!num_concurrent_jobs <= max_num_threads));
                      Thread_safe_ivar.read worker_threads_should_continue;
                      Nano_mutex.critical_section mutex ~f:(fun () ->
@@ -240,41 +240,46 @@ let%test_module _ =
                 ~name:"new name"
                 ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
-                add_work ?priority ?name t (fun () ->
-                  assert (
-                    String.equal
-                      (get_name ())
-                      (Option.value name ~default:default_thread_name));
-                  assert (
-                    Priority.equal
-                      (getpriority ())
-                      (Option.value priority ~default:(default_priority t)))));
+                   add_work ?priority ?name t (fun () ->
+                     assert (
+                       String.equal
+                         (get_name ())
+                         (Option.value name ~default:default_thread_name));
+                     assert (
+                       Priority.equal
+                         (getpriority ())
+                         (Option.value priority ~default:(default_priority t)))));
               check4
                 ~name:"new name"
                 ~priority:(Priority.decr initial_priority)
                 (fun ?name ?priority () ->
-                let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
-                let default_thread_name =
-                  Option.value name ~default:default_thread_name
-                in
-                let default_priority =
-                  Option.value priority ~default:(default_priority t)
-                in
-                check4
-                  ~name:"new name 2"
-                  ~priority:(Priority.decr initial_priority)
-                  (fun ?name ?priority () ->
-                  add_work_for_helper_thread ?priority ?name t helper_thread (fun () ->
-                    assert (
-                      String.equal
-                        (get_name ())
-                        (Option.value name ~default:default_thread_name));
-                    assert (
-                      Priority.equal
-                        (getpriority ())
-                        (Option.value priority ~default:default_priority))));
-                finished_with_helper_thread t helper_thread;
-                Ok ());
+                   let helper_thread = ok_exn (create_helper_thread t ?priority ?name) in
+                   let default_thread_name =
+                     Option.value name ~default:default_thread_name
+                   in
+                   let default_priority =
+                     Option.value priority ~default:(default_priority t)
+                   in
+                   check4
+                     ~name:"new name 2"
+                     ~priority:(Priority.decr initial_priority)
+                     (fun ?name ?priority () ->
+                        add_work_for_helper_thread
+                          ?priority
+                          ?name
+                          t
+                          helper_thread
+                          (fun () ->
+                             assert (
+                               String.equal
+                                 (get_name ())
+                                 (Option.value name ~default:default_thread_name));
+                             assert (
+                               Priority.equal
+                                 (getpriority ())
+                                 (Option.value priority ~default:default_priority))));
+                   finished_with_helper_thread t helper_thread;
+                   Ok ());
               finished_with t
           done)
     ;;
@@ -352,7 +357,7 @@ let%test_module _ =
     ;;
 
     let%expect_test "empty cpuset is invalid" =
-      require_does_raise [%here] ~hide_positions:true (fun () ->
+      require_does_raise ~hide_positions:true (fun () ->
         ignore (Cpuset.create_exn Int.Set.empty : Cpuset.t));
       [%expect
         {|

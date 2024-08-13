@@ -154,22 +154,22 @@ include struct
     end
 
     val save : ?perm:int -> string -> t -> unit
-      [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
 
     val save_hum : ?perm:int -> string -> t -> unit
-      [@@alert blocking "Use [Writer.save_sexp ~hum:true] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexp ~hum:true] to avoid blocking."]
 
     val save_mach : ?perm:int -> string -> t -> unit
-      [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexp ~hum:false] to avoid blocking."]
 
     val save_sexps : ?perm:int -> string -> t list -> unit
-      [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
 
     val save_sexps_hum : ?perm:int -> string -> t list -> unit
-      [@@alert blocking "Use [Writer.save_sexps ~hum:true] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexps ~hum:true] to avoid blocking."]
 
     val save_sexps_mach : ?perm:int -> string -> t list -> unit
-      [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
+    [@@alert blocking "Use [Writer.save_sexps ~hum:false] to avoid blocking."]
   end =
     Sexp
 end

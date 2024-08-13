@@ -20,10 +20,10 @@ module Which_watcher : sig
   module Custom : sig
     module type S =
       File_descr_watcher_intf.S
-        with type 'a additional_create_args =
-          handle_fd_read_bad:(File_descr.t -> unit)
-          -> handle_fd_write_bad:(File_descr.t -> unit)
-          -> 'a
+      with type 'a additional_create_args =
+        handle_fd_read_bad:(File_descr.t -> unit)
+        -> handle_fd_write_bad:(File_descr.t -> unit)
+        -> 'a
 
     type t = (module S)
   end
