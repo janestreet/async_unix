@@ -83,8 +83,8 @@ end = struct
 end
 
 type t =
-  { raw_signal_manager : Raw_signal_manager.t
-  ; signal_dispatcher : Signal_dispatcher.t
+  { global_ raw_signal_manager : Raw_signal_manager.t
+  ; global_ signal_dispatcher : Signal_dispatcher.t
   }
 [@@deriving sexp_of]
 
@@ -118,7 +118,7 @@ let remove_handler t handler =
   Signal_dispatcher.remove_handler t.signal_dispatcher handler
 ;;
 
-let handle_delivered t =
+let handle_delivered (local_ t) =
   (* The local_ annotation is there to make sure the closure can't be allocated on the
      heap *)
   let () =

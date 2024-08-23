@@ -30,5 +30,5 @@ val is_managing : t -> Signal.t -> bool
     delivered but not yet handled. *)
 val iter_delivered
   :  t
-  -> f:(original_disposition:Signal.Expert.behavior -> Signal.t -> unit)
+  -> f:local_ (original_disposition:Signal.Expert.behavior -> Signal.t -> unit)
   -> unit

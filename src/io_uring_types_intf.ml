@@ -21,7 +21,7 @@ end
 module type S = sig
   module Int63 : sig
     (** The type of integers with exactly 63-bits. *)
-    type t [@@immediate64]
+    type t : immediate64
 
     val of_int : int -> t
     val to_int : t -> int

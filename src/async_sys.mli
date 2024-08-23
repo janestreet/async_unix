@@ -40,6 +40,8 @@ val is_directory : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] 
 val is_directory_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 val is_file : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] Deferred.t
 val is_file_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
+val is_symlink : string -> [ `Yes | `No | `Unknown ] Deferred.t
+val is_symlink_exn : string -> bool Deferred.t
 val remove : string -> unit Deferred.t
 val rename : string -> string -> unit Deferred.t
 val getenv : string -> string option

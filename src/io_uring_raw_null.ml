@@ -4,7 +4,7 @@ open Import
 type t
 
 module Int63 = struct
-  type t [@@immediate64]
+  type t : immediate64
 
   let of_int _ = assert false
   let to_int _ = assert false

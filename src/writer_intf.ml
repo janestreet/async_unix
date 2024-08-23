@@ -704,9 +704,9 @@ module type Writer0 = sig
   val pipe : t -> string Pipe.Writer.t
 
   (** [behave_nicely_in_pipeline ~writers ()] causes the program to exit with status 141
-      (indicating SIGPIPE) if any of the consumers of [writers] go away.  It also sets the
-      buffer age to unlimited, in case there is a human (e.g., using [less]) on the other
-      side of the pipeline.
+      (indicating SIGPIPE) on the next attempt to write if any of the consumers of
+      [writers] go away. It also sets the buffer age to unlimited, in case there is a
+      human (e.g., using [less]) on the other side of the pipeline.
 
       This can be called at the toplevel of a program, before [Command.run] for instance.
       (this function doesn't start the async scheduler). *)
