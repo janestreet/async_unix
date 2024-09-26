@@ -27,8 +27,6 @@ let run_holding_async_lock
 ;;
 
 let ensure_in_a_thread t function_ =
-  if is_main_thread ()
-  then raise_s [%message "cannot call from the main thread" (function_ : string)];
   if am_holding_lock t
   then raise_s [%message "cannot call while holding the async lock" (function_ : string)]
 ;;

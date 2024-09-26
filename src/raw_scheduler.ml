@@ -150,7 +150,17 @@ type t =
 [@@deriving fields ~iterators:(fold, iter), sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
-let max_num_open_file_descrs t = By_descr.capacity t.fd_by_descr
+
+let max_num_open_file_descrs t =
+  let capacity = By_descr.capacity t.fd_by_descr in
+  let os_limit = Core_unix.RLimit.(get num_file_descriptors).cur in
+  match os_limit with
+  | Infinity -> capacity
+  | Limit limit ->
+    (match Int64.to_int limit with
+     | None -> capacity
+     | Some limit -> Int.min limit capacity)
+;;
 
 let current_execution_context t =
   Kernel_scheduler.current_execution_context t.kernel_scheduler

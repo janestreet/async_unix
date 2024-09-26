@@ -514,7 +514,9 @@ module Server = struct
 
   let get_max_connections_limit max_connections =
     match max_connections with
-    | None -> 10_000
+    | None ->
+      let max_fds = Scheduler.max_num_open_file_descrs () in
+      Int.max 10000 (max_fds - (max_fds / 10))
     | Some max_connections ->
       if max_connections <= 0
       then

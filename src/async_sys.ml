@@ -70,6 +70,18 @@ let is_directory_exn =
 let is_file = stat_check (fun stat -> [%equal: Unix.File_kind.t] stat.kind `File)
 let is_file_exn = stat_check_exn (fun stat -> [%equal: Unix.File_kind.t] stat.kind `File)
 
+let is_symlink =
+  stat_check
+    (fun stat -> [%equal: Unix.File_kind.t] stat.kind `Link)
+    ~follow_symlinks:false
+;;
+
+let is_symlink_exn =
+  stat_check_exn
+    (fun stat -> [%equal: Unix.File_kind.t] stat.kind `Link)
+    ~follow_symlinks:false
+;;
+
 let when_file_changes
   ?(time_source = Time_source.wall_clock ())
   ?(poll_delay = sec 0.5)

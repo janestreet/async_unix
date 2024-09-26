@@ -68,8 +68,8 @@ val block_on_async : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 val block_on_async_exn : (unit -> 'a Deferred.t) -> 'a
 
 (** [run_in_async_wait f] is like [block_on_async f], except that it must be called from a
-    thread outside Async.  Upon returning from [run_in_async_wait], it is guaranteed that
-    the caller does not have the Async lock.
+    thread that's not holding the Async lock. (there's no exception for the main thread)
+    On return, the caller does not have the Async lock.
 *)
 val run_in_async_wait : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 

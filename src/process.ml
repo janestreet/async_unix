@@ -167,8 +167,8 @@ let collect_output_and_wait t =
   let stderr = Reader.contents t.stderr in
   let%bind () = Writer.close t.stdin ~force_close:(Deferred.never ()) in
   let%bind exit_status = wait t in
-  let%bind stdout = stdout in
-  let%bind stderr = stderr in
+  let%bind stdout in
+  let%bind stderr in
   return { Output.stdout; stderr; exit_status }
 ;;
 

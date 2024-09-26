@@ -10,3 +10,5 @@ val fill : 'a t -> 'a -> unit
 
 (** [read t] blocks until [t] is filled. *)
 val read : 'a t -> 'a
+
+val peek : 'a t -> 'a option
