@@ -140,13 +140,10 @@ module Uring_openfile = struct
   let openfile uring ?perm file ~unix_mode =
     let access, flags = convert_to_uring_mode unix_mode in
     let default_perm = 0o644 in
-    let perm_for_error = Option.value perm ~default:default_perm in
+    let perm_if_creat = Option.value perm ~default:default_perm in
     let perm =
-      Option.value
-        perm
-        ~default:
-          (let open Io_uring_raw.Open_flags in
-           if mem creat flags || mem tmpfile flags then default_perm else 0)
+      let open Io_uring_raw.Open_flags in
+      if mem creat flags || mem tmpfile flags then perm_if_creat else 0
     in
     match%map
       Io_uring_raw.syscall_result
@@ -167,7 +164,7 @@ module Uring_openfile = struct
                [%sexp
                  { filename : string = file
                  ; mode : Unix.open_flag list = unix_mode
-                 ; perm : string = Printf.sprintf "0o%o" perm_for_error
+                 ; perm : string = Printf.sprintf "0o%o" perm_if_creat
                  }] ))
     | Ok res -> File_descr.of_int res
   ;;

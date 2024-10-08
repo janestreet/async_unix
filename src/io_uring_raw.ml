@@ -227,6 +227,7 @@ let cancel t handle =
 ;;
 
 let syscall_result handle = Ivar.read (Handle.result handle)
+let has_pending_jobs t = Uring.active_ops t > 0
 
 [%%else]
 

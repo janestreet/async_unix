@@ -210,3 +210,4 @@ let statx _ = assert false
 let cancel _ = assert false
 let syscall_result _ = assert false
 let register_eventfd _ = assert false
+let has_pending_jobs _ = assert false

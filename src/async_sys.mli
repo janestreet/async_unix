@@ -56,12 +56,37 @@ val readdir : string -> string array Deferred.t
 val ls_dir : string -> string list Deferred.t
 val ls_dir_detailed : string -> Core_unix.Readdir_detailed.t list Deferred.t
 val home_directory : unit -> string Deferred.t
-val opaque_identity : 'a -> 'a
-val interactive : bool ref
+
+(** Direct re-exports from [Core.Sys] *)
+
 val os_type : string
+val unix : bool
+val win32 : bool
+val cygwin : bool
+
+type backend_type = Core.Sys.backend_type =
+  | Native
+  | Bytecode
+  | Other of string
+
+val backend_type : backend_type
+val word_size_in_bits : int
+val int_size_in_bits : int
+val max_string_length : int
+val max_array_length : int
+val runtime_variant : unit -> string
+val runtime_parameters : unit -> string
+val enable_runtime_warnings : bool -> unit
+val runtime_warnings_enabled : unit -> bool
+val interactive : bool ref
 val word_size : int
 val int_size : int
 val big_endian : bool
 val ocaml_version : string
 val execution_mode : unit -> [ `Bytecode | `Native ]
 val c_int_size : unit -> int
+
+external opaque_identity : 'a. ('a[@local_opt]) -> ('a[@local_opt]) = "%opaque"
+[@@layout_poly]
+
+external opaque_identity_global : 'a. 'a -> 'a = "%opaque" [@@layout_poly]

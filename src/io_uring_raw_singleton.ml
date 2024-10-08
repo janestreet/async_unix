@@ -51,7 +51,11 @@ module Eventfd_driver = struct
          (Raw_scheduler.the_one_and_only ())
          fd
          `Read
-         (Raw_fd.Watching.Watch_repeatedly (eventfd_ready_job, finished_watching))
+         (Raw_fd.Watching.Watch_repeatedly
+            { job = eventfd_ready_job
+            ; finished_ivar = finished_watching
+            ; pending = (fun () -> Io_uring_raw.has_pending_jobs uring)
+            })
      with
      | `Watching -> ()
      | (`Already_closed | `Already_watching) as result ->

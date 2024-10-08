@@ -71,12 +71,20 @@ module Watching = struct
      filled and the state transitions to [Stop_requested].  Or, if one calls
      [request_stop_watching], the state transitions to [Stop_requested].  Finally,
      [Stop_requested] will transition to [Not_watching] when the desired state is
-     synchronized with the file_descr_watcher. *)
+     synchronized with the file_descr_watcher.
+
+     [pending] callback is used to check if we expect an event on this fd shortly.
+     If it returns false, this fd is ignored for the purpose of
+     [Scheduler.fds_may_produce_events]. (In principle the callback equally makes sense
+     for [Watch_once] too, we can add it there if/when that becomes necessary) *)
   type t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
     | Watch_repeatedly of
-        Job.t * [ `Bad_fd | `Closed | `Interrupted | `Unsupported ] Ivar.t
+        { job : Job.t
+        ; finished_ivar : [ `Bad_fd | `Closed | `Interrupted | `Unsupported ] Ivar.t
+        ; pending : unit -> bool
+        }
     | Stop_requested
   [@@deriving sexp_of]
 
@@ -85,7 +93,7 @@ module Watching = struct
       match t with
       | Not_watching | Stop_requested -> ()
       | Watch_once ivar -> assert (Ivar.is_empty ivar)
-      | Watch_repeatedly (_, ivar) -> assert (Ivar.is_empty ivar)
+      | Watch_repeatedly { finished_ivar; _ } -> assert (Ivar.is_empty finished_ivar)
     with
     | exn -> raise_s [%message "Watching.invariant failed" (exn : exn) ~watching:(t : t)]
   ;;

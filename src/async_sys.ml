@@ -130,14 +130,62 @@ let when_file_exists ?follow_symlinks ?(poll_delay = sec 0.5) file =
     loop ())
 ;;
 
-let c_int_size = Sys_unix.c_int_size
-let execution_mode = Sys_unix.execution_mode
-let getenv = Sys.getenv
-let getenv_exn = Sys.getenv_exn
-let int_size = Sys.int_size_in_bits
-let interactive = Sys.interactive
-let ocaml_version = Sys.ocaml_version
-let os_type = Sys.os_type
-let word_size = Sys.word_size_in_bits
-let opaque_identity = Sys.opaque_identity
-let big_endian = Sys.big_endian
+(* We redeclare everything from Core.Sys that we're just passing through here so that we
+   are required to have everything enumerated and can consider whether it needs to be
+   turned into an async version. *)
+include struct
+  open Core.Sys
+
+  let interactive = interactive
+  let os_type = os_type
+  let unix = unix
+  let win32 = win32
+  let cygwin = cygwin
+
+  type nonrec backend_type = backend_type =
+    | Native
+    | Bytecode
+    | Other of string
+
+  let backend_type = backend_type
+  let word_size_in_bits = word_size_in_bits
+  let int_size_in_bits = int_size_in_bits
+  let big_endian = big_endian
+  let max_string_length = max_string_length
+  let max_array_length = max_array_length
+  let runtime_variant = runtime_variant
+  let runtime_parameters = runtime_parameters
+  let ocaml_version = ocaml_version
+  let enable_runtime_warnings = enable_runtime_warnings
+  let runtime_warnings_enabled = runtime_warnings_enabled
+  let getenv = getenv
+  let getenv_exn = getenv_exn
+
+  include (
+    Base.Sys :
+    sig
+      (* It seems like just aliasing primitives doesn't satisfy the compiler,
+         so this is brought in through [include] instead of a [let]. *)
+      external opaque_identity : 'a. ('a[@local_opt]) -> ('a[@local_opt]) = "%opaque"
+      [@@layout_poly]
+
+      external opaque_identity_global : 'a. 'a -> 'a = "%opaque" [@@layout_poly]
+    end)
+end
+
+include struct
+  open Sys_unix
+
+  let execution_mode = execution_mode
+end
+
+include (
+  Sys_unix :
+  sig
+    (* It seems like just aliasing primitives doesn't satisfy the compiler,
+         so this is brought in through [include] instead of a [let]. *)
+    external c_int_size : unit -> int = "c_int_size" [@@noalloc]
+  end)
+
+let word_size = word_size_in_bits
+let int_size = int_size_in_bits
