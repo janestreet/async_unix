@@ -39,7 +39,11 @@ val t : unit -> t
 
 (** Accessors *)
 
+(** [max_num_open_file_descrs] is the min of [Config.max_num_open_file_descrs] and the
+    current soft FD limit for this process [ulimit -s -n]. The soft limit can be changed
+    via [setrlimit] or [Core_unix.RLimit], so this value isn't necessarily constant. *)
 val max_num_open_file_descrs : unit -> int
+
 val max_num_threads : unit -> int
 
 (** [go ?raise_unhandled_exn ()] passes control to Async, at which point Async starts

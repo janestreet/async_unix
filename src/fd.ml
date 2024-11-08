@@ -318,13 +318,19 @@ let interruptible_every_ready_to t read_or_write ~interrupt f x =
       (t, read_or_write)
       [%sexp_of: t * Read_write_pair.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
-  let finished = Ivar.create () in
-  match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
+  let finished_ivar = Ivar.create () in
+  match
+    start_watching
+      t
+      read_or_write
+      (Watch_repeatedly { job; finished_ivar; pending = (fun () -> true) })
+  with
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Unsupported
   | `Watching ->
-    stop_watching_upon_interrupt t read_or_write finished ~interrupt;
-    (Ivar.read finished :> [ `Bad_fd | `Closed | `Unsupported | `Interrupted ] Deferred.t)
+    stop_watching_upon_interrupt t read_or_write finished_ivar ~interrupt;
+    (Ivar.read finished_ivar
+      :> [ `Bad_fd | `Closed | `Unsupported | `Interrupted ] Deferred.t)
 ;;
 
 let every_ready_to t read_or_write f x =
@@ -332,12 +338,17 @@ let every_ready_to t read_or_write f x =
   then
     Debug.log "Fd.every_ready_to" (t, read_or_write) [%sexp_of: t * Read_write_pair.Key.t];
   let job = Scheduler.(create_job (t ())) f x in
-  let finished = Ivar.create () in
-  match start_watching t read_or_write (Watch_repeatedly (job, finished)) with
+  let finished_ivar = Ivar.create () in
+  match
+    start_watching
+      t
+      read_or_write
+      (Watch_repeatedly { job; finished_ivar; pending = (fun () -> true) })
+  with
   | `Already_closed -> return `Closed
   | `Unsupported -> return `Unsupported
   | `Watching ->
-    (match%map Ivar.read finished with
+    (match%map Ivar.read finished_ivar with
      | (`Unsupported | `Bad_fd | `Closed) as x -> x
      | `Interrupted -> (* impossible *) assert false)
 ;;

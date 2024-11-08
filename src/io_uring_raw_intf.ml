@@ -84,4 +84,5 @@ module type S = sig
 
   val cancel : t -> Handle.t -> unit Deferred.t
   val syscall_result : Handle.t -> Syscall_result.t Deferred.t
+  val has_pending_jobs : t -> bool
 end

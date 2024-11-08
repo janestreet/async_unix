@@ -46,3 +46,5 @@ let read t =
       in
       loop () [@nontail]) [@nontail]
 ;;
+
+let peek t = t.value

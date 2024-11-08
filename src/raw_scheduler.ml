@@ -150,7 +150,17 @@ type t =
 [@@deriving fields ~iterators:(fold, iter), sexp_of]
 
 let max_num_threads t = Thread_pool.max_num_threads t.thread_pool
-let max_num_open_file_descrs t = By_descr.capacity t.fd_by_descr
+
+let max_num_open_file_descrs t =
+  let capacity = By_descr.capacity t.fd_by_descr in
+  let os_limit = Core_unix.RLimit.(get num_file_descriptors).cur in
+  match os_limit with
+  | Infinity -> capacity
+  | Limit limit ->
+    (match Int64.to_int limit with
+     | None -> capacity
+     | Some limit -> Int.min limit capacity)
+;;
 
 let current_execution_context t =
   Kernel_scheduler.current_execution_context t.kernel_scheduler
@@ -463,9 +473,9 @@ let give_up_on_watching t fd read_or_write (watching : Watching.t) =
   | Watch_once ready_to ->
     Ivar.fill_exn ready_to `Unsupported;
     set_fd_desired_watching t fd read_or_write Stop_requested
-  | Watch_repeatedly (job, finished) ->
+  | Watch_repeatedly { job; finished_ivar; _ } ->
     Kernel_scheduler.free_job t.kernel_scheduler job;
-    Ivar.fill_exn finished `Unsupported;
+    Ivar.fill_exn finished_ivar `Unsupported;
     set_fd_desired_watching t fd read_or_write Stop_requested
 ;;
 
@@ -513,12 +523,12 @@ let request_stop_watching t fd read_or_write value =
     Ivar.fill_exn ready_to value;
     set_fd_desired_watching t fd read_or_write Stop_requested;
     if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
-  | Watch_repeatedly (job, finished) ->
+  | Watch_repeatedly { job; finished_ivar; _ } ->
     (match value with
      | `Ready -> Kernel_scheduler.enqueue_job t.kernel_scheduler job ~free_job:false
      | (`Closed | `Bad_fd | `Interrupted | `Unsupported) as value ->
        Kernel_scheduler.free_job t.kernel_scheduler job;
-       Ivar.fill_exn finished value;
+       Ivar.fill_exn finished_ivar value;
        set_fd_desired_watching t fd read_or_write Stop_requested;
        if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t)
 ;;
@@ -975,12 +985,15 @@ let init t =
        interruptor_read_fd
        `Read
        (Watch_repeatedly
-          ( Kernel_scheduler.create_job
-              t.kernel_scheduler
-              Execution_context.main
-              Fn.ignore
-              ()
-          , interruptor_finished ))
+          { job =
+              Kernel_scheduler.create_job
+                t.kernel_scheduler
+                Execution_context.main
+                Fn.ignore
+                ()
+          ; finished_ivar = interruptor_finished
+          ; pending = (fun () -> false)
+          })
    with
    | `Already_watching | `Watching -> ()
    | `Unsupported | `Already_closed -> problem_with_interruptor ());
@@ -988,7 +1001,6 @@ let init t =
 ;;
 
 let fds_may_produce_events t =
-  let interruptor_fd = Interruptor.read_fd t.interruptor in
   By_descr.exists t.fd_by_descr ~f:(fun fd ->
     (* Jobs created by the interruptor don't do anything, so we don't need to
        count them as something that can drive progress. When interruptor is involved, the
@@ -998,12 +1010,12 @@ let fds_may_produce_events t =
        We don't need a similar special-case for [timerfd] because that's never added
        to [fd_by_descr], in the first place.
     *)
-    (not (Fd.equal fd interruptor_fd))
-    && Read_write_pair.exists (Fd.watching fd) ~f:(fun watching ->
+    Read_write_pair.exists (Fd.watching fd) ~f:(fun watching ->
       match (watching : Fd.Watching.t) with
       | Not_watching -> false
       (* Stop_requested will enqueue a single job, so we have jobs to do still at this point. *)
-      | Watch_once _ | Watch_repeatedly _ | Stop_requested -> true))
+      | Watch_once _ | Stop_requested -> true
+      | Watch_repeatedly { pending; _ } -> pending ()))
 ;;
 
 (* We avoid allocation in [check_file_descr_watcher], since it is called every time in

@@ -1879,7 +1879,12 @@ module Filesystem_stuff = struct
         let dir = Filename.dirname temp_file in
         let prefix = Filename.basename temp_file in
         In_thread.run (fun () ->
-          Filename_unix.open_temp_file_fd ~perm:initial_permissions ~in_dir:dir prefix "")
+          Filename_unix.open_temp_file_fd
+            ~close_on_exec:true
+            ~perm:initial_permissions
+            ~in_dir:dir
+            prefix
+            "")
       in
       temp_file, Fd.create File fd (Info.of_string temp_file)
     in

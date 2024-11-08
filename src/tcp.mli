@@ -224,7 +224,8 @@ module Server : sig
       raises (either via [`Raise] or [`Call f] where [f] raises), or if [close] is
       called. *)
   val create_sock
-    :  ?max_connections:int (** defaults to [10_000]. *)
+    :  ?max_connections:int
+         (** defaults to max of 10_000 or 90% of the current FD limit for this process. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64] *)
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
@@ -262,7 +263,8 @@ module Server : sig
       [buffer_age_limit] passes on to the underlying writer option of the same name. *)
   val create
     :  ?buffer_age_limit:Writer.buffer_age_limit
-    -> ?max_connections:int (** defaults to [10_000]. *)
+    -> ?max_connections:int
+         (** defaults to max of 10_000 or 90% of the current FD limit. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
@@ -276,7 +278,8 @@ module Server : sig
 
   val create_inet
     :  ?buffer_age_limit:Writer.buffer_age_limit
-    -> ?max_connections:int (** defaults to [10_000]. *)
+    -> ?max_connections:int
+         (** defaults to max of 10_000 or 90% of the current FD limit. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
     -> ?backlog:int (** defaults to [64]. *)
     -> ?drop_incoming_connections:bool (** defaults to [false] *)
