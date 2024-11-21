@@ -527,11 +527,13 @@ let rename ~src ~dst =
   In_thread.syscall_exn ~name:"rename" (fun () -> Unix.rename ~src ~dst)
 ;;
 
-let link ?force ~target ~link_name () =
+let link ?force ?follow ~target ~link_name () =
   match Io_uring_raw_singleton.the_one_and_only () with
-  | Some uring -> Io_uring.link uring ?force ~target ~link_name () >>| Result.ok_exn
+  | Some uring ->
+    Io_uring.link uring ?force ?follow ~target ~link_name () >>| Result.ok_exn
   | None ->
-    In_thread.syscall_exn ~name:"link" (fun () -> Unix.link ?force ~target ~link_name ())
+    In_thread.syscall_exn ~name:"link" (fun () ->
+      Unix.link ?force ?follow ~target ~link_name ())
 ;;
 
 (* file permission and ownership *)

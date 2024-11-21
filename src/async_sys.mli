@@ -79,8 +79,8 @@ val runtime_parameters : unit -> string
 val enable_runtime_warnings : bool -> unit
 val runtime_warnings_enabled : unit -> bool
 val interactive : bool ref
-val word_size : int
-val int_size : int
+val word_size : int [@@deprecated "[since 2024-11] Use [word_size_in_bits] instead."]
+val int_size : int [@@deprecated "[since 2024-11] Use [word_size_in_bits] instead."]
 val big_endian : bool
 val ocaml_version : string
 val execution_mode : unit -> [ `Bytecode | `Native ]

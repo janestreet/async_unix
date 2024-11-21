@@ -218,6 +218,7 @@ val rename : src:string -> dst:string -> unit Deferred.t
 
 val link
   :  ?force:bool (** default is [false] *)
+  -> ?follow:bool
   -> target:string
   -> link_name:string
   -> unit
