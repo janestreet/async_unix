@@ -23,14 +23,14 @@
     v}
 
     The [Fd] module keeps track of which of these functions are currently accessing the
-    file descriptor, and ensures that any close happens after they complete.  Also, once
+    file descriptor, and ensures that any close happens after they complete. Also, once
     close has been called, it refuses to provide further access to the file descriptor,
     either by returning a variant [`Already_closed] or by raising an exception.
 
-    Some of the above functions take an optional [?nonblocking:bool] argument.  The
-    default is [false], but if it is set to [true], then before supplying the underlying
+    Some of the above functions take an optional [?nonblocking:bool] argument. The default
+    is [false], but if it is set to [true], then before supplying the underlying
     [file_descr], the [Fd] module will first call [Unix.set_nonblock file_descr], if it
-    hasn't previously done so on that file descriptor.  This is intended to support making
+    hasn't previously done so on that file descriptor. This is intended to support making
     nonblocking system calls (e.g., connect, read, write) directly within Async, without
     releasing the OCaml lock or the Async lock, and without using another thread. *)
 
@@ -69,7 +69,7 @@ val to_string : t -> string
 
     We thought about using [fstat()] rather than requiring the user to supply the kind.
     But [fstat] can block, which would require putting this in a thread, which has some
-    consequences, and it isn't clear that it gets us that much.  Also, [create] is mostly
+    consequences, and it isn't clear that it gets us that much. Also, [create] is mostly
     used within the Async implementation -- clients shouldn't need it unless they are
     mixing Async and non-Async code.
 
@@ -85,9 +85,8 @@ val create
 (** [create_borrowed kind descr info ~f] borrows a file descriptor that is not managed by
     Async, creates an [Fd.t] (see [create]), and runs [f] that uses that fd in async.
 
-    After [f] is finished (or raises an exception), it returns the file
-    descriptor to its original owner (leaving [Fd.t] in a closed state, but not closing
-    [descr]).
+    After [f] is finished (or raises an exception), it returns the file descriptor to its
+    original owner (leaving [Fd.t] in a closed state, but not closing [descr]).
 
     The caller must not close [descr] while [create_borrowed] is running. *)
 val create_borrowed
@@ -105,7 +104,7 @@ val kind : t -> Kind.t
 val supports_nonblock : t -> bool
 
 (** [clear_nonblock t] clears the [nonblocking] flag on [t] and causes Async to treat the
-    fd as though it doesn't support nonblocking I/O.  This is useful for applications that
+    fd as though it doesn't support nonblocking I/O. This is useful for applications that
     want to share a file descriptor between Async and non-Async code and want to avoid
     [EWOULDBLOCK] or [EAGAIN] being seen by the non-Async code, which would then cause a
     [Sys_blocked_io] exception.
@@ -113,8 +112,8 @@ val supports_nonblock : t -> bool
     [clear_nonblock t] has no effect if [not (supports_nonblock t)]. *)
 val clear_nonblock : t -> unit
 
-(** The [Close] module exists to collect [close] and its associated types, so they
-    can be easily reused elsewhere, e.g., [Unix_syscalls]. *)
+(** The [Close] module exists to collect [close] and its associated types, so they can be
+    easily reused elsewhere, e.g., [Unix_syscalls]. *)
 module Close : sig
   type socket_handling =
     | Shutdown_socket
@@ -126,8 +125,8 @@ module Close : sig
 
   (** [close t] prevents further use of [t], and makes [shutdown()] and [close()] system
       calls on [t]'s underlying file descriptor according to the
-      [file_descriptor_handling] argument and whether or not [t] is a socket, i.e., [kind
-      t = Socket `Active]:
+      [file_descriptor_handling] argument and whether or not [t] is a socket, i.e.,
+      [kind t = Socket `Active]:
 
       {v
         | file_descriptor_handling                     | shutdown() | close() |
@@ -137,8 +136,8 @@ module Close : sig
         | Close_file_descriptor Do_not_shutdown_socket | no         | yes     |
       v}
 
-      The result of [close] becomes determined once the system calls complete.  It is OK
-      to call [close] multiple times on the same [t]; calls subsequent to the initial call
+      The result of [close] becomes determined once the system calls complete. It is OK to
+      call [close] multiple times on the same [t]; calls subsequent to the initial call
       will have no effect, but will return the same deferred as the original call. *)
   val close
     :  ?file_descriptor_handling:file_descriptor_handling
@@ -147,19 +146,17 @@ module Close : sig
     -> unit Deferred.t
 
   (** [deregister t] causes Async to stop tracking this file descriptor, and prevents
-      further use of [t].  The file descriptor remains open; it can be used by other
+      further use of [t]. The file descriptor remains open; it can be used by other
       libraries.
 
       You should only call this function if you have a file descriptor created by Async
       and you need to move ownership of that file descriptor to another IO library which
-      expects to be able to close the file descriptor itself.  Otherwise, just use
-      [close].
+      expects to be able to close the file descriptor itself. Otherwise, just use [close].
 
       This is like calling [close] with [file_descriptor_handling] set to
       [Do_not_close_file_descriptor].
 
-      It is OK to call [deregister] multiple times on the same [t], like [close].
-  *)
+      It is OK to call [deregister] multiple times on the same [t], like [close]. *)
   val deregister : t -> unit Deferred.t
 end
 
@@ -189,7 +186,7 @@ val stdout : unit -> t
 val stderr : unit -> t
 
 (** [with_file_descr t f] runs [f] on the file descriptor underlying [t], if [is_open t],
-    and returns [`Ok] or [`Error] according to [f].  If [is_closed t], then it does not
+    and returns [`Ok] or [`Error] according to [f]. If [is_closed t], then it does not
     call [f] and returns [`Already_closed]. *)
 val with_file_descr
   :  ?nonblocking:bool (** default is [false] *)
@@ -206,18 +203,18 @@ val with_file_descr_exn
   -> 'a
 
 (** [with_file_descr_deferred t f] runs [f] on the file descriptor underlying [t], if
-    [is_open t], and returns [`Ok] or [`Error] according to [f].  If [is_closed t], then
-    it does not call [f] and returns [`Already_closed].  It ensures that the file
-    descriptor underlying [t] is not closed until the result of [f] becomes determined (or
-    [f] raises). *)
+    [is_open t], and returns [`Ok] or [`Error] according to [f]. If [is_closed t], then it
+    does not call [f] and returns [`Already_closed]. It ensures that the file descriptor
+    underlying [t] is not closed until the result of [f] becomes determined (or [f]
+    raises). *)
 val with_file_descr_deferred
   :  t
   -> ?extract_exn:bool
   -> (Unix.File_descr.t -> 'a Deferred.t)
   -> [ `Ok of 'a | `Already_closed | `Error of exn ] Deferred.t
 
-(** Same as [with_file_descr_deferred], but the errors are reported
-    explicitly by the callback. *)
+(** Same as [with_file_descr_deferred], but the errors are reported explicitly by the
+    callback. *)
 val with_file_descr_deferred_result
   :  t
   -> (Unix.File_descr.t -> ('a, exn) Result.t Deferred.t)
@@ -234,8 +231,8 @@ val with_file_descr_deferred_exn
     determined when the file descriptor underlying [t] can be read from or written to
     without blocking, or when [interrupt] becomes determined.
 
-    It's an error to make multiple concurrent calls to [*ready_to] functions on
-    the same file descriptor. *)
+    It's an error to make multiple concurrent calls to [*ready_to] functions on the same
+    file descriptor. *)
 val interruptible_ready_to
   :  t
   -> [ `Read | `Write ]
@@ -248,7 +245,7 @@ val ready_to : t -> [ `Read | `Write ] -> [ `Bad_fd | `Closed | `Ready ] Deferre
 
 (** [interruptible_every_ready_to t read_write ~interrupt f a] checks every Async cycle
     whether the file descriptor underlying [t] can be read from or written to without
-    blocking, and if so, enqueues a job to run [f a].  [interruptible_every_ready_to] is
+    blocking, and if so, enqueues a job to run [f a]. [interruptible_every_ready_to] is
     level triggered -- it will enqueue a job every cycle if I/O is available, even if the
     prior job hasn't run yet, or the job ran but did not consume the available data.
     [interruptible_every_ready_to] returns a deferred that will become determined when
@@ -271,8 +268,8 @@ val every_ready_to
   -> [ `Bad_fd | `Closed | `Unsupported ] Deferred.t
 
 (** [syscall t f] runs [Async_unix.syscall] with [f] on the file descriptor underlying
-    [t], if [is_open t], and returns [`Ok] or [`Error] according to [f].  If
-    [is_closed t], it does not call [f] and returns [`Already_closed]. *)
+    [t], if [is_open t], and returns [`Ok] or [`Error] according to [f]. If [is_closed t],
+    it does not call [f] and returns [`Already_closed]. *)
 val syscall
   :  ?nonblocking:bool (** default is [false] *)
   -> t
@@ -288,7 +285,7 @@ val syscall_exn
   -> 'a
 
 (** [syscall_result_exn t f a] is like [syscall_exn], except it does not allocate except
-    in exceptional cases.  [a] is passed unchanged to [f], and should be used to eliminate
+    in exceptional cases. [a] is passed unchanged to [f], and should be used to eliminate
     allocations due to closure capture. *)
 val syscall_result_exn
   :  ?nonblocking:bool (** default is [false] *)
@@ -299,7 +296,7 @@ val syscall_result_exn
 
 (** [syscall_in_thread t f] runs [In_thread.syscall] with [f] on the file descriptor
     underlying [t], if [is_open t], and returns a deferred that becomes determined with
-    [`Ok] or [`Error] when the system call completes.  If [is_closed t], it does not call
+    [`Ok] or [`Error] when the system call completes. If [is_closed t], it does not call
     [f] and returns [`Already_closed]. *)
 val syscall_in_thread
   :  t
@@ -318,26 +315,24 @@ val of_in_channel : In_channel.t -> Kind.t -> t
 val of_out_channel : Out_channel.t -> Kind.t -> t
 
 (** [of_in_channel_auto ic] is just like [of_in_channel], but uses [fstat] to determine
-    the kind.  It makes some assumptions about sockets, specifically it assumes that a
+    the kind. It makes some assumptions about sockets, specifically it assumes that a
     socket is either listening or connected to something (and it uses [getsockopt] to find
-    out which).  Don't pass an [in_channel] containing an unconnected non-listening
-    socket. *)
+    out which). Don't pass an [in_channel] containing an unconnected non-listening socket. *)
 val of_in_channel_auto : In_channel.t -> t Deferred.t
 
 (** [of_out_channel_auto ic] is just like [of_out_channel], but uses [fstat] to determine
-    the kind.  It makes some assumptions about sockets, specifically it assumes that a
+    the kind. It makes some assumptions about sockets, specifically it assumes that a
     socket is either listening or connected to something (and it uses [getsockopt] to find
-    out which).  Don't pass an [in_channel] containing an unconnected non listening
-    socket. *)
+    out which). Don't pass an [in_channel] containing an unconnected non listening socket. *)
 val of_out_channel_auto : Out_channel.t -> t Deferred.t
 
 (** [file_descr_exn t] returns the file descriptor underlying [t], unless [is_closed t],
-    in which case it raises.  One must be very careful when using this function, and
-    should try not to, since any uses of the resulting file descriptor are unknown to
-    the [Fd] module, and hence can violate the guarantee it is trying to enforce. *)
+    in which case it raises. One must be very careful when using this function, and should
+    try not to, since any uses of the resulting file descriptor are unknown to the [Fd]
+    module, and hence can violate the guarantee it is trying to enforce. *)
 val file_descr_exn : t -> Unix.File_descr.t
 
-(** [to_int_exn t] returns the the underlying file descriptor as an int.  It has the same
+(** [to_int_exn t] returns the the underlying file descriptor as an int. It has the same
     caveats as [file_descr_exn]. *)
 val to_int_exn : t -> int
 
@@ -348,7 +343,7 @@ val to_int_exn : t -> int
 val expect_file_descr_redirection : Unix.File_descr.t -> f:(unit -> 'a) -> 'a
 
 module Private : sig
-  (** [replace t kind] is for internal use only, by [Unix_syscalls].  It is used when one
+  (** [replace t kind] is for internal use only, by [Unix_syscalls]. It is used when one
       wants to reuse a file descriptor in an fd with a new kind. *)
   val replace : t -> Kind.t -> [ `Set of Info.t | `Extend of Info.t ] -> unit
 end

@@ -22,8 +22,7 @@ end
 val start_watching : dump_if_delayed_by:Time.Span.t -> how_to_dump:How_to_dump.t -> unit
 
 (** [dump_core ()] dumps a core file using [/usr/bin/gcore] if it exists, or by calling
-    [abort()] if not (or with [~how_to_dump:Call_abort]).  With gcore, the dump is done in
+    [abort()] if not (or with [~how_to_dump:Call_abort]). With gcore, the dump is done in
     a child process, and the core file is written to [/tmp/core.$N.$PID], where [$PID] is
-    the process id and [$N] is a counter that is incremented on each call to
-    [dump_core]. *)
+    the process id and [$N] is a counter that is incremented on each call to [dump_core]. *)
 val dump_core : ?how_to_dump:How_to_dump.t -> unit -> unit

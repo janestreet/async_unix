@@ -17,6 +17,35 @@ type t =
   }
 [@@deriving fields ~getters, sexp_of]
 
+module Aliases = struct
+  type 'a create =
+    ?argv0:string
+    -> ?buf_len:int
+    -> ?env:env
+    -> ?prog_search_path:string list
+    -> ?stdin:string
+    -> ?working_dir:string
+    -> ?setpgid:Core_unix.Pgid.t
+    -> prog:string
+    -> args:string list
+    -> unit
+    -> 'a Deferred.t
+
+  type 'a run =
+    ?accept_nonzero_exit:int list
+    -> ?argv0:string
+    -> ?env:env
+    -> ?prog_search_path:string list
+    -> ?stdin:string
+    -> ?working_dir:string
+    -> prog:string
+    -> args:string list
+    -> unit
+    -> 'a Deferred.t
+
+  type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
+end
+
 let create
   ?argv0
   ?buf_len
@@ -418,6 +447,56 @@ let run_forwarding ?(child_fds = `Splice) =
 
 let run_forwarding_exn ?child_fds = map_run (run_forwarding ?child_fds) ok_exn
 
+module How_to_handle_output = struct
+  type ('output, 'child_fds) t =
+    | Collect_stdout_and_wait : (string, 'child_fds) t
+    | Collect_stdout_lines_and_wait : (string list, 'child_fds) t
+    | Forward_output_and_wait : 'child_fds -> (unit, 'child_fds) t
+end
+
+let run' (type output)
+  : (output, _) How_to_handle_output.t -> output Or_error.t Aliases.run
+  = function
+  | Collect_stdout_and_wait -> run
+  | Collect_stdout_lines_and_wait -> run_lines
+  | Forward_output_and_wait (`Share_fds_with_child share_fds_with_child) ->
+    let child_fds =
+      match share_fds_with_child with
+      | true -> `Share
+      | false -> `Splice
+    in
+    run_forwarding ~child_fds
+;;
+
+let run'_exn (type output) : (output, _) How_to_handle_output.t -> output Aliases.run
+  = function
+  | Collect_stdout_and_wait -> run_exn
+  | Collect_stdout_lines_and_wait -> run_lines_exn
+  | Forward_output_and_wait (`Share_fds_with_child share_fds_with_child) ->
+    let child_fds =
+      match share_fds_with_child with
+      | true -> `Share
+      | false -> `Splice
+    in
+    run_forwarding_exn ~child_fds
+;;
+
+let handle_output (type output)
+  : (output, unit) How_to_handle_output.t -> output Or_error.t Aliases.collect
+  = function
+  | Collect_stdout_and_wait -> collect_stdout_and_wait
+  | Collect_stdout_lines_and_wait -> collect_stdout_lines_and_wait
+  | Forward_output_and_wait () -> forward_output_and_wait
+;;
+
+let handle_output_exn (type output)
+  : (output, unit) How_to_handle_output.t -> output Aliases.collect
+  = function
+  | Collect_stdout_and_wait -> collect_stdout_and_wait_exn
+  | Collect_stdout_lines_and_wait -> collect_stdout_lines_and_wait_exn
+  | Forward_output_and_wait () -> forward_output_and_wait_exn
+;;
+
 let send_signal_internal t signal =
   (* We don't force the lazy (and therefore we don't reap the PID) here. We only do
      that if the user calls [wait] explicitly. *)
@@ -462,35 +541,6 @@ let send_signal_compat_exn t signal =
 let send_signal t signal =
   ignore (send_signal_compat t signal : [ `Ok | `No_such_process ])
 ;;
-
-module Aliases = struct
-  type 'a create =
-    ?argv0:string
-    -> ?buf_len:int
-    -> ?env:env
-    -> ?prog_search_path:string list
-    -> ?stdin:string
-    -> ?working_dir:string
-    -> ?setpgid:Core_unix.Pgid.t
-    -> prog:string
-    -> args:string list
-    -> unit
-    -> 'a Deferred.t
-
-  type 'a run =
-    ?accept_nonzero_exit:int list
-    -> ?argv0:string
-    -> ?env:env
-    -> ?prog_search_path:string list
-    -> ?stdin:string
-    -> ?working_dir:string
-    -> prog:string
-    -> args:string list
-    -> unit
-    -> 'a Deferred.t
-
-  type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
-end
 
 module For_tests = struct
   let send_signal_internal = send_signal_internal

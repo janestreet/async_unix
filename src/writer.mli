@@ -2,8 +2,8 @@ open! Import
 include Writer_intf.Writer
 
 (** [splice_result ~from t] moves all data from [from : Reader.t] to [t] one chunk at a
-    time. The result becomes determined with value [`Ok] after reaching EOF on [from]
-    and the final bytes have been transferred, and with values [`Consumer_left|`Error] in
+    time. The result becomes determined with value [`Ok] after reaching EOF on [from] and
+    the final bytes have been transferred, and with values [`Consumer_left|`Error] in
     those cases where [flushed_or_failed_with_result] would return [Consumer_left|Error]
     respectively.
 

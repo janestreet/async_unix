@@ -44,7 +44,8 @@ let read t =
            | Some v -> v
            | None -> loop ())
       in
-      loop () [@nontail]) [@nontail]
+      loop () [@nontail])
+    [@nontail]
 ;;
 
 let peek t = t.value

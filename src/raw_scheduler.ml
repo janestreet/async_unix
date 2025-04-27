@@ -610,6 +610,9 @@ let cycle_took_longer_than_100us =
       "magic_trace_async_cycle_longer_than_10s"
         (too_long_if (cycle_time > Time_ns.Span.of_int_sec 10))];
     [%probe
+      "magic_trace_async_cycle_longer_than_20s"
+        (too_long_if (cycle_time > Time_ns.Span.of_int_sec 20))];
+    [%probe
       "magic_trace_async_cycle_longer_than_30s"
         (too_long_if (cycle_time > Time_ns.Span.of_int_sec 30))];
     [%probe
@@ -625,8 +628,8 @@ let[@inline] maybe_report_long_async_cycles_to_magic_trace ~cycle_time =
   if cycle_time > Time_ns.Span.of_int_us 100 then cycle_took_longer_than_100us ~cycle_time
 ;;
 
-let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate" [@tags
-                                                                                  "64-bits-only"])
+let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate"
+  [@tags "64-bits-only"])
   =
   let cycle_time = Time_ns.Span.of_int_sec 15 in
   let words_before = Gc.major_plus_minor_words () in
@@ -971,7 +974,7 @@ let init t =
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)
-  Signal_manager.manage t.signal_manager Signal.pipe;
+  Signal_manager.manage ~behavior_when_no_handlers:No_op t.signal_manager Signal.pipe;
   let interruptor_finished = Ivar.create () in
   let interruptor_read_fd = Interruptor.read_fd t.interruptor in
   let problem_with_interruptor () =

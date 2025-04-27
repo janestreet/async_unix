@@ -16,7 +16,7 @@ let%test_unit "spurious wakeups" =
   let main_ivar = Thread_safe_ivar.create () in
   let t = Caml_threads.Thread.create (fun () -> Thread_safe_ivar.read main_ivar) () in
   let _prev =
-    Sys.signal
+    (Sys.signal [@ocaml.alert "-unsafe_multidomain"])
       Sys.sigint
       (Sys.Signal_handle
          (fun _s ->

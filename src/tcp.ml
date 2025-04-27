@@ -301,7 +301,7 @@ module Server = struct
     [@@deriving fields ~iterators:iter, sexp_of]
 
     let invariant invariant_address t =
-      Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
+      Invariant.invariant t [%sexp_of: _ t] (fun () ->
         let check f = Invariant.check_field t f in
         Fields.iter ~client_socket:ignore ~client_address:(check invariant_address))
     ;;
@@ -397,8 +397,7 @@ module Server = struct
         ~drop_incoming_connections:ignore
         ~close_finished_and_handlers_determined:ignore
     with
-    | exn ->
-      failwiths ~here:[%here] "invariant failed" (exn, t) [%sexp_of: exn * (_, _) t]
+    | exn -> failwiths "invariant failed" (exn, t) [%sexp_of: exn * (_, _) t]
   ;;
 
   let fd t = Socket.fd t.socket
@@ -521,7 +520,6 @@ module Server = struct
       if max_connections <= 0
       then
         failwiths
-          ~here:[%here]
           "Tcp.Server.creater got negative [max_connections]"
           max_connections
           sexp_of_int;

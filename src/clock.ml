@@ -83,12 +83,13 @@ let every ?start ?stop ?continue_on_error span f =
   every ?start ?stop ?continue_on_error (Time_ns.Span.of_span_float_round_nearest span) f
 ;;
 
-let run_at_intervals' ?start ?stop ?continue_on_error span f =
+let run_at_intervals' ?start ?stop ?continue_on_error ?finished span f =
   let start = Option.map start ~f:Time_ns.of_time_float_round_nearest in
   run_at_intervals'
     ?start
     ?stop
     ?continue_on_error
+    ?finished
     (Time_ns.Span.of_span_float_round_nearest span)
     f
 ;;

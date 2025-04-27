@@ -57,6 +57,19 @@ let maybe_mark_thread_pool_stuck t =
     | _ -> ())
 ;;
 
+let try_with_backtrace f =
+  try Ok (f ()) with
+  | exn ->
+    let backtrace =
+      match Backtrace.Exn.most_recent_for_exn exn with
+      | None ->
+        (* raised with raise_notrace *)
+        Stdlib.Printexc.get_callstack 0
+      | Some backtrace -> backtrace
+    in
+    Error (exn, backtrace)
+;;
+
 let run_after_scheduler_is_started
   ~priority
   ~thread
@@ -66,9 +79,19 @@ let run_after_scheduler_is_started
   f
   =
   let ivar = Ivar.create () in
+  let execution_context = current_execution_context t in
+  let send_result result =
+    match result with
+    | Ok v -> Ivar.fill_exn ivar v
+    | Error (exn, backtrace) ->
+      Monitor.send_exn
+        (Execution_context.monitor execution_context)
+        ~backtrace:(`This backtrace)
+        exn
+  in
   let doit () =
     (* At this point, we are in a thread-pool thread, not the async thread. *)
-    let result = Result.try_with f in
+    let result = try_with_backtrace f in
     let locked =
       match when_finished with
       | Take_the_async_lock ->
@@ -89,14 +112,10 @@ let run_after_scheduler_is_started
       protect
         ~finally:(fun () -> unlock t)
         ~f:(fun () ->
-          Ivar.fill_exn ivar result;
+          send_result result;
           have_lock_do_cycle t)
     else
-      thread_safe_enqueue_external_job
-        t
-        (current_execution_context t)
-        (fun () -> Ivar.fill_exn ivar result)
-        ()
+      thread_safe_enqueue_external_job t (current_execution_context t) send_result result
   in
   (match thread with
    | None ->
@@ -118,7 +137,7 @@ let run_after_scheduler_is_started
           ?name
           ?priority));
   maybe_mark_thread_pool_stuck t;
-  Ivar.read ivar >>| Result.ok_exn
+  Ivar.read ivar
 ;;
 
 let run ?priority ?thread ?name f =
@@ -138,6 +157,17 @@ module Helper_thread = struct
   type t = { thread_pool_helper_thread : Thread_pool.Helper_thread.t }
   [@@deriving fields ~getters, sexp_of]
 
+  let finalize scheduler { thread_pool_helper_thread } =
+    Thread_pool.finished_with_helper_thread
+      scheduler.thread_pool
+      thread_pool_helper_thread
+  ;;
+
+  let finished_with t =
+    let scheduler = the_one_and_only () in
+    finalize scheduler t
+  ;;
+
   (* Both [create] and [create_now] add Async finalizers to the returned helper thread so
      that the thread can be added back to the set of worker threads when there are no
      references to the helper thread and the thread has no pending work.  Because
@@ -150,13 +180,8 @@ module Helper_thread = struct
      [Thread_pool] because the thread pool doesn't know about Async, and in particular
      doesn't know about Async finalizers. *)
   let create_internal scheduler thread_pool_helper_thread =
-    let finalize { thread_pool_helper_thread } =
-      Thread_pool.finished_with_helper_thread
-        scheduler.thread_pool
-        thread_pool_helper_thread
-    in
     let t = { thread_pool_helper_thread } in
-    add_finalizer_exn scheduler t finalize;
+    add_finalizer_exn scheduler t (finalize scheduler);
     t
   ;;
 

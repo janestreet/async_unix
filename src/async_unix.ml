@@ -128,11 +128,11 @@ include struct
   let write_lines = overwrite2
   let write_wrap ?binary:_ ~f:_ = overwrite1
 
-  let (eprint_s [@deprecated
-                  "[since 2019-12] If you want to the blocking version, use \
-                   [Core.eprint_s] (this preserves behavior, but is discouraged). If you \
-                   want the nonblocking version, use [eprint_s_nonblocking] or \
-                   [Print.eprint_s]"])
+  let (eprint_s
+    [@deprecated
+      "[since 2019-12] If you want to the blocking version, use [Core.eprint_s] (this \
+       preserves behavior, but is discouraged). If you want the nonblocking version, use \
+       [eprint_s_nonblocking] or [Print.eprint_s]"])
     =
     overwrite1
   ;;
@@ -183,4 +183,16 @@ module Async_unix_private = struct
   module Raw_fd = Raw_fd
   module Raw_scheduler = Raw_scheduler
   module Syscall = Syscall
+end
+
+(** [For_tests] is a too common name, so having [open Async] bring it in scope is too high
+    potential for confusion. *)
+module Async_for_tests = struct
+  (** Initialize all Async subsystems that allocate fds. This can be used when checking
+      for fd leaks, to distinguish expected fd "leaks" from unexpected ones. *)
+  let allocate_all_fds () =
+    let _ : Scheduler.t = Raw_scheduler.t () in
+    let _io_uring : _ option = Io_uring.the_one_and_only () in
+    Async_kernel.Deferred.return ()
+  ;;
 end

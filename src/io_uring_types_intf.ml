@@ -2,8 +2,7 @@
     separated from the main Io_uring_raw_intf where this modules is included. This is done
     such that we can have different implementation for all those types in the case where
     io_uring is/is not supported by the underlying system, such that we do not have any
-    dependency on Ocaml_uring.
-*)
+    dependency on Ocaml_uring. *)
 
 module type FLAGS = sig
   (** A set of flags. *)
@@ -87,8 +86,8 @@ module type S = sig
 
       (** [check ?mask attr t] will check if [t] is set in [attr].
 
-          If [mask] is not [None] then it will first check the mask to see
-          if the file attribute is supported and if not raise [Invalid_argument]. *)
+          If [mask] is not [None] then it will first check the mask to see if the file
+          attribute is supported and if not raise [Invalid_argument]. *)
       val check : ?mask:Int64.t -> Int64.t -> t -> bool
     end
 
@@ -122,8 +121,8 @@ module type S = sig
       val check : Int64.t -> t -> bool
     end
 
-    (** You may wish to use {! Mask.check} to verify the field has actually
-        been returned with a sensible value first. *)
+    (** You may wish to use {! Mask.check} to verify the field has actually been returned
+        with a sensible value first. *)
 
     val blksize : t -> Int64.t
     val attributes : t -> Int64.t

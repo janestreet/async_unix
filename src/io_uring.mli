@@ -17,14 +17,14 @@ val read
   -> Bigstring.t
   -> (int, Exn.t) Result.t Deferred.t
 
-val read_file_descr
+val read_file_descr_or_unix_error
   :  t
   -> ?file_offset:int
   -> File_descr.t
   -> ?off:int
   -> ?len:int
   -> Bigstring.t
-  -> (int, Exn.t) Result.t Deferred.t
+  -> (int, Unix.Error.t) Result.t Deferred.t
 
 val write
   :  t

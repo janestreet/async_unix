@@ -142,10 +142,11 @@ include struct
   let win32 = win32
   let cygwin = cygwin
 
-  type nonrec backend_type = backend_type =
+  type nonrec backend_type : value mod contended portable = backend_type =
     | Native
     | Bytecode
     | Other of string
+  [@@unsafe_allow_any_mode_crossing]
 
   let backend_type = backend_type
   let word_size_in_bits = word_size_in_bits

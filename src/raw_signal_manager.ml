@@ -44,5 +44,6 @@ let iter_delivered t ~f =
     let original_disposition =
       Hashtbl.find_exn t.original_dispositions_of_managed_signals signal
     in
-    f ~original_disposition signal) [@nontail]
+    f ~original_disposition signal)
+  [@nontail]
 ;;

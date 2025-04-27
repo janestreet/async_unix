@@ -227,8 +227,11 @@ module Internal = struct
     Fd.with_file_descr_deferred_result fd (fun file_descr ->
       match Io_uring_raw_singleton.the_one_and_only () with
       | Some uring ->
-        Io_uring.read_file_descr uring file_descr ~off:pos ~len buf
-        >>| Result.map ~f:(fun res -> res, Time.now ())
+        Io_uring.read_file_descr_or_unix_error uring file_descr ~off:pos ~len buf
+        >>| (function
+         | Ok res -> Ok (res, Time.now ())
+         | Error err ->
+           Error (Bigstring_unix.IOError (0, Unix.Unix_error (err, "read", ""))))
       | None ->
         In_thread.syscall ~name:"read" (fun () ->
           let res = Bigstring_unix.read file_descr buf ~pos ~len in
@@ -356,11 +359,10 @@ module Internal = struct
           loop ()))
   ;;
 
-  (** Grow the buffer length if its size is less than [desired].
-      If the requested growth is too large, we only grow the buffer to ~4x the size.
-      The reason is that the [desired] value is often read from the data stream,
-      and we don't want to run out of memory if we read an absurd [desired] value from
-      the data stream. *)
+  (** Grow the buffer length if its size is less than [desired]. If the requested growth
+      is too large, we only grow the buffer to ~4x the size. The reason is that the
+      [desired] value is often read from the data stream, and we don't want to run out of
+      memory if we read an absurd [desired] value from the data stream. *)
   let maybe_grow_buf_len t ~desired =
     let buf_len = Bigstring.length t.buf in
     if buf_len < desired

@@ -19,6 +19,14 @@ let rec attempt_syscall_internal f count =
        traditional retry loop from [Syscall.syscall]. *)
     let%bind () = Raw_scheduler.yield () in
     attempt_syscall_internal f (count + 1)
+  | Error (Unix.EUNKNOWNERR 125) ->
+    (* We've seen some weird behavior where our calls return with ECANCELED
+       even though we're not asking to cancel. Work around this issue,
+       which seems like it may be a kernel bug.
+
+       This can't be a real cancellation because the job handle is made by
+       [f ()] above and we don't ever call cancel on that. *)
+    attempt_syscall_internal f (count + 1)
   | Error err -> return (Error err)
   | Ok result -> return (Ok result)
 ;;
@@ -47,15 +55,17 @@ let with_file_descr_deferred_opt ~name fd_opt ~f =
   | Some fd -> with_file_descr_deferred ~name fd (fun fd -> f (Some fd))
 ;;
 
-let read_file_descr t ?(file_offset = -1) file_descr ?off ?len buf =
-  match%map
-    attempt_syscall (fun () ->
-      Io_uring_raw.read
-        t
-        ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
-        file_descr
-        (Cstruct.of_bigarray ?off ?len buf))
-  with
+let read_file_descr_or_unix_error t ?(file_offset = -1) file_descr ?off ?len buf =
+  attempt_syscall (fun () ->
+    Io_uring_raw.read
+      t
+      ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
+      file_descr
+      (Cstruct.of_bigarray ?off ?len buf))
+;;
+
+let read_file_descr t ?file_offset file_descr ?off ?len buf =
+  match%map read_file_descr_or_unix_error t ?file_offset file_descr ?off ?len buf with
   | Error err -> Error (Unix.Unix_error (err, "read", ""))
   | Ok res -> Ok res
 ;;
