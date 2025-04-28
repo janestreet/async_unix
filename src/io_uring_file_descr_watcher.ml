@@ -100,24 +100,26 @@ let iter t ~f =
 ;;
 
 let rec add_poll t file_descr flags =
-  let handle = Io_uring_raw.poll_add t.uring file_descr flags in
-  Table.set t.states ~key:file_descr ~data:{ running_job = handle; flags };
-  Deferred.don't_wait_for
-    (let%bind res = Io_uring_raw.syscall_result handle in
-     match Table.find t.states file_descr with
-     | None -> return ()
-     | Some { running_job; flags } ->
-       if phys_equal running_job handle
-       then (
-         match res with
-         (* This is ECANCELED *)
-         | Error (Unix.EUNKNOWNERR 125) -> ()
-         | Error err -> failwith (Unix.Error.message err)
-         | Ok res ->
-           handle_fd_read_ready t file_descr (Flags.of_int res);
-           handle_fd_write_ready t file_descr (Flags.of_int res);
-           add_poll t file_descr flags);
-       return ())
+  let job_handle = Io_uring_raw.poll_add t.uring file_descr flags in
+  Table.set t.states ~key:file_descr ~data:{ running_job = job_handle; flags };
+  upon (Io_uring_raw.syscall_result job_handle) (fun res ->
+    on_poll_result t ~job_handle ~file_descr res)
+
+and on_poll_result t ~job_handle ~file_descr res =
+  match Table.find t.states file_descr with
+  | None -> ()
+  | Some { running_job; flags } ->
+    if phys_equal running_job job_handle
+    then (
+      match res with
+      (* This is ECANCELED *)
+      | Error (Unix.EUNKNOWNERR 125) -> ()
+      | Error err -> failwith (Unix.Error.message err)
+      | Ok res ->
+        handle_fd_read_ready t file_descr (Flags.of_int res);
+        handle_fd_write_ready t file_descr (Flags.of_int res);
+        add_poll t file_descr flags);
+    ()
 ;;
 
 let remove_poll_exn t file_descr =

@@ -1,5 +1,5 @@
 (** [Async.Process] is for creating child processes of the current process, and
-    communicating with children via their stdin, stdout, and stderr.  [Async.Process] is
+    communicating with children via their stdin, stdout, and stderr. [Async.Process] is
     the Async analog of [Core_unix.create_process] and related functions. *)
 
 open! Core
@@ -42,9 +42,9 @@ type env = Unix.env [@@deriving sexp]
     If [argv0] is given, it is used (instead of [prog]) as the first element of the [argv]
     array passed to [exec].
 
-    [create] returns [Error] if it is unable to create the child process.  This can happen
+    [create] returns [Error] if it is unable to create the child process. This can happen
     in any number of situations (unable to fork, unable to create the pipes, unable to cd
-    to [working_dir], unable to [exec] etc.).  [create] does not return [Error] if the
+    to [working_dir], unable to [exec] etc.). [create] does not return [Error] if the
     binary exits with non-zero exit code; instead, it returns [OK t], where [wait t]
     returns an [Error].
 
@@ -65,10 +65,10 @@ type 'a create :=
 val create : t Or_error.t create
 val create_exn : t create
 
-(** [wait t = Unix.waitpid (pid t)].  [wait]'s result becomes determined when the child
-    process terminates, via exit or signal.  [wait] does not touch [stdin], [stdout] or
-    [stderr].  The caller should ensure that [stdout] and [stderr] are being drained in
-    the background to avoid the child process blocking on a write due to pushback.  See
+(** [wait t = Unix.waitpid (pid t)]. [wait]'s result becomes determined when the child
+    process terminates, via exit or signal. [wait] does not touch [stdin], [stdout] or
+    [stderr]. The caller should ensure that [stdout] and [stderr] are being drained in the
+    background to avoid the child process blocking on a write due to pushback. See
     [collect_output_and_wait] for a higher-level alternative that handles this. *)
 val wait : t -> Unix.Exit_or_signal.t Deferred.t
 
@@ -89,7 +89,7 @@ end
 
 (** [collect_output_and_wait t] closes [stdin t] and then begins collecting the output
     produced on [t]'s [stdout] and [stderr], continuing to collect output until [t]
-    terminates and the pipes for [stdout] and [stderr] are closed.  Usually when [t]
+    terminates and the pipes for [stdout] and [stderr] are closed. Usually when [t]
     terminates, the pipes are closed; however, [t] could fork other processes which
     survive after [t] terminates and in turn keep the pipes open --
     [collect_output_and_wait] will not become determined until both pipes are closed in
@@ -97,16 +97,16 @@ end
 val collect_output_and_wait : t -> Output.t Deferred.t
 
 (** [run] [create]s a process, feeds it [stdin] if provided, and [wait]s for it to
-    complete.  If the process exits with an acceptable status, then [run] returns its
-    stdout.  If the process exits unacceptably, then [run] returns an error indicating
-    what went wrong that includes stdout and stderr.
+    complete. If the process exits with an acceptable status, then [run] returns its
+    stdout. If the process exits unacceptably, then [run] returns an error indicating what
+    went wrong that includes stdout and stderr.
 
     Acceptable statuses are zero, and any nonzero values specified in
     [accept_nonzero_exit].
 
     Some care is taken so that an error displays nicely as a sexp---in particular, if the
     child's output can already be parsed as a sexp, then it will display as a sexp (rather
-    than a sexp embedded in a string).  Also, if the output isn't a sexp, it will be split
+    than a sexp embedded in a string). Also, if the output isn't a sexp, it will be split
     on newlines into a list of strings, so that it displays on multiple lines rather than
     a single giant line with embedded "\n"'s.
 
@@ -122,15 +122,14 @@ val collect_output_and_wait : t -> Output.t Deferred.t
     ([`Splice] [0], which is the default). Sharing the file descriptors minimizes
     performance overhead, but it may change behavior. For example if a shared fd
     corresponds to the terminal then the child process may choose to write colored output
-    where it'd otherwise write ASCII. If there's an error (e.g. SIGPIPE) writing to
-    a shared fd, that will be handled by the child process directly, instead of being
+    where it'd otherwise write ASCII. If there's an error (e.g. SIGPIPE) writing to a
+    shared fd, that will be handled by the child process directly, instead of being
     handled in the parent. If [`Share] is passed, [run_forwarding] will wait for
     [Writer.stdout] and [Writer.stderr] to be flushed before spawning the child process to
     avoid interleaving output with anything previously written to the writers.
 
     [0] The name splice is a reference to the linux splice syscall, though note that it's
-    not actually used here for portability reasons.
-*)
+    not actually used here for portability reasons. *)
 type 'a run :=
   ?accept_nonzero_exit:int list (** default is [] *)
   -> ?argv0:string
@@ -168,6 +167,28 @@ val collect_stdout_lines_and_wait_exn : string list collect
 val forward_output_and_wait : unit Or_error.t collect
 val forward_output_and_wait_exn : unit collect
 
+module How_to_handle_output : sig
+  type ('output, 'child_fds) t =
+    | Collect_stdout_and_wait : (string, 'child_fds) t
+    | Collect_stdout_lines_and_wait : (string list, 'child_fds) t
+    | Forward_output_and_wait : 'child_fds -> (unit, 'child_fds) t
+end
+
+(** Same as the above run functions but uses a GADT to represent how to handle the output.
+    When forwarding output, if you aren't sure you want the child process to share file
+    descriptors with the parent, pass [false]. *)
+val run'
+  :  ('a, [ `Share_fds_with_child of bool ]) How_to_handle_output.t
+  -> 'a Or_error.t run
+
+val run'_exn : ('a, [ `Share_fds_with_child of bool ]) How_to_handle_output.t -> 'a run
+
+(** Save as the above output-collecting functions but uses a GADT to represent how to
+    handle the output. *)
+val handle_output : ('a, unit) How_to_handle_output.t -> 'a Or_error.t collect
+
+val handle_output_exn : ('a, unit) How_to_handle_output.t -> 'a collect
+
 (** Sends a signal to this process. This is safe to call concurrently with [wait t], even
     if the Pid is reused after the process died.
 
@@ -175,16 +196,16 @@ val forward_output_and_wait_exn : unit collect
     regardless of whether or not the process was waited for. *)
 val send_signal : t -> Signal.t -> unit
 
-(** Similar to [send_signal], but additionally reports if a signal was actually sent,
-    or a process was already terminated and waited for.
+(** Similar to [send_signal], but additionally reports if a signal was actually sent, or a
+    process was already terminated and waited for.
 
     Note that if you never called [wait] on this process, you will always get [`Ok], which
     can be surprising. This function is exposed for compatibility with the code that used
     [Signal_unix.send]. *)
 val send_signal_compat : t -> Signal.t -> [ `Ok | `No_such_process ]
 
-(** Similar to [send_signal_compat], but raises an exception on [`No_such_process].
-    Used to migrate the code that uses [Signal_unix.send_exn]. *)
+(** Similar to [send_signal_compat], but raises an exception on [`No_such_process]. Used
+    to migrate the code that uses [Signal_unix.send_exn]. *)
 val send_signal_compat_exn : t -> Signal.t -> unit
 
 (** [Lines_or_sexp] is useful for rendering a string nicely in a sexp, avoiding quoting if

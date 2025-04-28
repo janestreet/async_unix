@@ -7,14 +7,12 @@ type t =
   | Ok of Io_uring_raw.t
 
 module Eventfd_driver = struct
-  (**
-     The submission and completion of tasks is completely autonomous, using two async jobs
-     (one for submission and one for completion) that get scheduled when needed.
-     Submission is done at the end of every cycle (submissions when the queue is empty
-     should be very cheap). If a syscall makes its way to the completion queue, the job
-     that will fill the corresponding deferred is scheduled the next time the async
-     scheduler checks for I/O through the file descriptor watcher.
-  *)
+  (** The submission and completion of tasks is completely autonomous, using two async
+      jobs (one for submission and one for completion) that get scheduled when needed.
+      Submission is done at the end of every cycle (submissions when the queue is empty
+      should be very cheap). If a syscall makes its way to the completion queue, the job
+      that will fill the corresponding deferred is scheduled the next time the async
+      scheduler checks for I/O through the file descriptor watcher. *)
   let register_hooks uring eventfd =
     Io_uring_raw.register_eventfd uring (Eventfd.to_file_descr eventfd);
     Async_kernel_scheduler.Expert.run_every_cycle_end (fun () ->

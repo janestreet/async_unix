@@ -2,11 +2,10 @@
     Async cycle, the Scheduler will call each busy poller at least once, but possibly
     multiple times if there's no Async work to do.
 
-    It is expected that a single call to [poll] does multiple iterations.
-    The busy poll loop is planned to run until [~deadline]. Pollers should use this
-    parameter to decide how many iterations to run.
-    In particular, if we know there is Async work to do, [~deadline] will be in the past
-    and pollers are requested to do a single iteration. *)
+    It is expected that a single call to [poll] does multiple iterations. The busy poll
+    loop is planned to run until [~deadline]. Pollers should use this parameter to decide
+    how many iterations to run. In particular, if we know there is Async work to do,
+    [~deadline] will be in the past and pollers are requested to do a single iteration. *)
 
 open Core
 

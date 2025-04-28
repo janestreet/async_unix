@@ -1,7 +1,7 @@
 (** [Unix_syscalls] provides an interface to many of the functions in OCaml's standard
-    Unix module.  It uses a deferred in the return type of functions that would block.
-    The idea is that in an Async program one does not use the standard Unix module, since
-    in doing so one could accidentally block the whole program.
+    Unix module. It uses a deferred in the return type of functions that would block. The
+    idea is that in an Async program one does not use the standard Unix module, since in
+    doing so one could accidentally block the whole program.
 
     There are also a number of cosmetic changes (e.g., polymorphic variants) and other
     improvements (e.g., phantom types on sockets) over the standard Unix module. *)
@@ -20,7 +20,7 @@ val getppid : unit -> Pid.t option
 val getppid_exn : unit -> Pid.t
 
 (** [this_process_became_child_of_init] returns a deferred that becomes determined when
-    the current process becomes a child of [init(8)].  This is useful for determining
+    the current process becomes a child of [init(8)]. This is useful for determining
     whether one's parent has died, because in that case [init] will become one's parent.
 
     See [Linux_ext.pr_set_pdeathsig : Signal.t -> unit] for a related way to get
@@ -86,14 +86,13 @@ module Lock : sig
   [@@deriving sexp_of]
 end
 
-(** [with_file file ~mode ~perm ~f] opens [file], and applies [f] to the
-    resulting file descriptor.  When the result of [f] becomes determined, it closes the
-    descriptor and returns the result of [f].
+(** [with_file file ~mode ~perm ~f] opens [file], and applies [f] to the resulting file
+    descriptor. When the result of [f] becomes determined, it closes the descriptor and
+    returns the result of [f].
 
-    If [lock] is supplied, then the file descriptor is locked before calling [f] with
-    the specified [lock_mechanism]. Note that it is not unlocked before close, which might
-    be significant if this file descriptor is held elsewhere (e.g., by fork() or
-    dup()). *)
+    If [lock] is supplied, then the file descriptor is locked before calling [f] with the
+    specified [lock_mechanism]. Note that it is not unlocked before close, which might be
+    significant if this file descriptor is held elsewhere (e.g., by fork() or dup()). *)
 val with_file
   :  ?lock:Lock.t (** default is no lock *)
   -> ?perm:file_perm
@@ -120,8 +119,8 @@ val fdatasync : Fd.t -> unit Deferred.t
 val sync : unit -> unit Deferred.t
 
 (** [lockf fd lock_mode ?len] locks the section of the open file [fd] specified by the
-    current file position and [len] (see man lockf).  It returns when the lock has been
-    acquired.  It raises if [fd] is closed.
+    current file position and [len] (see man lockf). It returns when the lock has been
+    acquired. It raises if [fd] is closed.
 
     Warning: [lockf] locks are held per-process, so taking the lock on the same file
     multiple times in the same process is going to break in terrible ways.
@@ -130,39 +129,39 @@ val sync : unit -> unit Deferred.t
     rather it calls fcntl() with F_SETLKW *)
 val lockf : ?len:Int64.t -> Fd.t -> Lock_mode.t -> unit Deferred.t
 
-(** [try_lockf fd lock_mode ?len] attempts to lock the section of the open file
-    [fd] specified by the current file position and [len] (see man lockf).  It returns
-    [true] if it acquired the lock.  It raises if [fd] is closed.
+(** [try_lockf fd lock_mode ?len] attempts to lock the section of the open file [fd]
+    specified by the current file position and [len] (see man lockf). It returns [true] if
+    it acquired the lock. It raises if [fd] is closed.
 
     Note that, despite the name, this function does not call the UNIX lockf() system call;
     rather it calls fcntl() with F_SETLK *)
 val try_lockf : ?len:Int64.t -> Fd.t -> Lock_mode.t -> bool
 
 (** [test_lockf fd ?len] checks the lock on section of the open file [fd] specified by the
-    current file position and [len].  If the section is unlocked or locked by this
-    process, it returns true, else it returns false.  It raises if [fd] is closed.
+    current file position and [len]. If the section is unlocked or locked by this process,
+    it returns true, else it returns false. It raises if [fd] is closed.
 
     Note that, despite the name, this function does not call the UNIX lockf() system call;
     rather it calls fcntl() with F_GETLK *)
 val test_lockf : ?len:Int64.t -> Fd.t -> bool
 
 (** [unlockf fd ?len] unlocks the section of the open file [fd] specified by the current
-    file position and [len].  It raises if [fd] is closed.
+    file position and [len]. It raises if [fd] is closed.
 
     Note that, despite the name, this function does not call the UNIX lockf() system call;
     rather it calls fcntl() with F_UNLCK *)
 val unlockf : ?len:Int64.t -> Fd.t -> unit
 
-(** [flock fd lock_mode] locks the open file [fd] (see man 2 flock).  It returns when the
-    lock has been acquired.  It raises if [fd] is closed. *)
+(** [flock fd lock_mode] locks the open file [fd] (see man 2 flock). It returns when the
+    lock has been acquired. It raises if [fd] is closed. *)
 val flock : Fd.t -> Lock_mode.t -> unit Deferred.t
 
-(** [try_flock fd lock_mode] attempts to lock the open file [fd] (see man 2 flock).  It
+(** [try_flock fd lock_mode] attempts to lock the open file [fd] (see man 2 flock). It
     returns [true] if it acquired the lock or [false] if a conflicting lock was already
-    present.  It raises if [fd] is closed. *)
+    present. It raises if [fd] is closed. *)
 val try_flock : Fd.t -> Lock_mode.t -> bool
 
-(** [funlock fd] unlocks the open file [fd] (see [man 2 flock]).  It raises if [fd] is
+(** [funlock fd] unlocks the open file [fd] (see [man 2 flock]). It raises if [fd] is
     closed. *)
 val funlock : Fd.t -> unit
 
@@ -314,13 +313,13 @@ val putenv : key:string -> data:string -> unit
 val unsetenv : string -> unit
 
 (** [fork_exec ~prog ~argv ?path ?env] forks and execs [prog] with [argv], and returns the
-    child pid.  If [use_path = true] (the default) and [prog] doesn't contain a slash,
-    then [fork_exec] searches the PATH environment variable for [prog].  If [env] is
-    supplied, it specifies the environment when [prog] is executed.
+    child pid. If [use_path = true] (the default) and [prog] doesn't contain a slash, then
+    [fork_exec] searches the PATH environment variable for [prog]. If [env] is supplied,
+    it specifies the environment when [prog] is executed.
 
     If [env] contains multiple bindings for the same variable, the last takes precedence.
     In the case of [`Extend], bindings in [env] take precedence over the existing
-    environment.  See {!Unix.exec}. *)
+    environment. See {!Unix.exec}. *)
 val fork_exec
   :  prog:string
   -> argv:string list
@@ -342,15 +341,15 @@ val wait_nohang : wait_on -> (Pid.t * Exit_or_signal.t) option
 val wait_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) Deferred.t
 val wait_nohang_untraced : wait_on -> (Pid.t * Exit_or_signal_or_stop.t) option
 
-(** [waitpid pid] returns a deferred that becomes determined with the child's exit
-    status, when the child process with process id [pid] exits.  [waitpid_exn] is like
-    [waitpid], except the result only becomes determined if the child exits with status
-    zero; it raises if the child terminates in any other way. *)
+(** [waitpid pid] returns a deferred that becomes determined with the child's exit status,
+    when the child process with process id [pid] exits. [waitpid_exn] is like [waitpid],
+    except the result only becomes determined if the child exits with status zero; it
+    raises if the child terminates in any other way. *)
 val waitpid : Pid.t -> Exit_or_signal.t Deferred.t
 
-(** Same as {!waitpid}, but guarantees that the resulting [Deferred] is determined
-    in the same async job as the [wait] system call, so that it's safe to keep using
-    the [pid] if the deferred is not determined. *)
+(** Same as {!waitpid}, but guarantees that the resulting [Deferred] is determined in the
+    same async job as the [wait] system call, so that it's safe to keep using the [pid] if
+    the deferred is not determined. *)
 val waitpid_prompt : Pid.t -> Exit_or_signal.t Deferred.t
 
 val waitpid_exn : Pid.t -> unit Deferred.t
@@ -392,8 +391,7 @@ module Socket : sig
       end
 
       (** [Show_port_in_test] renders the port as an integer, even in tests, unlike the
-          normal [sexp_of_t] and [to_string], which render the port as "PORT" in
-          tests. *)
+          normal [sexp_of_t] and [to_string], which render the port as "PORT" in tests. *)
       module Show_port_in_test : sig
         type nonrec t = t [@@deriving sexp_of]
 
@@ -435,8 +433,8 @@ module Socket : sig
 
   (** Sockets have a phantom type parameter that tracks the state of the socket in order
       to eliminate certain errors in which socket functions are called in the wrong order.
-      Initially, a socket is [`Unconnected].  As various socket functions are called, they
-      return a socket with a new phantom state.  Here is a chart of the allowed state
+      Initially, a socket is [`Unconnected]. As various socket functions are called, they
+      return a socket with a new phantom state. Here is a chart of the allowed state
       transitions.
 
       {v
@@ -520,13 +518,13 @@ module Socket : sig
          Deferred.t
 
   (** [accept_at_most] is like [accept], but will return up to [limit] connections before
-      yielding, where [limit >= 1].  [accept_at_most] first waits for one connection and
+      yielding, where [limit >= 1]. [accept_at_most] first waits for one connection and
       then attempts to retrieve up to [limit] connections through non-blocking
-      {!Unix.accept} calls.  If a call to {!Unix.accept} would block before [limit] is
+      {!Unix.accept} calls. If a call to {!Unix.accept} would block before [limit] is
       reached, [accept_at_most] returns the connections retrieved thus far.
 
       Servers that must service a large number of connections tend to observe a stall in
-      connection accept rates when under heavy load.  Increasing [limit] will ameliorate
+      connection accept rates when under heavy load. Increasing [limit] will ameliorate
       this effect, and increase accept rates and overall throughput of the server at the
       cost of increased contention for resources amongst connections.
 
@@ -592,12 +590,11 @@ module Socket : sig
     -> unit
 
   (** [bind_to_interface_exn t (`Interface_name "eth0")] restricts messages from being
-      received or sent on interfaces other than [eth0].  See
+      received or sent on interfaces other than [eth0]. See
       {!Linux_ext.bind_to_interface}.
 
       Typically, one would use this function for very specific non-multicast requirements.
-      For similar functionality when using multicast, see
-      {!Core_unix.mcast_set_ifname}. *)
+      For similar functionality when using multicast, see {!Core_unix.mcast_set_ifname}. *)
   val bind_to_interface_exn
     : (([ `Unconnected ], Address.t) t -> Linux_ext.Bound_to_interface.t -> unit)
         Or_error.t
@@ -687,8 +684,8 @@ module Name_info : sig
   val get : sockaddr -> getnameinfo_option list -> t Deferred.t
 end
 
-(** The following functions correspond to the system calls of the same names.
-    They can't block so they don't need to return a deferred. *)
+(** The following functions correspond to the system calls of the same names. They can't
+    block so they don't need to return a deferred. *)
 
 val gethostname : unit -> string
 val getuid : unit -> int
@@ -716,7 +713,7 @@ module Terminal_io : sig
     ; mutable c_ixon : bool (** Recognize XON/XOFF characters on input. *)
     ; mutable c_ixoff : bool (** Emit XON/XOFF chars to control input flow. *)
     ; mutable c_opost : bool (** Enable output processing. *)
-    ; mutable c_obaud : int (** Output baud rate (0 means close connection).*)
+    ; mutable c_obaud : int (** Output baud rate (0 means close connection). *)
     ; mutable c_ibaud : int (** Input baud rate. *)
     ; mutable c_csize : int (** Number of bits per character (5-8). *)
     ; mutable c_cstopb : int (** Number of stop bits (1-2). *)
@@ -727,8 +724,7 @@ module Terminal_io : sig
     ; mutable c_clocal : bool (** Ignore modem status lines. *)
     ; mutable c_isig : bool (** Generate signal on INTR, QUIT, SUSP. *)
     ; mutable c_icanon : bool
-    (** Enable canonical processing
-        (line buffering and editing) *)
+    (** Enable canonical processing (line buffering and editing) *)
     ; mutable c_noflsh : bool (** Disable flush after INTR, QUIT, SUSP. *)
     ; mutable c_echo : bool (** Echo input characters. *)
     ; mutable c_echoe : bool (** Echo ERASE (to erase previous character). *)
@@ -741,8 +737,7 @@ module Terminal_io : sig
     ; mutable c_veof : char (** End-of-file character (usually ctrl-D). *)
     ; mutable c_veol : char (** Alternate end-of-line char. (usually none). *)
     ; mutable c_vmin : int
-    (** Minimum number of characters to read
-        before the read request is satisfied. *)
+    (** Minimum number of characters to read before the read request is satisfied. *)
     ; mutable c_vtime : int (** Maximum read wait (in 0.1s units). *)
     ; mutable c_vstart : char (** Start character (usually ctrl-Q). *)
     ; mutable c_vstop : char (** Stop character (usually ctrl-S). *)
@@ -815,13 +810,13 @@ val wordexp
 module Private : sig
   (** [Wait] exposes some internals of the implementation of [wait] and [wait_untraced].
       Those functions return a deferred that becomes determined when a particular child
-      process exits.  The implementation, by default, installs a signal handler for
-      SIGCHLD that calls [check_all], which considers all undetermined wait results, calls
-      [wait_nohang], and fills them in if appropriate.  If OCaml is being used as a plugin
+      process exits. The implementation, by default, installs a signal handler for SIGCHLD
+      that calls [check_all], which considers all undetermined wait results, calls
+      [wait_nohang], and fills them in if appropriate. If OCaml is being used as a plugin
       in some other process that is already managing signals, e.g. in Ecaml, then we can't
-      install a signal handler.  So, we expose [do_not_handle_sigchld], which the plugin
+      install a signal handler. So, we expose [do_not_handle_sigchld], which the plugin
       should call before any call to [wait], and will prevent the SIGCHLD handler from
-      being installed.  It is then the responsibility of the plugin to call [check_all]
+      being installed. It is then the responsibility of the plugin to call [check_all]
       regularly, so that child processes created by Async are reaped and the corresponding
       deferreds become determined. *)
   module Wait : sig
@@ -830,7 +825,7 @@ module Private : sig
   end
 
   (** [dns_lookup] exposes the internals of how the DNS lookup functions run on the thread
-      pool, so that we can validate in tests that those functions blocking doesn't block the
-      entire scheduler's thread pool. *)
+      pool, so that we can validate in tests that those functions blocking doesn't block
+      the entire scheduler's thread pool. *)
   val dns_lookup : name:string -> (unit -> 'a) -> 'a Deferred.t
 end

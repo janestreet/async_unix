@@ -435,20 +435,29 @@ module Stats = struct
   let of_ocaml_uring_statx (u : Io_uring_raw.Statx.t) =
     let open Io_uring_raw in
     let of_timespec sec nsec =
-      Time.of_span_since_epoch Time.Span.(of_int_sec sec + of_int_ns nsec)
+      Time.of_span_since_epoch Time.Span.(of_sec (Float.of_int64 sec) + of_int_ns nsec)
     in
-    { dev = Statx.dev u |> Int64.to_int_exn
-    ; ino = Statx.ino u |> Int64.to_int_exn
+    (* Some precision loss is happening in [ino], [dev], [rdev] fields below.
+       In fact, [ino] is not merely theoretical: the full 64-bit inode range is used
+       by some filesystems.
+
+       [nlink], [uid], [gid] are in fact coming from the kernel as 32-bit integers,
+       so no precision loss there.
+
+       Of course we lose precision for timestamps as well.
+    *)
+    { dev = Statx.dev u |> Int64.to_int_trunc
+    ; ino = Statx.ino u |> Int64.to_int_trunc
     ; kind = File_kind.of_ocaml_uring (Statx.kind u)
     ; perm = Statx.perm u
-    ; nlink = Statx.nlink u |> Int64.to_int_exn
-    ; uid = Statx.uid u |> Int64.to_int_exn
-    ; gid = Statx.gid u |> Int64.to_int_exn
-    ; rdev = Statx.rdev u |> Int64.to_int_exn
+    ; nlink = Statx.nlink u |> Int64.to_int_trunc
+    ; uid = Statx.uid u |> Int64.to_int_trunc
+    ; gid = Statx.gid u |> Int64.to_int_trunc
+    ; rdev = Statx.rdev u |> Int64.to_int_trunc
     ; size = Statx.size u
-    ; atime = of_timespec (Statx.atime_sec u |> Int64.to_int_exn) (Statx.atime_nsec u)
-    ; mtime = of_timespec (Statx.mtime_sec u |> Int64.to_int_exn) (Statx.mtime_nsec u)
-    ; ctime = of_timespec (Statx.ctime_sec u |> Int64.to_int_exn) (Statx.ctime_nsec u)
+    ; atime = of_timespec (Statx.atime_sec u) (Statx.atime_nsec u)
+    ; mtime = of_timespec (Statx.mtime_sec u) (Statx.mtime_nsec u)
+    ; ctime = of_timespec (Statx.ctime_sec u) (Statx.ctime_nsec u)
     }
   ;;
 

@@ -1,7 +1,6 @@
-(** This module overrides everything in the [Core.Sys] module that might block.  Functions
+(** This module overrides everything in the [Core.Sys] module that might block. Functions
     do the same thing as their counterparts in [Core.Sys], but instead return deferreds.
-    For a description of their semantics see the documentation for the [Core.Sys]
-    module. *)
+    For a description of their semantics see the documentation for the [Core.Sys] module. *)
 
 open! Core
 open! Import
@@ -17,8 +16,8 @@ val file_exists : ?follow_symlinks:bool -> string -> [ `Yes | `No | `Unknown ] D
 val file_exists_exn : ?follow_symlinks:bool -> string -> bool Deferred.t
 
 (** [when_file_exists ?poll_delay file] returns a deferred that becomes determined when
-    [file] exists.  The default poll delay is 0.5 seconds.  It raises an exception if it
-    can not check whether the file is there, in the same cases [file_exists] returns
+    [file] exists. The default poll delay is 0.5 seconds. It raises an exception if it can
+    not check whether the file is there, in the same cases [file_exists] returns
     [`Unknown]. *)
 val when_file_exists
   :  ?follow_symlinks:bool
@@ -27,9 +26,8 @@ val when_file_exists
   -> unit Deferred.t
 
 (** [when_file_changes file] polls [file] using [stat] and writes [file]'s mtime to the
-    pipe every time it changes or there's an error.
-    The first time in the pipe will be [file]'s current
-    mtime.  To stop polling, close the pipe. *)
+    pipe every time it changes or there's an error. The first time in the pipe will be
+    [file]'s current mtime. To stop polling, close the pipe. *)
 val when_file_changes
   :  ?time_source:Time_source.t
   -> ?poll_delay:Time.Span.t
@@ -68,6 +66,7 @@ type backend_type = Core.Sys.backend_type =
   | Native
   | Bytecode
   | Other of string
+[@@unsafe_allow_any_mode_crossing]
 
 val backend_type : backend_type
 val word_size_in_bits : int

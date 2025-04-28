@@ -361,7 +361,7 @@ end = struct
   type t = writer Check_buffer_age'.t Bag.Elt.t option
 
   let elt_invariant t : unit =
-    Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
+    Invariant.invariant t [%sexp_of: _ t] (fun () ->
       let check f field = f (Field.get field t) in
       assert (Queue.length t.bytes_received_queue = Queue.length t.times_received_queue);
       Fields.iter

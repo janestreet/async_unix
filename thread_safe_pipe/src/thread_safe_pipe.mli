@@ -1,6 +1,7 @@
 (** A thread-safe pipe is a thread-safe interface to the write end of a normal
-    [Async.Pipe].  {b All operations except for [create] must be called from threads
-    outside Async}, while [create] can be called from inside or outside Async.
+    [Async.Pipe].
+    {b All operations except for [create] must be called from threads outside Async},
+    while [create] can be called from inside or outside Async.
 
     For [Pipe] functions that return a [unit Deferred.t], the analog in [Thread_safe_pipe]
     blocks.
@@ -15,10 +16,10 @@ open! Import
 type 'a t [@@deriving sexp_of]
 
 (** [create ()] returns a reader end, which must be used inside Async, and a writer end,
-    which must be used outside Async.  [create] can be called inside or outside Async. *)
+    which must be used outside Async. [create] can be called inside or outside Async. *)
 val create : unit -> 'a Pipe.Reader.t * 'a t
 
-(** All the following functions must be called outside Async.  They behave as their
+(** All the following functions must be called outside Async. They behave as their
     counterpart in the {!Pipe} module. *)
 
 (** [pushback writer] blocks the current thread until the pipe is empty or closed. *)
@@ -34,11 +35,12 @@ end
     how to deal with the possibility that the pipe is closed.
 
     The alternatives are to [Raise] on a closed pipe, or [Return] a variant indicating
-    whether the pipe is closed.  This allows lightweight syntax for calls that want to
+    whether the pipe is closed. This allows lightweight syntax for calls that want to
     raise if the pipe is closed:
 
     {[
-      write t a ~if_closed:Raise ]}
+      write t a ~if_closed:Raise
+    ]}
 
     It also allows lightweight syntax for calls that want to match on whether the pipe was
     closed:
@@ -46,10 +48,11 @@ end
     {[
       match write t a ~if_closed:Return with
       | Closed  -> ...
-      | Written -> ... ]}
+      | Written -> ...
+    ]}
 
     Returning a variant is essential when one wants to distinguish a closed pipe from
-    other errors.  Also, since pipe-writing functions acquire the Async lock, it would be
+    other errors. Also, since pipe-writing functions acquire the Async lock, it would be
     incorrect (due to races) to check [is_closed] prior to the lock acquisition. *)
 module If_closed : sig
   type 'a t =

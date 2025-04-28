@@ -227,8 +227,8 @@ module Internal = struct
   (* [Thread_pool.t] *)
   type t =
     { id : Pool_id.t
-    (** [state] starts as [`In_use] when the thread pool is created.  When the user calls
-        [finished_with], it transitions to [`Finishing].  When the last work is done, it
+    (** [state] starts as [`In_use] when the thread pool is created. When the user calls
+        [finished_with], it transitions to [`Finishing]. When the last work is done, it
         transitions to [`Finished] and fills [finished]. *)
     ; mutable state : [ `In_use | `Finishing | `Finished ]
     ; finished : unit Thread_safe_ivar.t
@@ -236,7 +236,7 @@ module Internal = struct
        threads actually doing the work need to access[t]. *)
     ; mutex : Mutex.t
     (** [default_priority] is the priority that will be used for work unless that work is
-        added with an overriding priority.  It is set to whatever the priority is when the
+        added with an overriding priority. It is set to whatever the priority is when the
         thread pool is created. *)
     ; default_priority : Priority.t
         (* [max_num_threads] is the maximum number of threads that the thread pool is allowed
@@ -280,8 +280,8 @@ module Internal = struct
         [aggregate_working_start_time_since_epoch], but this is clearer and the extra
         bookkeeping is unlikely to be measurable. *)
     ; mutable max_recent_unfinished_work : int
-    (** [max_recent_unfinished_work] tracks the max seen value of
-        [unfinished_work] since [get_and_reset_stats] was last called. *)
+    (** [max_recent_unfinished_work] tracks the max seen value of [unfinished_work] since
+        [get_and_reset_stats] was last called. *)
     ; mutable max_recent_completed_queue_wait : Time_ns.Span.t
     (** [max_recent_completed_queue_wait] tracks the max time a task has waited in
         [work_queue] since [get_and_reset_stats] was last called. *)

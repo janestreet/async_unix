@@ -11,7 +11,7 @@ type t =
 let sexp_of_t t = t.sexp ()
 
 let invariant t =
-  Invariant.invariant [%here] t [%sexp_of: t] (fun () ->
+  Invariant.invariant t [%sexp_of: t] (fun () ->
     let _check f = Invariant.check_field t f in
     Fields.iter ~output:ignore ~flush:ignore ~sexp:ignore)
 ;;

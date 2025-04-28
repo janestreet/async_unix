@@ -44,3 +44,10 @@ module For_tests = struct
     ()
   ;;
 end
+
+module Expert = struct
+  include Expert
+
+  let lock () = Raw_scheduler.lock (t ())
+  let unlock () = Raw_scheduler.unlock (t ())
+end

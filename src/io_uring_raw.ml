@@ -201,6 +201,9 @@ let cancel t handle =
       | Cancel_prepared cancel_ivar ->
         (match%map Ivar.read cancel_ivar with
          | Ok _ -> ()
+         | Error Unix.Error.EALREADY ->
+           (* This means the job has alreay started running and can't be cancelled. *)
+           ()
          | Error Unix.Error.ENOENT ->
            (* The job we are trying to cancel has already finished by the time the cancel
               was executed. *)

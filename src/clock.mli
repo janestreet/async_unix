@@ -1,4 +1,4 @@
-(** A {{!Async_kernel.Clock_intf.Clock}[Clock]} based on [Core.Time]. *)
+(** A {{!Async_kernel.Clock_intf.Clock} [Clock]} based on [Core.Time]. *)
 
 open! Core
 open! Import

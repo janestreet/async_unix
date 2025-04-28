@@ -9,9 +9,14 @@ module Scheduler = Raw_scheduler
 
 let the_one_and_only = Scheduler.the_one_and_only
 
-let handle ?stop ts ~f =
+let handle ?(ignore_signal_when_last_handler_removed = true) ?stop ts ~f =
   let scheduler = the_one_and_only () in
   let signal_manager = scheduler.signal_manager in
+  Signal_manager.set_composable_handler
+    signal_manager
+    ~behavior_when_no_handlers:
+      (if ignore_signal_when_last_handler_removed then No_op else Original_disposition)
+    ts;
   let handler =
     Signal_manager.install_handler
       signal_manager
@@ -28,7 +33,7 @@ let manage_by_async ts =
   let scheduler = the_one_and_only () in
   let signal_manager = scheduler.signal_manager in
   List.iter ts ~f:(fun t ->
-    Signal_manager.manage_but_keep_default_behavior signal_manager t)
+    Signal_manager.manage ~behavior_when_no_handlers:Original_disposition signal_manager t)
 ;;
 
 let is_managed_by_async t =
