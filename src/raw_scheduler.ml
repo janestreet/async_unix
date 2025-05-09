@@ -969,8 +969,9 @@ let add_busy_poller t ~max_busy_wait_duration f =
 
 let init t =
   dump_core_on_job_delay ();
+  let interruptor = t.interruptor in
   Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler (fun () ->
-    thread_safe_wakeup_scheduler t);
+    Interruptor.thread_safe_interrupt interruptor);
   t.scheduler_thread_id <- current_thread_id ();
   (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
      the process doesn't die due to an unhandled SIGPIPE. *)

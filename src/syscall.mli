@@ -8,6 +8,9 @@ module Syscall_result = Unix.Syscall_result
     [Unix_error (EINTR, _, _)]. *)
 val syscall : (unit -> 'a) -> ('a, exn) Result.t
 
+(** [syscall_exn f] is like [syscall f], but it raises an exception on failure *)
+val syscall_exn : (unit -> 'a) -> 'a @@ portable
+
 (** [syscall_result a f] repeatedly calls [f a] until it returns a result that is not
     [Syscall_result.create_error EINTR]. *)
 val syscall_result : 'a -> ('a -> 'b Syscall_result.t) -> 'b Syscall_result.t

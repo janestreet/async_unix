@@ -191,6 +191,7 @@ let close_connection_via_reader_and_writer r w =
 ;;
 
 let with_connection
+  ?socket
   ?buffer_age_limit
   ?interrupt
   ?reader_buffer_size
@@ -200,7 +201,7 @@ let with_connection
   where_to_connect
   f
   =
-  connect_sock ?interrupt ?timeout ?time_source where_to_connect
+  connect_sock ?socket ?interrupt ?timeout ?time_source where_to_connect
   >>= fun socket ->
   let r, w =
     reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size socket

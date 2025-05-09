@@ -59,10 +59,11 @@ type 'a with_connect_options :=
     It is fine for [f] to ignore the supplied socket and just use the reader and writer.
     The socket is there to make it convenient to call [Socket] functions. *)
 val with_connection
-  : ('addr Where_to_connect.t
-     -> (([ `Active ], 'addr) Socket.t -> Reader.t -> Writer.t -> 'a Deferred.t)
-     -> 'a Deferred.t)
-      with_connect_options
+  :  ?socket:([ `Unconnected ], 'addr) Socket.t
+  -> ('addr Where_to_connect.t
+      -> (([ `Active ], 'addr) Socket.t -> Reader.t -> Writer.t -> 'a Deferred.t)
+      -> 'a Deferred.t)
+       with_connect_options
 
 (** [connect_sock where_to_connect] creates a socket and opens a TCP connection. To use an
     existing socket, supply [~socket]. Any errors in the connection will be reported to

@@ -27,7 +27,7 @@
 open! Core
 open! Import
 
-type t [@@deriving sexp_of]
+type t : value mod portable [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 
@@ -35,7 +35,7 @@ val create : create_fd:(Raw_fd.Kind.t -> Unix.File_descr.t -> Info.t -> Raw_fd.t
 val read_fd : t -> Raw_fd.t
 
 (** [thread_safe_interrupt t] causes [read_fd t] to become ready for reading. *)
-val thread_safe_interrupt : t -> unit
+val thread_safe_interrupt : t @ contended -> unit @@ portable
 
 (** [clear t] causes [read_fd t] to become not ready for reading. It is guaranteed that
     any calls to [thread_safe_interrupt] after [clear t] returns (and prior to another
@@ -44,4 +44,4 @@ val clear : t -> unit
 
 (** [already_interrupted t] is true if [thread_safe_interrupt t] has completed since the
     last call to [clear t]. *)
-val already_interrupted : t -> bool
+val already_interrupted : t @ contended -> bool @@ portable

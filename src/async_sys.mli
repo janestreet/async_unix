@@ -66,7 +66,6 @@ type backend_type : value mod contended portable = Core.Sys.backend_type =
   | Native
   | Bytecode
   | Other of string
-[@@unsafe_allow_any_mode_crossing]
 
 val backend_type : backend_type
 val word_size_in_bits : int

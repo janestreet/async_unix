@@ -146,7 +146,6 @@ include struct
     | Native
     | Bytecode
     | Other of string
-  [@@unsafe_allow_any_mode_crossing]
 
   let backend_type = backend_type
   let word_size_in_bits = word_size_in_bits
