@@ -208,6 +208,6 @@ let link _ = assert false
 let timeout _ = assert false
 let statx _ = assert false
 let cancel _ = assert false
-let syscall_result _ = assert false
+let syscall_result_noretry _ = assert false
 let register_eventfd _ = assert false
 let has_pending_jobs _ = assert false
