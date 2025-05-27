@@ -450,6 +450,11 @@ let default_handle_thread_pool_stuck thread_pool ~stuck_for =
 ;;
 
 let thread_pool_has_unfinished_work t = Thread_pool.unfinished_work t.thread_pool <> 0
+
+let has_pending_external_jobs t =
+  Kernel_scheduler.has_pending_external_jobs t.kernel_scheduler
+;;
+
 let thread_safe_wakeup_scheduler t = Interruptor.thread_safe_interrupt t.interruptor
 let i_am_the_scheduler t = current_thread_id () = t.scheduler_thread_id
 
@@ -993,8 +998,8 @@ let init t =
               Kernel_scheduler.create_job
                 t.kernel_scheduler
                 Execution_context.main
-                Fn.ignore
-                ()
+                Interruptor.clear_fd
+                interruptor
           ; finished_ivar = interruptor_finished
           ; pending = (fun () -> false)
           })
@@ -1044,7 +1049,11 @@ let check_file_descr_watcher t ~timeout span_or_unit =
       (File_descr_watcher_intf.Timeout.variant_of timeout span_or_unit, t)
       [%sexp_of: [ `Immediately | `After of Time_ns.Span.t ] * t];
   let before = Tsc.now () in
-  let check_result = F.thread_safe_check F.watcher pre timeout span_or_unit in
+  let check_result =
+    match Interruptor.sleep t.interruptor with
+    | Sleep -> F.thread_safe_check F.watcher pre timeout span_or_unit
+    | Clear_pending_interrupts -> F.thread_safe_check F.watcher pre Immediately ()
+  in
   let after = Tsc.now () in
   t.time_spent_waiting_for_io
   <- Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);

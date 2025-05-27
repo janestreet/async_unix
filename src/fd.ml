@@ -54,14 +54,14 @@ module Kind = struct
   let infer_using_uring_stat file_descr uring =
     let statx_buffer = Io_uring_raw.Statx.create () in
     match%map
-      Io_uring_raw.statx
-        uring
-        ~fd:file_descr
-        ~mask:Io_uring_raw.Statx.Mask.type'
-        ""
-        statx_buffer
-        Io_uring_raw.Statx.Flags.empty_path
-      |> Io_uring_raw.syscall_result
+      Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
+        Io_uring_raw.statx
+          uring
+          ~fd:file_descr
+          ~mask:Io_uring_raw.Statx.Mask.type'
+          ""
+          statx_buffer
+          Io_uring_raw.Statx.Flags.empty_path)
     with
     | Ok res ->
       assert (res = 0);
@@ -136,7 +136,8 @@ module Close = struct
   let close_syscall file_descr =
     match Io_uring_raw_singleton.the_one_and_only () with
     | Some uring ->
-      Io_uring_raw.syscall_result (Io_uring_raw.close uring file_descr)
+      Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
+        Io_uring_raw.close uring file_descr)
       >>| (function
        | Error err ->
          raise

@@ -178,6 +178,8 @@ val fds_may_produce_events : unit -> bool
     pool work. *)
 val thread_pool_has_unfinished_work : unit -> bool
 
+val has_pending_external_jobs : unit -> bool
+
 (** If any busy pollers exist, they will be called in a busy loop whenever the scheduler
     is waiting on I/O before an Async cycle, with the guarantee that they will be called
     at least once before every Async cycle.

@@ -102,7 +102,7 @@ let iter t ~f =
 let rec add_poll t file_descr flags =
   let job_handle = Io_uring_raw.poll_add t.uring file_descr flags in
   Table.set t.states ~key:file_descr ~data:{ running_job = job_handle; flags };
-  upon (Io_uring_raw.syscall_result job_handle) (fun res ->
+  upon (Io_uring_raw.syscall_result_noretry job_handle) (fun res ->
     on_poll_result t ~job_handle ~file_descr res)
 
 and on_poll_result t ~job_handle ~file_descr res =

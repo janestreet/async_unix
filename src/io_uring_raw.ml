@@ -229,7 +229,7 @@ let cancel t handle =
   cancel_until_success ()
 ;;
 
-let syscall_result handle = Ivar.read (Handle.result handle)
+let syscall_result_noretry handle = Ivar.read (Handle.result handle)
 let has_pending_jobs t = Uring.active_ops t > 0
 
 [%%else]
@@ -237,3 +237,24 @@ let has_pending_jobs t = Uring.active_ops t > 0
 include Io_uring_raw_null
 
 [%%endif]
+
+let syscall_result_retry_on_ECANCELED f =
+  let rec retry_loop f count =
+    let max_tries = 1000 in
+    if count = max_tries
+    then return (Error (Unix.EUNKNOWNERR 125))
+    else (
+      match%bind syscall_result_noretry (f ()) with
+      | Error (Unix.EUNKNOWNERR 125) ->
+        (* We've seen some weird behavior where our calls return with ECANCELED
+           even though we're not asking to cancel. Work around this issue,
+           which seems like it may be a kernel bug.
+
+           This can't be a real cancellation because the job handle is made by
+           [f ()] above and we don't ever call cancel on that. *)
+        retry_loop f (count + 1)
+      | Error err -> return (Error err)
+      | Ok result -> return (Ok result))
+  in
+  retry_loop f 0
+;;

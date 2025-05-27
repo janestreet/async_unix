@@ -34,14 +34,37 @@ include Invariant.S with type t := t
 val create : create_fd:(Raw_fd.Kind.t -> Unix.File_descr.t -> Info.t -> Raw_fd.t) -> t
 val read_fd : t -> Raw_fd.t
 
-(** [thread_safe_interrupt t] causes [read_fd t] to become ready for reading. *)
+(** [thread_safe_interrupt t] causes an interrupt, which either makes the next [sleep]
+    return [Clear_pending_interrupts], or makes [read_fd] ready to read, as appropriate,
+    depending on what state the watcher is in. *)
 val thread_safe_interrupt : t @ contended -> unit @@ portable
 
-(** [clear t] causes [read_fd t] to become not ready for reading. It is guaranteed that
-    any calls to [thread_safe_interrupt] after [clear t] returns (and prior to another
-    call to [clear t]) will cause [read_fd] to become ready for reading. *)
+module Sleep : sig
+  type t =
+    | Clear_pending_interrupts
+    | Sleep
+end
+
+(** [sleep t] tells the interruptor that the watcher is about to go to sleep. Returns
+    [Sleep] when the watcher should go to sleep and [Clear_pending_interrupts] in case an
+    interrupt has happened while the watcher was awake and the watcher should now [clear]
+    the interruptor and make sure to service queued requests.
+
+    If [Sleep] is returned, then the watcher is allowed to go to sleep while being
+    sensitive to [read_fd]. *)
+val sleep : t -> Sleep.t @@ portable
+
+(** [clear t] should be called on wakeup after [sleep]. It clears the interruptor's
+    knowledge of past interrupts, if any, and makes it responsive to future interrupts.
+    Any calls to [thread_safe_interrupt] after [clear t] returns will be reflected in the
+    next call to [sleep] (or the readiness of the [read_fd] if we do end up going to
+    [Sleep]). *)
 val clear : t -> unit
+
+(** [clear_fd] must be called by the scheduler any time it wakes up due to the [read_fd]
+    being ready to read. *)
+val clear_fd : t -> unit
 
 (** [already_interrupted t] is true if [thread_safe_interrupt t] has completed since the
     last call to [clear t]. *)
-val already_interrupted : t @ contended -> bool @@ portable
+val already_interrupted : t -> bool @@ portable

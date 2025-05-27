@@ -146,14 +146,14 @@ module Uring_openfile = struct
       if mem creat flags || mem tmpfile flags then perm_if_creat else 0
     in
     match%map
-      Io_uring_raw.syscall_result
-        (Io_uring_raw.openat2
-           uring
-           ~access
-           ~flags
-           ~perm
-           ~resolve:Io_uring_raw.Resolve.empty
-           file)
+      Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
+        Io_uring_raw.openat2
+          uring
+          ~access
+          ~flags
+          ~perm
+          ~resolve:Io_uring_raw.Resolve.empty
+          file)
     with
     | Error err ->
       raise

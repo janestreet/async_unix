@@ -33,6 +33,7 @@ let set_min_inter_cycle_timeout min_inter_cycle_timeout =
 let max_num_open_file_descrs () = max_num_open_file_descrs (t ())
 let fds_may_produce_events () = fds_may_produce_events (t ())
 let thread_pool_has_unfinished_work () = thread_pool_has_unfinished_work (t ())
+let has_pending_external_jobs () = has_pending_external_jobs (t ())
 let max_num_threads () = max_num_threads (t ())
 let _ = current_execution_context
 let is_running () = is_the_one_and_only_running ()

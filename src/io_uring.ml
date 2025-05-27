@@ -12,7 +12,7 @@ let max_tries = 1000
 
 let rec attempt_syscall_internal f count =
   if count = max_tries then failwith "syscall interrupted too many times";
-  match%bind Io_uring_raw.syscall_result (f ()) with
+  match%bind Io_uring_raw.syscall_result_noretry (f ()) with
   | Error Unix.Error.EINTR ->
     (* We don't know if io_uring completions can actually return [EINTR] (probably not?),
        so this is possibly dead code. To be on the safe side, we're just replicating the
