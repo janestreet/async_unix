@@ -145,6 +145,22 @@ module Uring_openfile = struct
       let open Io_uring_raw.Open_flags in
       if mem creat flags || mem tmpfile flags then perm_if_creat else 0
     in
+    let raise_unix_error error =
+      raise
+        (Unix.Unix_error
+           ( error
+           , "open"
+           , Core_unix.Private.sexp_to_string_hum
+               [%sexp
+                 { filename : string = file
+                 ; mode : Unix.open_flag list = unix_mode
+                 ; perm : string = Printf.sprintf "0o%o" perm_if_creat
+                 }] ))
+    in
+    (* Arguably, ENOENT is rather misleading here. However, this is the historical behavior,
+       inherited all the way from Caml_unix, and nobody handles Invalid_argument, so it's
+       not clear this should change. *)
+    if String.contains file '\000' then raise_unix_error ENOENT;
     match%map
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
         Io_uring_raw.openat2
@@ -155,17 +171,7 @@ module Uring_openfile = struct
           ~resolve:Io_uring_raw.Resolve.empty
           file)
     with
-    | Error err ->
-      raise
-        (Unix.Unix_error
-           ( err
-           , "open"
-           , Core_unix.Private.sexp_to_string_hum
-               [%sexp
-                 { filename : string = file
-                 ; mode : Unix.open_flag list = unix_mode
-                 ; perm : string = Printf.sprintf "0o%o" perm_if_creat
-                 }] ))
+    | Error err -> raise_unix_error err
     | Ok res -> File_descr.of_int res
   ;;
 end
