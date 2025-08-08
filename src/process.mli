@@ -78,11 +78,11 @@ module Output : sig
     ; stderr : string
     ; exit_status : Unix.Exit_or_signal.t
     }
-  [@@deriving compare, sexp_of]
+  [@@deriving compare ~localize, sexp_of]
 
   module Stable : sig
     module V1 : sig
-      type nonrec t = t [@@deriving compare, sexp]
+      type nonrec t = t [@@deriving compare ~localize, sexp]
     end
   end
 end
@@ -231,4 +231,27 @@ module For_tests : sig
     :  t
     -> Signal.t
     -> [ `Ok | `No_such_process_internal | `No_such_process_OS ]
+end
+
+module Expert : sig
+  (** Construct a [t] from its constituent parts. No validation is performed (e.g.,
+      [stdin] could be an arbitrary pipe, not necessarily one owned by [pid]).
+
+      The intent is to allow interoperability between APIs expecting [t] and process
+      spawning code that isn't using [Async]. *)
+  val wrap_existing
+    :  pid:Pid.t
+    -> stdin:Writer.t
+    -> stdout:Reader.t
+    -> stderr:Reader.t
+    -> prog:string
+    -> args:string list
+    -> working_dir:string option
+    -> env:env
+    -> wait:Unix.Exit_or_signal.t Deferred.t Lazy.t
+         (** To match the semantics of the non-expert API, the underlying process should
+             only be reaped (if applicable) once [wait] is forced. To avoid race
+             conditions around PID reuse, [wait] must not become filled in a later async
+             job than the one that is responsible for reaping the process. *)
+    -> t
 end

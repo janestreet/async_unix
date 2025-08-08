@@ -132,26 +132,32 @@ let openat2 t ~access ~flags ?(perm = 0o644) ~resolve ?info ?fd filename =
     attempt_syscall (fun () ->
       Io_uring_raw.openat2 t ~access ~flags ~perm ~resolve ?fd:fd_opt filename)
   in
-  let failure_error err = Unix.Unix_error (err, "open", Info.to_string_mach info) in
+  let unix_error err = Unix.Unix_error (err, "open", Info.to_string_mach info) in
   let success_fd res = Fd.create Fd.Kind.File (File_descr.of_int res) info in
-  with_file_descr_deferred_opt ~name:"open" fd ~f:(fun fd ->
-    match%map openat2_syscall fd with
-    | Error err -> Error (failure_error err)
-    | Ok res -> Ok (success_fd res))
+  if String.contains filename '\000'
+  then return (Error (unix_error ENOENT))
+  else
+    with_file_descr_deferred_opt ~name:"open" fd ~f:(fun fd ->
+      match%map openat2_syscall fd with
+      | Error err -> Error (unix_error err)
+      | Ok res -> Ok (success_fd res))
 ;;
 
 let unlink t ~dir ?fd filename =
-  let unlink_syscall fd_opt =
-    attempt_syscall (fun () -> Io_uring_raw.unlink t ~dir ?fd:fd_opt filename)
-  in
   let to_exn err =
     Unix.Unix_error
       (err, "unlink", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
   in
-  with_file_descr_deferred_opt fd ~name:"unlink" ~f:(fun fd ->
-    match%map unlink_syscall fd with
-    | Error err -> Error (to_exn err)
-    | Ok _ -> Ok ())
+  if String.contains filename '\000'
+  then return (Error (to_exn ENOENT))
+  else (
+    let unlink_syscall fd_opt =
+      attempt_syscall (fun () -> Io_uring_raw.unlink t ~dir ?fd:fd_opt filename)
+    in
+    with_file_descr_deferred_opt fd ~name:"unlink" ~f:(fun fd ->
+      match%map unlink_syscall fd with
+      | Error err -> Error (to_exn err)
+      | Ok _ -> Ok ()))
 ;;
 
 (* The [force] case for this function is implemented this way in order to align with the
@@ -162,41 +168,47 @@ let link t ?(follow = false) ?(force = false) ~target ~link_name () =
   let args_for_error () =
     Core_unix.Private.sexp_to_string_hum [%sexp { target : string; link_name : string }]
   in
-  let%bind unlink_res =
-    match force with
-    | true ->
-      (match%map unlink t ~dir:false link_name with
-       | Error (Unix.Unix_error (Unix.ENOENT, _, _)) -> Ok ()
-       | Error (Unix.Unix_error (e, s, _)) ->
-         Error (Unix.Unix_error (e, s, args_for_error ()))
-       | Error exn -> Error exn
-       | Ok () -> Ok ())
-    | false -> return (Ok ())
-  in
-  match unlink_res with
-  | Error exn -> return (Error exn)
-  | Ok () ->
-    (match%map
-       attempt_syscall (fun () -> Io_uring_raw.link t ~follow ~target ~link_name)
-     with
-     | Error err -> Error (Unix.Unix_error (err, "link", args_for_error ()))
-     | Ok _ -> Ok ())
+  let unix_error s e = Error (Unix.Unix_error (e, s, args_for_error ())) in
+  if String.contains target '\000' || String.contains link_name '\000'
+  then return (unix_error "link" ENOENT)
+  else (
+    let%bind unlink_res =
+      match force with
+      | true ->
+        (match%map unlink t ~dir:false link_name with
+         | Error (Unix.Unix_error (Unix.ENOENT, _, _)) -> Ok ()
+         | Error (Unix.Unix_error (e, s, _)) -> unix_error s e
+         | Error exn -> Error exn
+         | Ok () -> Ok ())
+      | false -> return (Ok ())
+    in
+    match unlink_res with
+    | Error exn -> return (Error exn)
+    | Ok () ->
+      (match%map
+         attempt_syscall (fun () -> Io_uring_raw.link t ~follow ~target ~link_name)
+       with
+       | Error err -> unix_error "link" err
+       | Ok _ -> Ok ()))
 ;;
 
 let do_statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
-  let statx_buffer = Io_uring_raw.Statx.create () in
-  match%map
-    attempt_syscall (fun () -> Io_uring_raw.statx t ?fd ~mask path statx_buffer flags)
-  with
-  | Error err -> Error err
-  | Ok res ->
-    assert (res = 0);
-    Ok statx_buffer
+  if String.contains path '\000'
+  then return (Error (ENOENT : Core_unix.Error.t))
+  else (
+    let statx_buffer = Io_uring_raw.Statx.create () in
+    match%map
+      attempt_syscall (fun () -> Io_uring_raw.statx t ?fd ~mask path statx_buffer flags)
+    with
+    | Error err -> Error err
+    | Ok res ->
+      assert (res = 0);
+      Ok statx_buffer)
 ;;
 
 let statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
   let statx_syscall fd_opt = do_statx t ?fd:fd_opt ~mask path flags in
-  let failure_error err =
+  let unix_error err =
     Unix.Unix_error
       ( err
       , "statx"
@@ -205,7 +217,7 @@ let statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
   in
   with_file_descr_deferred_opt ~name:"statx" fd ~f:(fun fd ->
     match%map statx_syscall fd with
-    | Error err -> Error (failure_error err)
+    | Error err -> Error (unix_error err)
     | Ok res -> Ok res)
 ;;
 
@@ -214,24 +226,24 @@ let stat_or_unix_error t ?mask filename =
 ;;
 
 let stat t ?mask filename =
+  let unix_error err =
+    Unix.Unix_error
+      (err, "stat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
+  in
   match%map stat_or_unix_error t ?mask filename with
-  | Error err ->
-    Error
-      (Unix.Unix_error
-         (err, "stat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }]))
+  | Error err -> Error (unix_error err)
   | Ok res -> Ok res
 ;;
 
 let fstat t ?mask fd =
   with_file_descr_deferred ~name:"fstat" fd (fun fd ->
+    let unix_error err =
+      Unix.Unix_error
+        (err, "fstat", Core_unix.Private.sexp_to_string_hum [%sexp { fd : File_descr.t }])
+    in
     match%map do_statx t ?mask ~fd "" Io_uring_raw.Statx.Flags.empty_path with
     | Ok res -> Ok res
-    | Error err ->
-      Error
-        (Unix.Unix_error
-           ( err
-           , "fstat"
-           , Core_unix.Private.sexp_to_string_hum [%sexp { fd : File_descr.t }] )))
+    | Error err -> Error (unix_error err))
 ;;
 
 let lstat_or_unix_error t ?mask filename =
@@ -239,10 +251,11 @@ let lstat_or_unix_error t ?mask filename =
 ;;
 
 let lstat t ?mask filename =
+  let unix_error err =
+    Unix.Unix_error
+      (err, "lstat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
+  in
   match%map lstat_or_unix_error t ?mask filename with
   | Ok res -> Ok res
-  | Error err ->
-    Error
-      (Unix.Unix_error
-         (err, "lstat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }]))
+  | Error err -> Error (unix_error err)
 ;;

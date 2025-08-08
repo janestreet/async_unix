@@ -71,7 +71,7 @@ module Lock_mechanism : sig
     (** Lockf refers to the ocaml [lockf] function, which, despite the name, does not call
         the UNIX lockf() system call, but rather calls fcntl() with F_SETLKW. *)
     | Flock
-  [@@deriving compare, enumerate, sexp]
+  [@@deriving compare ~localize, enumerate, sexp]
 
   include Stringable.S with type t := t
 
@@ -198,7 +198,7 @@ module Stats : sig
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields ~getters, sexp, bin_io, compare]
+  [@@deriving fields ~getters, sexp, bin_io, compare ~localize]
 
   val of_unix : Core_unix.stats -> t
   val to_unix : t -> Core_unix.stats
@@ -375,7 +375,7 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare ~localize]
 
       val create : string -> t
       val to_string : t -> string
@@ -383,11 +383,12 @@ module Socket : sig
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash, sexp_of]
+      type t = [ `Inet of Inet_addr.t * int ]
+      [@@deriving bin_io, compare ~localize, hash, sexp_of]
 
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig
-        type nonrec t = t [@@deriving bin_io, compare, hash, sexp_poly]
+        type nonrec t = t [@@deriving bin_io, compare ~localize, hash, sexp_poly]
       end
 
       (** [Show_port_in_test] renders the port as an integer, even in tests, unlike the
@@ -609,6 +610,7 @@ module Host : sig
     ; family : Protocol_family.t
     ; addresses : Inet_addr.t array
     }
+  [@@deriving sexp_of]
 
   val getbyname : string -> t option Deferred.t
   val getbyname_exn : string -> t Deferred.t
@@ -621,19 +623,19 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-[@@deriving bin_io, compare, sexp_of]
+[@@deriving bin_io, compare ~localize, sexp_of]
 
 (** [sockaddr_blocking_sexp] is like [sockaddr], with [of_sexp] that performs DNS lookup
     to resolve [Inet_addr.t]. *)

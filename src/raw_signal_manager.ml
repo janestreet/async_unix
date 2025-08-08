@@ -1,7 +1,7 @@
 open Core
 module Signal = Core.Signal
 
-type delivered = Signal.t Thread_safe_queue.t
+type delivered = Signal.t list Atomic.t
 
 type t =
   { original_dispositions_of_managed_signals : Signal.Expert.behavior Signal.Table.t
@@ -14,7 +14,7 @@ let invariant _ = ()
 
 let create ~thread_safe_notify_signal_delivered =
   { original_dispositions_of_managed_signals = Signal.Table.create ()
-  ; delivered = Thread_safe_queue.create ()
+  ; delivered = Atomic.make []
   ; thread_safe_notify_signal_delivered
   }
 ;;
@@ -31,16 +31,23 @@ let manage t signal =
           signal
           (`Handle
             (fun _ ->
-              (* Everything in this function body must be thread safe, since it is running in an
-                   OCaml signal handler. *)
-              Thread_safe_queue.enqueue t.delivered signal;
+              (* Everything in this function body must be thread safe, since it is running
+                 in an OCaml signal handler. *)
+              Atomic.update t.delivered ~pure_f:(fun signals -> signal :: signals);
               t.thread_safe_notify_signal_delivered ())))
   in
   ()
 ;;
 
 let iter_delivered t ~f =
-  Thread_safe_queue.dequeue_until_empty t.delivered ~f:(fun signal ->
+  let signals =
+    match Atomic.get t.delivered with
+    | [] -> []
+    | _ -> Atomic.exchange t.delivered [] |> List.rev
+  in
+  (* The program will crash if any of these raise, so it's not a big deal for the later
+     signals in the list to get dropped. *)
+  List.iter signals ~f:(fun signal ->
     let original_disposition =
       Hashtbl.find_exn t.original_dispositions_of_managed_signals signal
     in

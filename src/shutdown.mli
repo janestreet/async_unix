@@ -93,11 +93,10 @@ val is_shutting_down : unit -> bool
     If [shutdown] has already been called, then calling [at_shutdown f] does nothing.
 
     The functions supplied to [at_shutdown] are run in parallel on shutdown. *)
-val at_shutdown : (unit -> unit Deferred.t) -> unit
+val at_shutdown : ?here:Stdlib.Lexing.position -> (unit -> unit Deferred.t) -> unit
 
 (** [don't_finish_before d] causes [shutdown] to wait until [d] becomes determined before
-    finishing. It is like [at_shutdown (fun _ -> d)], except it is more efficient, and
-    will not take any space once [d] is determined. There is a single [at_shutdown] shared
-    among all deferreds supplied to [don't_finish_before]. [don't_finish_before] does not
-    override the [force] argument passed to shutdown. *)
-val don't_finish_before : unit Deferred.t -> unit
+    finishing. It is like [at_shutdown (fun _ -> d)], except it will not take any space
+    once [d] is determined. [don't_finish_before] does not override the [force] argument
+    passed to shutdown. *)
+val don't_finish_before : ?here:Stdlib.Lexing.position -> unit Deferred.t -> unit

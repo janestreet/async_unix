@@ -174,7 +174,7 @@ module Output = struct
         ; stderr : string
         ; exit_status : Unix.Exit_or_signal.t
         }
-      [@@deriving compare, sexp]
+      [@@deriving compare ~localize, sexp]
     end
   end
 
@@ -544,4 +544,10 @@ let send_signal t signal =
 
 module For_tests = struct
   let send_signal_internal = send_signal_internal
+end
+
+module Expert = struct
+  let wrap_existing ~pid ~stdin ~stdout ~stderr ~prog ~args ~working_dir ~env ~wait =
+    { pid; stdin; stdout; stderr; prog; args; working_dir; env; wait }
+  ;;
 end
