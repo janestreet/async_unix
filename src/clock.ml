@@ -108,3 +108,8 @@ let duration_of f =
   let%map res, span = duration_of f in
   res, Time_ns.Span.to_span_float_round_nearest span
 ;;
+
+let duration_of' f =
+  let res, span = duration_of' f in
+  res, Time_ns.Span.to_span_float_round_nearest span
+;;

@@ -840,7 +840,7 @@ module Internal = struct
            with
            | Error _ as e -> k e
            | Ok (Done (sexp, parse_pos)) ->
-             consume t (parse_pos.buf_pos - t.pos);
+             consume t (Stdlib.Atomic.get parse_pos.buf_pos - t.pos);
              k (Ok (`Ok (sexp, parse_pos)))
            | Ok (Cont (_, parse_fun)) ->
              t.available <- 0;
