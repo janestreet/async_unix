@@ -694,8 +694,8 @@ let getenv = Sys.getenv
 let getenv_exn = Sys.getenv_exn
 let unsafe_getenv = Sys_unix.unsafe_getenv
 let unsafe_getenv_exn = Sys_unix.unsafe_getenv_exn
-let putenv = Unix.putenv
-let unsetenv = Unix.unsetenv
+let putenv = (Unix.putenv [@ocaml.alert "-unsafe_multidomain"])
+let unsetenv = (Unix.unsetenv [@ocaml.alert "-unsafe_multidomain"])
 
 (* processes *)
 

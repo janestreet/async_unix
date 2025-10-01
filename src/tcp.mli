@@ -123,16 +123,34 @@ module Where_to_listen : sig
     -> listening_on:('address -> 'listening_on)
     -> ('address, 'listening_on) t
 
+  val create_no_reuseaddr
+    :  socket_type:'address Socket.Type.t
+    -> address:'address
+    -> listening_on:('address -> 'listening_on)
+    -> ('address, 'listening_on) t
+
   val address : ('address, _) t -> 'address
 
-  (** Listen on the specified port on the specified addresses. *)
-  val bind_to : Bind_to_address.t -> Bind_to_port.t -> inet
+  (** Listen on the specified port on the specified addresses.
+
+      If [reuseaddr] is false, then any socket created by the TCP server for listening
+      will set SO_REUSEADDR to false. Otherwise, by default, SO_REUSEADDR will be set to
+      true. *)
+  val bind_to
+    :  ?reuseaddr:bool (** Default: true *)
+    -> Bind_to_address.t
+    -> Bind_to_port.t
+    -> inet
 
   (** [of_port port] is [bind_to All_addresses (On_port port)]. *)
   val of_port : int -> inet
 
   (** [of_port_chosen_by_os port] is [bind_to All_addresses On_port_chosen_by_os]. *)
   val of_port_chosen_by_os : inet
+
+  (** [of_port_chosen_by_os_no_reuseaddr] is
+      [bind_to ~reuseaddr:false All_addresses On_port_chosen_by_os]. *)
+  val of_port_chosen_by_os_no_reuseaddr : inet
 
   (** Listen on a unix domain socket using the specified path. *)
   val of_file : string -> unix
@@ -256,9 +274,14 @@ module Server : sig
       returned by [handler] is ever determined, or [handler] raises an exception, then the
       reader and writer are closed.
 
-      [buffer_age_limit] passes on to the underlying writer option of the same name. *)
+      [buffer_age_limit] passes on to the underlying writer option of the same name.
+
+      [reader_buffer_size] and [writer_buffer_size] pass on to the underlying async
+      readers and writers. *)
   val create
     :  ?buffer_age_limit:Writer.buffer_age_limit
+    -> ?reader_buffer_size:int
+    -> ?writer_buffer_size:int
     -> ?max_connections:int
          (** defaults to max of 10_000 or 90% of the current FD limit. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)
@@ -274,6 +297,8 @@ module Server : sig
 
   val create_inet
     :  ?buffer_age_limit:Writer.buffer_age_limit
+    -> ?reader_buffer_size:int
+    -> ?writer_buffer_size:int
     -> ?max_connections:int
          (** defaults to max of 10_000 or 90% of the current FD limit. *)
     -> ?max_accepts_per_batch:int (** defaults to [1]. *)

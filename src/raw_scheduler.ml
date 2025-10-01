@@ -861,16 +861,25 @@ let thread_safe_enqueue_external_job t f =
   Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
 
+let have_lock_do_cycle_default t =
+  Kernel_scheduler.run_cycle t.kernel_scheduler;
+  maybe_report_long_async_cycles_to_magic_trace t;
+  (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
+       events, or an unhandled exception. *)
+  if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
+;;
+
+let have_lock_do_cycle_if_scheduler t =
+  if i_am_the_scheduler t
+  then have_lock_do_cycle_default t
+  else thread_safe_wakeup_scheduler t
+;;
+
 let have_lock_do_cycle t =
   if debug then Debug.log "have_lock_do_cycle" t [%sexp_of: t];
   match t.have_lock_do_cycle with
   | Some f -> f ()
-  | None ->
-    Kernel_scheduler.run_cycle t.kernel_scheduler;
-    maybe_report_long_async_cycles_to_magic_trace t;
-    (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
-       events, or an unhandled exception. *)
-    if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
+  | None -> have_lock_do_cycle_default t
 ;;
 
 let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
@@ -1239,7 +1248,7 @@ let async_kernel_config_task_id () =
   [%sexp_of: [ `pid of Pid.t ] * [ `thread_id of int ]] (`pid pid, `thread_id thread_id)
 ;;
 
-let set_task_id () = Async_kernel_config.task_id := async_kernel_config_task_id
+let set_task_id () = Atomic.set Async_kernel_config.task_id async_kernel_config_task_id
 
 let raise_if_any_jobs_were_scheduled () =
   match Kernel_scheduler.backtrace_of_first_job (Kernel_scheduler.t ()) with

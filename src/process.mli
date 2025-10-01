@@ -233,6 +233,14 @@ module For_tests : sig
     -> [ `Ok | `No_such_process_internal | `No_such_process_OS ]
 end
 
+(** [create_with_shared_stderr] creates a child process with programmatic control over
+    stdin and stdout, while stderr is shared with the parent process's stderr. This is
+    useful for interactive programs that need to display UI on the terminal (via stderr)
+    while still allowing programmatic input/output through stdin/stdout. *)
+val create_with_shared_stderr : t Or_error.t create
+
+val create_with_shared_stderr_exn : t create
+
 module Expert : sig
   (** Construct a [t] from its constituent parts. No validation is performed (e.g.,
       [stdin] could be an arbitrary pipe, not necessarily one owned by [pid]).
