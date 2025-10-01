@@ -72,7 +72,7 @@ type open_flag =
   ]
 [@@deriving sexp_of]
 
-type file_perm = int [@@deriving sexp, bin_io, compare]
+type file_perm = int [@@deriving sexp, bin_io, compare ~localize]
 
 (* Implementation of [openfile] on top of [Io_uring]. *)
 module Uring_openfile = struct
@@ -293,7 +293,7 @@ module Lock_mechanism = struct
     type t =
       | Lockf
       | Flock
-    [@@deriving compare, enumerate, sexp, variants]
+    [@@deriving compare ~localize, enumerate, sexp, variants]
   end
 
   let lock (t : T.t) =
@@ -349,7 +349,7 @@ module File_kind = struct
       | `Fifo
       | `Socket
       ]
-    [@@deriving compare, sexp, bin_io]
+    [@@deriving compare ~localize, sexp, bin_io]
   end
 
   include T
@@ -402,7 +402,7 @@ module Stats = struct
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields ~getters, sexp, bin_io, compare]
+  [@@deriving fields ~getters, sexp, bin_io, compare ~localize]
 
   let of_unix (u : Unix.stats) =
     let of_float_sec f = Time.of_span_since_epoch (Time.Span.of_sec f) in
@@ -694,8 +694,8 @@ let getenv = Sys.getenv
 let getenv_exn = Sys.getenv_exn
 let unsafe_getenv = Sys_unix.unsafe_getenv
 let unsafe_getenv_exn = Sys_unix.unsafe_getenv_exn
-let putenv = Unix.putenv
-let unsetenv = Unix.unsetenv
+let putenv = (Unix.putenv [@ocaml.alert "-unsafe_multidomain"])
+let unsetenv = (Unix.unsetenv [@ocaml.alert "-unsafe_multidomain"])
 
 (* processes *)
 
@@ -853,7 +853,7 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare ~localize, hash]
 
       let to_string_internal ~show_port_in_test (`Inet (a, p)) =
         sprintf
@@ -869,7 +869,7 @@ module Socket = struct
 
       module Blocking_sexp = struct
         type t = [ `Inet of Inet_addr.Blocking_sexp.t * int ]
-        [@@deriving bin_io, compare, hash, sexp]
+        [@@deriving bin_io, compare ~localize, hash, sexp]
       end
 
       module Show_port_in_test = struct
@@ -897,7 +897,7 @@ module Socket = struct
     end
 
     module Unix = struct
-      type t = [ `Unix of string ] [@@deriving bin_io, compare, hash, sexp]
+      type t = [ `Unix of string ] [@@deriving bin_io, compare ~localize, hash, sexp]
 
       let create s = `Unix s
       let to_string (`Unix s) = s
@@ -1390,6 +1390,7 @@ module Host = struct
     ; family : Protocol_family.t
     ; addresses : Inet_addr.t array
     }
+  [@@deriving sexp_of]
 
   let getbyname n = dns_lookup ~name:"gethostbyname" (fun () -> Unix.Host.getbyname n)
 
@@ -1410,19 +1411,19 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-[@@deriving bin_io, compare, sexp_of]
+[@@deriving bin_io, compare ~localize, sexp_of]
 
 type sockaddr_blocking_sexp = Unix.sockaddr =
   | ADDR_UNIX of string

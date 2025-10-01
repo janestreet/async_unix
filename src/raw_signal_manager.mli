@@ -16,7 +16,7 @@ include Invariant.S with type t := t
     managing is delivered, it will call [thread_safe_notify_signal_delivered] from within
     the OCaml signal handler. Therefore [thread_safe_notify_signal_delivered] must be
     thread safe. *)
-val create : thread_safe_notify_signal_delivered:(unit -> unit) -> t
+val create : thread_safe_notify_signal_delivered:(unit -> unit) @ portable -> t
 
 (** [manage t signal] causes [t] to manage [signal], thus overriding
     [default_sys_behavior] for that signal, and any other OCaml handler for that signal. *)

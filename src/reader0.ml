@@ -304,6 +304,9 @@ module Internal = struct
           t.pos <- 0);
         let pos = t.available in
         let len = Bigstring.length buf - pos in
+        let reraise_with_fd_info exn =
+          raise_s [%sexp { exn : Exn.t; fd : Fd.t_hum = t.fd }]
+        in
         if not (Fd.supports_nonblock t.fd)
         then (
           (match t.close_may_destroy_buf with
@@ -316,7 +319,7 @@ module Internal = struct
            | `Yes | `Not_ever -> ());
           match t.state with
           | `Not_in_use -> assert false
-          | `In_use -> finish res raise
+          | `In_use -> finish res reraise_with_fd_info
           | `Closed ->
             (* If we're here, somebody [close]d the reader while we were making the system
                call.  [close] couldn't [destroy], so we need to. *)
@@ -354,7 +357,7 @@ module Internal = struct
                         But we don't trust the OS.  So, in case it does, we just try
                         again. *)
                      | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
-                     | exn -> raise exn))
+                     | exn -> reraise_with_fd_info exn))
           in
           loop ()))
   ;;
@@ -837,7 +840,7 @@ module Internal = struct
            with
            | Error _ as e -> k e
            | Ok (Done (sexp, parse_pos)) ->
-             consume t (parse_pos.buf_pos - t.pos);
+             consume t (Stdlib.Atomic.get parse_pos.buf_pos - t.pos);
              k (Ok (`Ok (sexp, parse_pos)))
            | Ok (Cont (_, parse_fun)) ->
              t.available <- 0;

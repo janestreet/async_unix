@@ -46,6 +46,30 @@ module Aliases = struct
   type 'a collect = ?accept_nonzero_exit:int list -> t -> 'a Deferred.t
 end
 
+let create_fd ~pid ~prog ~args name file_descr =
+  Fd.create
+    Fifo
+    file_descr
+    (Info.create
+       "child process"
+       ~here:[%here]
+       (name, `pid pid, `prog prog, `args args)
+       [%sexp_of:
+         string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]])
+;;
+
+let create_stdin_writer ?buf_len fd ~write_to_stdin =
+  let writer =
+    Writer.create
+      ?buf_len
+      fd
+      ~buffer_age_limit:`Unlimited
+      ~raise_when_consumer_leaves:false
+  in
+  Option.iter write_to_stdin ~f:(Writer.write writer);
+  writer
+;;
+
 let create
   ?argv0
   ?buf_len
@@ -72,28 +96,8 @@ let create
   with
   | Error exn -> Or_error.of_exn exn
   | Ok { pid; stdin; stdout; stderr } ->
-    let create_fd name file_descr =
-      Fd.create
-        Fifo
-        file_descr
-        (Info.create
-           "child process"
-           ~here:[%here]
-           (name, `pid pid, `prog prog, `args args)
-           [%sexp_of:
-             string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]])
-    in
-    let stdin =
-      let fd = create_fd "stdin" stdin in
-      match write_to_stdin with
-      | None -> Writer.create ?buf_len fd
-      | Some _ ->
-        Writer.create
-          ?buf_len
-          fd
-          ~buffer_age_limit:`Unlimited
-          ~raise_when_consumer_leaves:false
-    in
+    let create_fd name file_descr = create_fd ~pid ~prog ~args name file_descr in
+    let stdin = create_stdin_writer (create_fd "stdin" stdin) ?buf_len ~write_to_stdin in
     let t =
       { pid
       ; stdin
@@ -116,9 +120,6 @@ let create
           lazy (Unix.waitpid_prompt pid)
       }
     in
-    (match write_to_stdin with
-     | None -> ()
-     | Some write_to_stdin -> Writer.write t.stdin write_to_stdin);
     Ok t
 ;;
 
@@ -174,7 +175,7 @@ module Output = struct
         ; stderr : string
         ; exit_status : Unix.Exit_or_signal.t
         }
-      [@@deriving compare, sexp]
+      [@@deriving compare ~localize, sexp]
     end
   end
 
@@ -408,18 +409,7 @@ let run_forwarding_with_shared_fds
   | Error exn -> Deferred.Or_error.of_exn exn
   | Ok { pid; stdin; stdout = `Did_not_create_fd; stderr = `Did_not_create_fd } ->
     let%map () =
-      let writer =
-        Fd.create
-          Fifo
-          stdin
-          (Info.create
-             "child process"
-             ~here:[%here]
-             ("stdin", `pid pid, `prog prog, `args args)
-             [%sexp_of:
-               string * [ `pid of Pid.t ] * [ `prog of string ] * [ `args of string list ]])
-        |> Writer.create
-      in
+      let writer = create_fd ~pid ~prog ~args "stdin" stdin |> Writer.create in
       Writer.with_close writer ~f:(fun () ->
         (match write_to_stdin with
          | None -> ()
@@ -544,4 +534,90 @@ let send_signal t signal =
 
 module For_tests = struct
   let send_signal_internal = send_signal_internal
+end
+
+let create_with_shared_stderr
+  ?argv0
+  ?buf_len
+  ?(env = `Extend [])
+  ?prog_search_path
+  ?stdin:write_to_stdin
+  ?working_dir
+  ?setpgid
+  ~prog
+  ~args
+  ()
+  =
+  let%bind () = Writer.flushed (Lazy.force Writer.stderr) in
+  match%map
+    In_thread.syscall ~name:"create_process_with_fds" (fun () ->
+      Core_unix.create_process_with_fds
+        ~prog
+        ~args
+        ~env
+        ?working_dir
+        ?prog_search_path
+        ?argv0
+        ?setpgid
+        ~stdin:Generate
+        ~stdout:Generate
+        ~stderr:(Use_this Core_unix.stderr)
+        ())
+  with
+  | Error exn -> Or_error.of_exn exn
+  | Ok { pid; stdin; stdout; stderr = `Did_not_create_fd } ->
+    let dummy_reader =
+      Reader.create
+        (Fd.create
+           File
+           (Core_unix.openfile ~mode:[ O_RDONLY ] "/dev/null")
+           (Info.of_string "shared stderr (dummy)"))
+    in
+    let create_fd name file_descr = create_fd ~pid ~prog ~args name file_descr in
+    let stdin = create_stdin_writer (create_fd "stdin" stdin) ?buf_len ~write_to_stdin in
+    let t =
+      { pid
+      ; stdin
+      ; stdout = Reader.create ?buf_len (create_fd "stdout" stdout)
+      ; stderr = dummy_reader
+      ; prog
+      ; args
+      ; working_dir
+      ; env
+      ; wait = lazy (Unix.waitpid_prompt pid)
+      }
+    in
+    Ok t
+;;
+
+let create_with_shared_stderr_exn
+  ?argv0
+  ?buf_len
+  ?env
+  ?prog_search_path
+  ?stdin
+  ?working_dir
+  ?setpgid
+  ~prog
+  ~args
+  ()
+  =
+  create_with_shared_stderr
+    ?argv0
+    ?buf_len
+    ?env
+    ?prog_search_path
+    ?stdin
+    ?working_dir
+    ?setpgid
+    ~prog
+    ~args
+    ()
+  >>| ok_exn
+;;
+
+module Expert = struct
+  let wrap_existing ~pid ~stdin ~stdout ~stderr ~prog ~args ~working_dir ~env ~wait =
+    { pid; stdin; stdout; stderr; prog; args; working_dir; env; wait }
+  ;;
 end

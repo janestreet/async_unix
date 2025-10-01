@@ -237,10 +237,20 @@ module Bind_to_port = struct
 end
 
 module Where_to_listen = struct
+  module Listening_on = struct
+    type ('address, 'listening_on) t =
+      { listening_on : 'address -> 'listening_on
+      ; reuseaddr : bool
+      }
+    [@@deriving fields ~getters]
+
+    let create ?(reuseaddr = true) listening_on = { listening_on; reuseaddr }
+  end
+
   type ('address, 'listening_on) t =
     { socket_type : 'address Socket.Type.t
     ; address : 'address
-    ; listening_on : ('address -> 'listening_on[@sexp.opaque])
+    ; listening_on : (('address, 'listening_on) Listening_on.t[@sexp.opaque])
     }
   [@@deriving sexp_of, fields ~getters]
 
@@ -248,9 +258,24 @@ module Where_to_listen = struct
   type unix = (Socket.Address.Unix.t, string) t [@@deriving sexp_of]
 
   let is_inet_witness t = Socket.Family.is_inet_witness (Socket.Type.family t.socket_type)
-  let create ~socket_type ~address ~listening_on = { socket_type; address; listening_on }
 
-  let bind_to (bind_to_address : Bind_to_address.t) (bind_to_port : Bind_to_port.t) =
+  let create_aux ~socket_type ~address ~listening_on ~reuseaddr =
+    { socket_type; address; listening_on = Listening_on.create ~reuseaddr listening_on }
+  ;;
+
+  let create ~socket_type ~address ~listening_on =
+    create_aux ~socket_type ~address ~listening_on ~reuseaddr:true
+  ;;
+
+  let create_no_reuseaddr ~socket_type ~address ~listening_on =
+    create_aux ~socket_type ~address ~listening_on ~reuseaddr:false
+  ;;
+
+  let bind_to
+    ?(reuseaddr = true)
+    (bind_to_address : Bind_to_address.t)
+    (bind_to_port : Bind_to_port.t)
+    =
     let port =
       match bind_to_port with
       | On_port port -> port
@@ -265,18 +290,25 @@ module Where_to_listen = struct
     { socket_type = Socket.Type.tcp
     ; address
     ; listening_on =
-        (function
-          | `Inet (_, port) -> port)
+        { listening_on =
+            (function
+              | `Inet (_, port) -> port)
+        ; reuseaddr
+        }
     }
   ;;
 
   let of_port port = bind_to All_addresses (On_port port)
   let of_port_chosen_by_os = bind_to All_addresses On_port_chosen_by_os
 
+  let of_port_chosen_by_os_no_reuseaddr =
+    bind_to ~reuseaddr:false All_addresses On_port_chosen_by_os
+  ;;
+
   let of_file path =
     { socket_type = Socket.Type.unix
     ; address = Socket.Address.Unix.create path
-    ; listening_on = (fun _ -> path)
+    ; listening_on = Listening_on.create (fun _ -> path)
     }
   ;;
 
@@ -291,6 +323,8 @@ module Where_to_listen = struct
     | true -> 10
     | false -> 0
   ;;
+
+  let reuseaddr t = t.listening_on.reuseaddr
 end
 
 module Server = struct
@@ -493,7 +527,10 @@ module Server = struct
     =
     let t =
       { socket
-      ; listening_on = where_to_listen.listening_on (Socket.getsockname socket)
+      ; listening_on =
+          Where_to_listen.Listening_on.listening_on
+            where_to_listen.listening_on
+            (Socket.getsockname socket)
       ; on_handler_error
       ; handle_client
       ; max_connections
@@ -559,7 +596,10 @@ module Server = struct
         { create_socket =
             (fun () ->
               let socket = Socket.create where_to_listen.Where_to_listen.socket_type in
-              Socket.setopt socket Socket.Opt.reuseaddr true;
+              Socket.setopt
+                socket
+                Socket.Opt.reuseaddr
+                (Where_to_listen.reuseaddr where_to_listen);
               socket)
         ; retries_upon_addr_in_use =
             Where_to_listen.max_retries_upon_addr_in_use where_to_listen
@@ -835,6 +875,8 @@ module Server = struct
   let create_internal
     ~create_sock
     ?buffer_age_limit
+    ?reader_buffer_size
+    ?writer_buffer_size
     ?max_connections
     ?max_accepts_per_batch
     ?backlog
@@ -855,7 +897,13 @@ module Server = struct
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
-         let r, w = reader_writer_of_sock ?buffer_age_limit client_socket in
+         let r, w =
+           reader_writer_of_sock
+             ?buffer_age_limit
+             ?reader_buffer_size
+             ?writer_buffer_size
+             client_socket
+         in
          Writer.set_raise_when_consumer_leaves w false;
          Deferred.any
            [ collect_errors w (fun () -> handle_client client_address r w)
@@ -866,6 +914,8 @@ module Server = struct
 
   let create_inet
     ?buffer_age_limit
+    ?reader_buffer_size
+    ?writer_buffer_size
     ?max_connections
     ?max_accepts_per_batch
     ?backlog
@@ -879,6 +929,8 @@ module Server = struct
     create_internal
       ~create_sock:create_sock_inet_internal
       ?buffer_age_limit
+      ?reader_buffer_size
+      ?writer_buffer_size
       ?max_connections
       ?max_accepts_per_batch
       ?backlog
@@ -892,6 +944,8 @@ module Server = struct
 
   let create
     ?buffer_age_limit
+    ?reader_buffer_size
+    ?writer_buffer_size
     ?max_connections
     ?max_accepts_per_batch
     ?backlog
@@ -905,6 +959,8 @@ module Server = struct
     create_internal
       ~create_sock:create_sock_internal
       ?buffer_age_limit
+      ?reader_buffer_size
+      ?writer_buffer_size
       ?max_connections
       ?max_accepts_per_batch
       ?backlog

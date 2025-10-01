@@ -448,6 +448,7 @@ end = struct
       | false, true ->
         Ivar.fill_exn e.too_old ();
         let writer = e.writer in
+        let buffer_length = Bigstring.length writer.buf in
         (* [Monitor.send_exn] enqueues jobs but does not run user code, and so cannot
            modify [e]. *)
         Monitor.send_exn
@@ -460,8 +461,9 @@ end = struct
                    (Bigstring.to_string
                       writer.buf
                       ~pos:0
-                      ~len:(Int.min 1024 (Bigstring.length writer.buf))
+                      ~len:(Int.min 1024 buffer_length)
                     : string)
+                 (buffer_length : int)
                  (writer : writer)])
     ;;
 

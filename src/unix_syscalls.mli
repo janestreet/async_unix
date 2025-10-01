@@ -71,7 +71,7 @@ module Lock_mechanism : sig
     (** Lockf refers to the ocaml [lockf] function, which, despite the name, does not call
         the UNIX lockf() system call, but rather calls fcntl() with F_SETLKW. *)
     | Flock
-  [@@deriving compare, enumerate, sexp]
+  [@@deriving compare ~localize, enumerate, sexp]
 
   include Stringable.S with type t := t
 
@@ -198,7 +198,7 @@ module Stats : sig
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields ~getters, sexp, bin_io, compare]
+  [@@deriving fields ~getters, sexp, bin_io, compare ~localize]
 
   val of_unix : Core_unix.stats -> t
   val to_unix : t -> Core_unix.stats
@@ -309,8 +309,14 @@ val getenv : string -> string option
 val getenv_exn : string -> string
 val unsafe_getenv : string -> string option
 val unsafe_getenv_exn : string -> string
+
 val putenv : key:string -> data:string -> unit
+[@@alert
+  unsafe_multidomain "Mutating the environment makes reading the environment unsafe."]
+
 val unsetenv : string -> unit
+[@@alert
+  unsafe_multidomain "Mutating the environment makes reading the environment unsafe."]
 
 (** [fork_exec ~prog ~argv ?path ?env] forks and execs [prog] with [argv], and returns the
     child pid. If [use_path = true] (the default) and [prog] doesn't contain a slash, then
@@ -375,7 +381,7 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare]
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare ~localize]
 
       val create : string -> t
       val to_string : t -> string
@@ -383,11 +389,12 @@ module Socket : sig
     end
 
     module Inet : sig
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash, sexp_of]
+      type t = [ `Inet of Inet_addr.t * int ]
+      [@@deriving bin_io, compare ~localize, hash, sexp_of]
 
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig
-        type nonrec t = t [@@deriving bin_io, compare, hash, sexp_poly]
+        type nonrec t = t [@@deriving bin_io, compare ~localize, hash, sexp_poly]
       end
 
       (** [Show_port_in_test] renders the port as an integer, even in tests, unlike the
@@ -609,6 +616,7 @@ module Host : sig
     ; family : Protocol_family.t
     ; addresses : Inet_addr.t array
     }
+  [@@deriving sexp_of]
 
   val getbyname : string -> t option Deferred.t
   val getbyname_exn : string -> t Deferred.t
@@ -621,19 +629,19 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-[@@deriving bin_io, compare, hash, sexp]
+[@@deriving bin_io, compare ~localize, hash, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-[@@deriving bin_io, compare, sexp_of]
+[@@deriving bin_io, compare ~localize, sexp_of]
 
 (** [sockaddr_blocking_sexp] is like [sockaddr], with [of_sexp] that performs DNS lookup
     to resolve [Inet_addr.t]. *)
@@ -700,47 +708,46 @@ module Error = Unix.Error
 exception Unix_error of Error.t * string * string
 
 module Terminal_io : sig
-  type t = Caml_unix.terminal_io =
-    { mutable c_ignbrk : bool (** Ignore the break condition. *)
-    ; mutable c_brkint : bool (** Signal interrupt on break condition. *)
-    ; mutable c_ignpar : bool (** Ignore characters with parity errors. *)
-    ; mutable c_parmrk : bool (** Mark parity errors. *)
-    ; mutable c_inpck : bool (** Enable parity check on input. *)
-    ; mutable c_istrip : bool (** Strip 8th bit on input characters. *)
-    ; mutable c_inlcr : bool (** Map NL to CR on input. *)
-    ; mutable c_igncr : bool (** Ignore CR on input. *)
-    ; mutable c_icrnl : bool (** Map CR to NL on input. *)
-    ; mutable c_ixon : bool (** Recognize XON/XOFF characters on input. *)
-    ; mutable c_ixoff : bool (** Emit XON/XOFF chars to control input flow. *)
-    ; mutable c_opost : bool (** Enable output processing. *)
-    ; mutable c_obaud : int (** Output baud rate (0 means close connection). *)
-    ; mutable c_ibaud : int (** Input baud rate. *)
-    ; mutable c_csize : int (** Number of bits per character (5-8). *)
-    ; mutable c_cstopb : int (** Number of stop bits (1-2). *)
-    ; mutable c_cread : bool (** Reception is enabled. *)
-    ; mutable c_parenb : bool (** Enable parity generation and detection. *)
-    ; mutable c_parodd : bool (** Specify odd parity instead of even. *)
-    ; mutable c_hupcl : bool (** Hang up on last close. *)
-    ; mutable c_clocal : bool (** Ignore modem status lines. *)
-    ; mutable c_isig : bool (** Generate signal on INTR, QUIT, SUSP. *)
-    ; mutable c_icanon : bool
-    (** Enable canonical processing (line buffering and editing) *)
-    ; mutable c_noflsh : bool (** Disable flush after INTR, QUIT, SUSP. *)
-    ; mutable c_echo : bool (** Echo input characters. *)
-    ; mutable c_echoe : bool (** Echo ERASE (to erase previous character). *)
-    ; mutable c_echok : bool (** Echo KILL (to erase the current line). *)
-    ; mutable c_echonl : bool (** Echo NL even if c_echo is not set. *)
-    ; mutable c_vintr : char (** Interrupt character (usually ctrl-C). *)
-    ; mutable c_vquit : char (** Quit character (usually ctrl-\ ). *)
-    ; mutable c_verase : char (** Erase character (usually DEL or ctrl-H). *)
-    ; mutable c_vkill : char (** Kill line character (usually ctrl-U). *)
-    ; mutable c_veof : char (** End-of-file character (usually ctrl-D). *)
-    ; mutable c_veol : char (** Alternate end-of-line char. (usually none). *)
-    ; mutable c_vmin : int
+  type t = Core_unix.Terminal_io.t =
+    { c_ignbrk : bool (** Ignore the break condition. *)
+    ; c_brkint : bool (** Signal interrupt on break condition. *)
+    ; c_ignpar : bool (** Ignore characters with parity errors. *)
+    ; c_parmrk : bool (** Mark parity errors. *)
+    ; c_inpck : bool (** Enable parity check on input. *)
+    ; c_istrip : bool (** Strip 8th bit on input characters. *)
+    ; c_inlcr : bool (** Map NL to CR on input. *)
+    ; c_igncr : bool (** Ignore CR on input. *)
+    ; c_icrnl : bool (** Map CR to NL on input. *)
+    ; c_ixon : bool (** Recognize XON/XOFF characters on input. *)
+    ; c_ixoff : bool (** Emit XON/XOFF chars to control input flow. *)
+    ; c_opost : bool (** Enable output processing. *)
+    ; c_obaud : int (** Output baud rate (0 means close connection). *)
+    ; c_ibaud : int (** Input baud rate. *)
+    ; c_csize : int (** Number of bits per character (5-8). *)
+    ; c_cstopb : int (** Number of stop bits (1-2). *)
+    ; c_cread : bool (** Reception is enabled. *)
+    ; c_parenb : bool (** Enable parity generation and detection. *)
+    ; c_parodd : bool (** Specify odd parity instead of even. *)
+    ; c_hupcl : bool (** Hang up on last close. *)
+    ; c_clocal : bool (** Ignore modem status lines. *)
+    ; c_isig : bool (** Generate signal on INTR, QUIT, SUSP. *)
+    ; c_icanon : bool (** Enable canonical processing (line buffering and editing) *)
+    ; c_noflsh : bool (** Disable flush after INTR, QUIT, SUSP. *)
+    ; c_echo : bool (** Echo input characters. *)
+    ; c_echoe : bool (** Echo ERASE (to erase previous character). *)
+    ; c_echok : bool (** Echo KILL (to erase the current line). *)
+    ; c_echonl : bool (** Echo NL even if c_echo is not set. *)
+    ; c_vintr : char (** Interrupt character (usually ctrl-C). *)
+    ; c_vquit : char (** Quit character (usually ctrl-\ ). *)
+    ; c_verase : char (** Erase character (usually DEL or ctrl-H). *)
+    ; c_vkill : char (** Kill line character (usually ctrl-U). *)
+    ; c_veof : char (** End-of-file character (usually ctrl-D). *)
+    ; c_veol : char (** Alternate end-of-line char. (usually none). *)
+    ; c_vmin : int
     (** Minimum number of characters to read before the read request is satisfied. *)
-    ; mutable c_vtime : int (** Maximum read wait (in 0.1s units). *)
-    ; mutable c_vstart : char (** Start character (usually ctrl-Q). *)
-    ; mutable c_vstop : char (** Stop character (usually ctrl-S). *)
+    ; c_vtime : int (** Maximum read wait (in 0.1s units). *)
+    ; c_vstart : char (** Start character (usually ctrl-Q). *)
+    ; c_vstop : char (** Stop character (usually ctrl-S). *)
     }
 
   type setattr_when = Caml_unix.setattr_when =

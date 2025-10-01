@@ -80,7 +80,7 @@ let run_after_scheduler_is_started
   =
   let ivar = Ivar.create () in
   let execution_context = current_execution_context t in
-  let send_result result =
+  let send_result { aliased = result } =
     match result with
     | Ok v -> Ivar.fill_exn ivar v
     | Error (exn, backtrace) ->
@@ -112,10 +112,14 @@ let run_after_scheduler_is_started
       protect
         ~finally:(fun () -> unlock t)
         ~f:(fun () ->
-          send_result result;
+          send_result { aliased = result };
           have_lock_do_cycle t)
     else
-      thread_safe_enqueue_external_job t (current_execution_context t) send_result result
+      thread_safe_enqueue_external_job
+        t
+        (current_execution_context t)
+        send_result
+        { aliased = result }
   in
   (match thread with
    | None ->
