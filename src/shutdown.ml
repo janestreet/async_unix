@@ -144,7 +144,7 @@ let exit_reliably status =
      | exception exn ->
        ignore_exn (fun () -> Core.Debug.eprints "Caml.exit raised" exn [%sexp_of: Exn.t])
      | () -> ());
-    Signal.Expert.set signal `Default;
+    Signal.Expert.set signal Default;
     Signal_unix.send_exn signal (`Pid (Core_unix.getpid ()));
     ignore_exn (fun () ->
       Core.Debug.eprints

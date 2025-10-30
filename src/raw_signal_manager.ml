@@ -21,20 +21,26 @@ let create ~thread_safe_notify_signal_delivered =
 
 let is_managing t signal = Hashtbl.mem t.original_dispositions_of_managed_signals signal
 
-let manage t signal =
+let manage
+  { original_dispositions_of_managed_signals
+  ; delivered
+  ; thread_safe_notify_signal_delivered
+  }
+  signal
+  =
   let _original_disposition =
     Hashtbl.find_or_add
-      t.original_dispositions_of_managed_signals
+      original_dispositions_of_managed_signals
       signal
       ~default:(fun () ->
         Signal.Expert.signal
           signal
-          (`Handle
-            (fun _ ->
-              (* Everything in this function body must be thread safe, since it is running
-                 in an OCaml signal handler. *)
-              Atomic.update t.delivered ~pure_f:(fun signals -> signal :: signals);
-              t.thread_safe_notify_signal_delivered ())))
+          (Handle
+             (fun _ ->
+               (* Everything in this function body must be thread safe, since it is running
+                  in an OCaml signal handler. *)
+               Atomic.update delivered ~pure_f:(fun signals -> signal :: signals);
+               thread_safe_notify_signal_delivered ())))
   in
   ()
 ;;

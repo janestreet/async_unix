@@ -287,7 +287,14 @@ module type Writer0 = sig
 
   val write : ?pos:int -> ?len:int -> t -> string -> unit
   val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
-  val write_iobuf : ?pos:int -> ?len:int -> t -> ([> read ], _) Iobuf.t -> unit
+
+  val write_iobuf
+    :  ?pos:int
+    -> ?len:int
+    -> t
+    -> ([> read ], _, Iobuf.global) Iobuf.t
+    -> unit
+
   val write_substring : t -> Substring.t -> unit
   val write_bigsubstring : t -> Bigsubstring.t -> unit
   val writef : t -> ('a, unit, string, unit) format4 -> 'a
@@ -368,7 +375,12 @@ module type Writer0 = sig
   (** [schedule_iobuf_peek] is like [schedule_bigstring], but for an iobuf. It is not safe
       to change the iobuf until the writer has been successfully flushed or closed after
       this operation. *)
-  val schedule_iobuf_peek : t -> ?pos:int -> ?len:int -> ([> read ], _) Iobuf.t -> unit
+  val schedule_iobuf_peek
+    :  t
+    -> ?pos:int
+    -> ?len:int
+    -> ([> read ], _, Iobuf.global) Iobuf.t
+    -> unit
 
   (** [schedule_iobuf_consume] is like [schedule_iobuf_peek]. Once the result is
       determined, the iobuf will be fully consumed (or advanced by
@@ -377,7 +389,7 @@ module type Writer0 = sig
   val schedule_iobuf_consume
     :  t
     -> ?len:int
-    -> ([> read ], Iobuf.seek) Iobuf.t
+    -> ([> read ], Iobuf.seek, Iobuf.global) Iobuf.t
     -> unit Deferred.t
 
   module Destroy_or_keep : sig

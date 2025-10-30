@@ -241,10 +241,13 @@ module Where_to_listen = struct
     type ('address, 'listening_on) t =
       { listening_on : 'address -> 'listening_on
       ; reuseaddr : bool
+      ; reuseport : bool
       }
     [@@deriving fields ~getters]
 
-    let create ?(reuseaddr = true) listening_on = { listening_on; reuseaddr }
+    let create ?(reuseaddr = true) ?(reuseport = false) listening_on =
+      { listening_on; reuseaddr; reuseport }
+    ;;
   end
 
   type ('address, 'listening_on) t =
@@ -259,20 +262,24 @@ module Where_to_listen = struct
 
   let is_inet_witness t = Socket.Family.is_inet_witness (Socket.Type.family t.socket_type)
 
-  let create_aux ~socket_type ~address ~listening_on ~reuseaddr =
-    { socket_type; address; listening_on = Listening_on.create ~reuseaddr listening_on }
+  let create_aux ~socket_type ~address ~listening_on ~reuseaddr ~reuseport =
+    { socket_type
+    ; address
+    ; listening_on = Listening_on.create ~reuseaddr ~reuseport listening_on
+    }
   ;;
 
   let create ~socket_type ~address ~listening_on =
-    create_aux ~socket_type ~address ~listening_on ~reuseaddr:true
+    create_aux ~socket_type ~address ~listening_on ~reuseaddr:true ~reuseport:false
   ;;
 
   let create_no_reuseaddr ~socket_type ~address ~listening_on =
-    create_aux ~socket_type ~address ~listening_on ~reuseaddr:false
+    create_aux ~socket_type ~address ~listening_on ~reuseaddr:false ~reuseport:false
   ;;
 
   let bind_to
     ?(reuseaddr = true)
+    ?(reuseport = false)
     (bind_to_address : Bind_to_address.t)
     (bind_to_port : Bind_to_port.t)
     =
@@ -294,6 +301,7 @@ module Where_to_listen = struct
             (function
               | `Inet (_, port) -> port)
         ; reuseaddr
+        ; reuseport
         }
     }
   ;;
@@ -325,6 +333,7 @@ module Where_to_listen = struct
   ;;
 
   let reuseaddr t = t.listening_on.reuseaddr
+  let reuseport t = t.listening_on.reuseport
 end
 
 module Server = struct
@@ -600,6 +609,10 @@ module Server = struct
                 socket
                 Socket.Opt.reuseaddr
                 (Where_to_listen.reuseaddr where_to_listen);
+              Socket.setopt
+                socket
+                Socket.Opt.reuseport
+                (Where_to_listen.reuseport where_to_listen);
               socket)
         ; retries_upon_addr_in_use =
             Where_to_listen.max_retries_upon_addr_in_use where_to_listen

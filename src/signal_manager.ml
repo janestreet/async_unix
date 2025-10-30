@@ -108,10 +108,10 @@ end = struct
 
   let default_signal_handler ~original_disposition signal =
     Async_kernel.Async_kernel_scheduler.schedule (fun () ->
-      match original_disposition with
-      | `Ignore -> ()
-      | `Handle f -> f signal
-      | `Default ->
+      match (original_disposition : Signal.Expert.behavior) with
+      | Ignore -> ()
+      | Handle f -> f signal
+      | Default ->
         (match Signal.default_sys_behavior signal with
          | `Terminate | `Dump_core -> Shutdown.shutdown_with_signal_exn signal
          | `Stop | `Continue | `Ignore -> ()))
