@@ -135,9 +135,13 @@ module Where_to_listen : sig
 
       If [reuseaddr] is false, then any socket created by the TCP server for listening
       will set SO_REUSEADDR to false. Otherwise, by default, SO_REUSEADDR will be set to
-      true. *)
+      true.
+
+      If [reuseport] is true, then any socket created by the TCP server for listening will
+      set SO_REUSEPORT to true. Otherwise, by default, SO_REUSEPORT will be set to false. *)
   val bind_to
     :  ?reuseaddr:bool (** Default: true *)
+    -> ?reuseport:bool (** Default: false *)
     -> Bind_to_address.t
     -> Bind_to_port.t
     -> inet

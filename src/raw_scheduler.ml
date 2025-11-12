@@ -643,9 +643,19 @@ let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate"
   [%test_result: int] (words_after - words_before) ~expect:0
 ;;
 
-let[@inline] maybe_report_long_async_cycles_to_magic_trace t : unit =
-  maybe_report_long_async_cycles_to_magic_trace
-    ~cycle_time:t.kernel_scheduler.last_cycle_time
+(* If busy pollers are present, the [cycle_time] also includes the time of the last
+   busy pollers invocation.
+
+   This makes [cycle_time] a bit of a misnomer, but the up-side is that
+   this value is a more reliable indicator of cycle-to-cycle latency.
+   The latency is bounded by [cycle_time + max_busy_wait_duration],
+   rather than being unbounded due to a slow busy poller callback. *)
+let[@inline] measure_and_maybe_report_long_async_cycles_to_magic_trace ~start : unit =
+  let cycle_time =
+    Tsc.diff (Tsc.now ()) start
+    |> Tsc.Span.to_time_ns_span ~calibrator:(force Tsc.calibrator)
+  in
+  maybe_report_long_async_cycles_to_magic_trace ~cycle_time
 ;;
 
 let create
@@ -861,11 +871,14 @@ let thread_safe_enqueue_external_job t f =
   Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
 
-let have_lock_do_cycle_default t =
+let have_lock_do_cycle_default ?(maybe_report_to_magic_trace = true) t =
   Kernel_scheduler.run_cycle t.kernel_scheduler;
-  maybe_report_long_async_cycles_to_magic_trace t;
   (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
-       events, or an unhandled exception. *)
+     events, or an unhandled exception. *)
+  if maybe_report_to_magic_trace
+  then
+    maybe_report_long_async_cycles_to_magic_trace
+      ~cycle_time:t.kernel_scheduler.last_cycle_time;
   if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
 ;;
 
@@ -875,11 +888,11 @@ let have_lock_do_cycle_if_scheduler t =
   else thread_safe_wakeup_scheduler t
 ;;
 
-let have_lock_do_cycle t =
+let have_lock_do_cycle ?maybe_report_to_magic_trace t =
   if debug then Debug.log "have_lock_do_cycle" t [%sexp_of: t];
   match t.have_lock_do_cycle with
   | Some f -> f ()
-  | None -> have_lock_do_cycle_default t
+  | None -> have_lock_do_cycle_default ?maybe_report_to_magic_trace t
 ;;
 
 let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
@@ -1094,31 +1107,35 @@ let[@inline always] run_busy_pollers_once t ~deadline =
   !did_work
 ;;
 
+(* Returns the start time of the last [run_busy_pollers_once] call. *)
 let run_busy_pollers t ~timeout =
   let calibrator = force Tsc.calibrator in
-  let deadline =
-    ref (Tsc.add (Tsc.now ()) (Tsc.Span.of_time_ns_span timeout ~calibrator))
-  in
+  let now = ref (Tsc.now ()) in
+  let deadline = ref (Tsc.add !now (Tsc.Span.of_time_ns_span timeout ~calibrator)) in
+  let start_time_of_last_busy_poll = ref !now in
   while
     let pollers_did_something = run_busy_pollers_once t ~deadline:!deadline in
-    let now = Tsc.now () in
+    now := Tsc.now ();
     if pollers_did_something
     then
       if Kernel_scheduler.can_run_a_job t.kernel_scheduler
-      then deadline := now
+      then deadline := !now
       else if Kernel_scheduler.has_upcoming_event t.kernel_scheduler
       then (
         let new_timeout =
           Time_ns.diff
             (Kernel_scheduler.next_upcoming_event_exn t.kernel_scheduler)
-            (Tsc.to_time_ns now ~calibrator)
+            (Tsc.to_time_ns !now ~calibrator)
           |> Tsc.Span.of_time_ns_span ~calibrator
         in
-        deadline := Tsc.min !deadline (Tsc.add now new_timeout));
-    Tsc.( < ) now !deadline
+        deadline := Tsc.min !deadline (Tsc.add !now new_timeout));
+    Tsc.( < ) !now !deadline
   do
-    ()
-  done
+    (* We're going to assume the [if pollers_did_something] branch doesn't materially
+       advance [now]. *)
+    start_time_of_last_busy_poll := !now
+  done;
+  !start_time_of_last_busy_poll
 ;;
 
 (* We compute the timeout as the last thing before [check_file_descr_watcher], because
@@ -1126,7 +1143,13 @@ let run_busy_pollers t ~timeout =
    is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
    possible.  In particular, we only call [Time_ns.now] if we need to compute the
    timeout-after span.  And we only call [Linux_ext.Timerfd.set_after] if the time that
-   we want it to fire is different than the time it is already set to fire. *)
+   we want it to fire is different than the time it is already set to fire.
+
+   We return a "start" time for the purposes of the magic-trace trigger. In particular, we
+   want to capture the time spent in busy-pollers (e.g. Netkit direct IO handlers). The
+   logic here is hacky to avoid including time spent in epoll (unless we call it with an
+   immediate timeout).
+*)
 let compute_timeout_and_check_file_descr_watcher t =
   let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
   let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
@@ -1180,23 +1203,41 @@ let compute_timeout_and_check_file_descr_watcher t =
   in
   if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
   then (
+    let magic_trace_cycle_start = Tsc.now () in
     ignore (run_busy_pollers_once t ~deadline:Tsc.zero : bool);
-    check_file_descr_watcher t ~timeout:Immediately ())
+    check_file_descr_watcher t ~timeout:Immediately ();
+    magic_trace_cycle_start)
   else if have_busy_pollers
   then (
-    run_busy_pollers t ~timeout:file_descr_watcher_timeout;
-    check_file_descr_watcher t ~timeout:Immediately ())
-  else check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout
+    let start_of_last_busy_poll =
+      run_busy_pollers t ~timeout:file_descr_watcher_timeout
+    in
+    check_file_descr_watcher t ~timeout:Immediately ();
+    start_of_last_busy_poll)
+  else (
+    check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout;
+    (* We want to exclude the time spent in any epolls with a long timeout from the
+       purpose of the magic-trace trigger.*)
+    Tsc.now ())
 ;;
 
 let one_iter t =
   if Kernel_scheduler.check_invariants t.kernel_scheduler then invariant t;
   maybe_calibrate_tsc t;
   sync_changed_fds_to_file_descr_watcher t;
-  compute_timeout_and_check_file_descr_watcher t;
+  let magic_trace_long_async_cycle_start =
+    compute_timeout_and_check_file_descr_watcher t
+  in
   if debug then Debug.log_string "handling delivered signals";
   Signal_manager.handle_delivered t.signal_manager;
-  have_lock_do_cycle t;
+  have_lock_do_cycle
+    t
+    ~maybe_report_to_magic_trace:
+      (* We're reporting ourselves below to include the time taken in the last busy
+         pollers invocation. *)
+      false;
+  measure_and_maybe_report_long_async_cycles_to_magic_trace
+    ~start:magic_trace_long_async_cycle_start;
   Kernel_scheduler.uncaught_exn t.kernel_scheduler
 ;;
 

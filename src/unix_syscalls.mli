@@ -15,9 +15,9 @@ module Exit_or_signal_or_stop = Unix.Exit_or_signal_or_stop
 
 val system : string -> Exit_or_signal.t Deferred.t
 val system_exn : string -> unit Deferred.t
-val getpid : unit -> Pid.t
-val getppid : unit -> Pid.t option
-val getppid_exn : unit -> Pid.t
+val getpid : unit -> Pid.t @@ portable
+val getppid : unit -> Pid.t option @@ portable
+val getppid_exn : unit -> Pid.t @@ portable
 
 (** [this_process_became_child_of_init] returns a deferred that becomes determined when
     the current process becomes a child of [init(8)]. This is useful for determining
@@ -29,7 +29,7 @@ val getppid_exn : unit -> Pid.t
     [?poll_delay] controls how often to check. *)
 val this_process_became_child_of_init : ?poll_delay:Time.Span.t -> unit -> unit Deferred.t
 
-val nice : int -> int
+val nice : int -> int @@ portable
 
 (** [cores ()] Returns the number of cores. *)
 val cores : (unit -> int Deferred.t) Or_error.t

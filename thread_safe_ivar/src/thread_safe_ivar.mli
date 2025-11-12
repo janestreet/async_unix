@@ -1,3 +1,5 @@
+@@ portable
+
 (** A simple thread-safe ivar implementation. *)
 
 open! Core

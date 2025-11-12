@@ -232,7 +232,9 @@ type 'a handle_iobuf_result =
     is implemented as a wrapper around [read_one_chunk_at_a_time]. *)
 val read_one_iobuf_at_a_time
   :  t
-  -> handle_chunk:((read_write, Iobuf.seek) Iobuf.t -> 'a handle_iobuf_result Deferred.t)
+  -> handle_chunk:
+       ((read_write, Iobuf.seek, Iobuf.global) Iobuf.t
+        -> 'a handle_iobuf_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
 
 (** [read_substring t ss] reads up to [Substring.length ss] bytes into [ss], blocking

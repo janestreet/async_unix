@@ -12,27 +12,18 @@ let%test_unit "spurious wakeups" =
      pending signals, so it never gets run. To resolve that, just send the signal in a
      loop until it works.
   *)
-  let signal_handled = Thread_safe_ivar.create () in
+  let signal_handled = Atomic.make false in
   let main_ivar = Thread_safe_ivar.create () in
   let t = Caml_threads.Thread.create (fun () -> Thread_safe_ivar.read main_ivar) () in
-  let _prev =
-    (Sys.signal [@ocaml.alert "-unsafe_multidomain"])
-      Sys.sigint
-      (Sys.Signal_handle
-         (fun _s ->
-           assert (Thread.self () == t);
-           match Thread_safe_ivar.peek signal_handled with
-           | None -> Thread_safe_ivar.fill signal_handled ()
-           | Some () -> ()))
-  in
-  let _previously_blocked = Caml_unix.sigprocmask SIG_BLOCK [ Sys.sigint ] in
+  let signal_handler _ = Atomic.set signal_handled true in
+  let _prev = Sys.Safe.signal Sys.sigint (Sys.Signal_handle signal_handler) in
+  let _previously_blocked = Unix.sigprocmask SIG_BLOCK [ Sys.sigint ] in
   let rec signal_until_signal_handled () =
-    match Thread_safe_ivar.peek signal_handled with
-    | Some () -> ()
-    | None ->
-      UnixLabels.kill ~pid:(Caml_unix.getpid ()) ~signal:Sys.sigint;
+    if not (Atomic.get signal_handled)
+    then (
+      UnixLabels.kill ~pid:(Unix.getpid ()) ~signal:Sys.sigint;
       Unix.sleepf 1.0;
-      signal_until_signal_handled ()
+      signal_until_signal_handled ())
   in
   (* This sleep is to let the thread [t] get blocked on [Thread_safe_ivar.read],
      so there's something to wake up. *)
