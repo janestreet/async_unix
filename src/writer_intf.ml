@@ -285,7 +285,7 @@ module type Writer0 = sig
       clients can do whatever they want with [s] after that. *)
   val write_bytes : ?pos:int -> ?len:int -> t -> Bytes.t -> unit
 
-  val write : ?pos:int -> ?len:int -> t -> string -> unit
+  val write : ?pos:int -> ?len:int -> t -> string @ local -> unit
   val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
 
   val write_iobuf

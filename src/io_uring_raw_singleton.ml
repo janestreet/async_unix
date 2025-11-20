@@ -28,7 +28,8 @@ module Eventfd_driver = struct
        still have to run it in nonblocking mode and handle operations that would block.
        This is needed because this job could end up being scheduled more than once at a
        time and be run multiple times within the same async cycle.
-       (max_num_jobs_per_priority_per_cycle can cause this job to be run in a future cycle)
+       (max_num_jobs_per_priority_per_cycle can cause this job to be run in a future
+       cycle)
     *)
     let eventfd_ready_job =
       Raw_scheduler.create_job

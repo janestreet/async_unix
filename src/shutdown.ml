@@ -35,8 +35,7 @@ module Maybe_status = struct
   [@@deriving sexp_of]
 end
 
-(* Be careful to ensure [shutdown] doesn't raise just because
-   stderr is closed *)
+(* Be careful to ensure [shutdown] doesn't raise just because stderr is closed *)
 let ignore_exn f =
   try f () with
   | _ -> ()

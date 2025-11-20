@@ -13,9 +13,9 @@ let of_pipe ?time_source info pipe_w =
       "Writer.of_pipe"
       (pipe_w, reader, writer)
       [%sexp_of: string Pipe.Writer.t * Reader.t * t];
-  (* Shuttle bytes from [reader] to [pipe_w].  If the user calls [close writer],
-     then [reader] will see EOF, which will cause [transfer] to complete.  If [pipe_w]
-     is closed, then [transfer] will complete. *)
+  (* Shuttle bytes from [reader] to [pipe_w]. If the user calls [close writer], then
+     [reader] will see EOF, which will cause [transfer] to complete. If [pipe_w] is
+     closed, then [transfer] will complete. *)
   let closed_and_flushed_downstream =
     let%bind () = Reader.transfer reader pipe_w in
     if raise_when_consumer_leaves writer && not (is_closed writer)

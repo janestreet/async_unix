@@ -89,9 +89,8 @@ let create ?avoid_setting_nonblock kind file_descr info =
   Scheduler.create_fd ?avoid_setting_nonblock kind file_descr info
 ;;
 
-(* We do not make [stdin], [stdout], or [stderr] nonblocking so that
-   one can use Core I/O libraries simultaneously with async without them failing due to
-   [Sys_blocked_io]. *)
+(* We do not make [stdin], [stdout], or [stderr] nonblocking so that one can use Core I/O
+   libraries simultaneously with async without them failing due to [Sys_blocked_io]. *)
 let create_std_descr file_descr info =
   create
     (Kind.blocking_infer_using_stat file_descr)
@@ -113,8 +112,8 @@ let stderr =
 let supports_nonblock t = Fd.supports_nonblock t
 
 let clear_nonblock t =
-  (* By setting [t.can_set_nonblock] to false we're making the user choice persistent:
-     the next time a nonblocking operation is attempted it simply won't work, instead of
+  (* By setting [t.can_set_nonblock] to false we're making the user choice persistent: the
+     next time a nonblocking operation is attempted it simply won't work, instead of
      ignoring the user choice and setting nonblock anyway *)
   t.can_set_nonblock <- false;
   match t.nonblock_status with

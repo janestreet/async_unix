@@ -72,10 +72,10 @@ let create ~uring ~num_file_descrs ~handle_fd_read_ready ~handle_fd_write_ready 
   let handle_fd read_or_write handle_fd =
     let bit = Flags.of_rw read_or_write in
     fun file_descr flags ->
-      (* [io_uring], similar to [epoll], has an implicit event
-         flags for hangup (HUP) and error (ERR), whereas select will just return that fd
-         as "ready" in its appropriate fd_set.  Since we don't know if it's ready for IN
-         or OUT, we have to go lookup the entry if the HUP or ERR flag is set. *)
+      (* [io_uring], similar to [epoll], has an implicit event flags for hangup (HUP) and
+         error (ERR), whereas select will just return that fd as "ready" in its
+         appropriate fd_set. Since we don't know if it's ready for IN or OUT, we have to
+         go lookup the entry if the HUP or ERR flag is set. *)
       if Flags.mem bit flags
          || ((Flags.mem Flags.pollerr flags || Flags.mem Flags.pollhup flags)
              &&

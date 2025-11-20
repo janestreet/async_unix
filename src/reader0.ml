@@ -33,7 +33,7 @@ module Read_result = struct
 end
 
 (* We put everything in module [Internal] and then expose just the functions we want
-   later.  This reminds us to wrap functions with [do_read], which we do to prevent
+   later. This reminds us to wrap functions with [do_read], which we do to prevent
    multiple simultaneous active uses of a reader. *)
 module Internal = struct
   module State = struct
@@ -59,26 +59,26 @@ module Internal = struct
     ; id : Id.t
     ; mutable bytes_read : Int63.t
     ; (* [buf] holds data read by the reader from the OS, but not yet read by user code.
-         When [t] is closed, [buf] is set to the empty buffer.  So, we must make sure in
-         any code that accesses [buf] that [t] has not been closed.  In particular, after
+         When [t] is closed, [buf] is set to the empty buffer. So, we must make sure in
+         any code that accesses [buf] that [t] has not been closed. In particular, after
          any deferred operation, we must check whether [t] has been closed while we were
          waiting. *)
       mutable buf : Bigstring.t
     ; (* [close_may_destroy_buf] indicates whether a call to [close] can immediately
-         destroy [buf].  [close_may_destroy_buf] is usually [`Yes], except when we're in
+         destroy [buf]. [close_may_destroy_buf] is usually [`Yes], except when we're in
          the middle of a system call in another thread that refers to [buf], in which case
          it is [`Not_now] and [close] can't destroy [buf], and we must wait until that
          system call finishes before doing so.
 
-         [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf]
-         to client code, which may in turn hold on to it (e.g. via
-         [Bigstring.sub_shared]), and thus it is not safe to ever destroy it. *)
+         [`Not_ever] is used for [read_one_chunk_at_a_time], which exposes[buf] to client
+         code, which may in turn hold on to it (e.g. via [Bigstring.sub_shared]), and thus
+         it is not safe to ever destroy it. *)
       mutable close_may_destroy_buf : [ `Yes | `Not_now | `Not_ever ]
     ; (* [pos] is the first byte of data in [buf] to be read by user code. *)
       mutable pos : int
     ; (* [available] is how many bytes in [buf] are available to be read by user code. *)
       mutable available : int
-    ; (* [`Closed] means that [close t] has been called.  [`In_use] means there is some
+    ; (* [`Closed] means that [close t] has been called. [`In_use] means there is some
          user call extant that is waiting for data from the reader. *)
       mutable state : State.t
     ; close_finished : unit Ivar.t
@@ -238,7 +238,7 @@ module Internal = struct
           res, Time.now ()))
   ;;
 
-  (* [get_data t] attempts to read data into [t.buf].  If the read gets data, [get_data]
+  (* [get_data t] attempts to read data into [t.buf]. If the read gets data, [get_data]
      returns [`Ok], otherwise it returns [`Eof]. *)
   let get_data t : [ `Ok | `Eof ] Deferred.t =
     Deferred.create (fun result ->
@@ -260,8 +260,8 @@ module Internal = struct
                 (open_flags : open_flags)
                 ~reader:(t : t)];
         let ebadf () =
-          (* If the file descriptor has been closed, we will get EBADF from a syscall.
-             If someone closed the [Fd.t] using [Fd.close], then that is fine.  But if the
+          (* If the file descriptor has been closed, we will get EBADF from a syscall. If
+             someone closed the [Fd.t] using [Fd.close], then that is fine. But if the
              underlying file descriptor got closed in some other way, then something is
              likely wrong, so we raise. *)
           raise_s
@@ -322,7 +322,7 @@ module Internal = struct
           | `In_use -> finish res reraise_with_fd_info
           | `Closed ->
             (* If we're here, somebody [close]d the reader while we were making the system
-               call.  [close] couldn't [destroy], so we need to. *)
+               call. [close] couldn't [destroy], so we need to. *)
             destroy t;
             eof ())
         else (
@@ -334,7 +334,7 @@ module Internal = struct
             | `Closed -> eof ()
             | `Ready ->
               (* There is a race between the [ready_to] becoming determined and someone
-                 [close]ing [t].  It is possible to get [`Ready] and then by the time we
+                 [close]ing [t]. It is possible to get [`Ready] and then by the time we
                  get here, [t] is closed. *)
               (match t.state with
                | `Not_in_use -> assert false
@@ -354,8 +354,7 @@ module Internal = struct
                       res, Scheduler.cycle_start ()))
                    (function
                      (* Since [t.fd] is ready, we should never see EWOULDBLOCK or EAGAIN.
-                        But we don't trust the OS.  So, in case it does, we just try
-                        again. *)
+                        But we don't trust the OS. So, in case it does, we just try again. *)
                      | Unix.Unix_error ((EWOULDBLOCK | EAGAIN), _, _) -> loop ()
                      | exn -> reraise_with_fd_info exn))
           in
@@ -376,10 +375,10 @@ module Internal = struct
           then 2 * buf_len
           else if desired < 8 * buf_len
                   (* Slightly more willing to grow the buffer if that brings us exactly to
-             [desired], so grow by 8x here instead of 4x.
+                     [desired], so grow by 8x here instead of 4x.
 
-             This trick is to avoid growing above [desired] when [maybe_grow_buf_len] is
-             called multiple times. *)
+                     This trick is to avoid growing above [desired] when
+                     [maybe_grow_buf_len] is called multiple times. *)
           then desired
           else 4 * buf_len
         in
@@ -392,9 +391,9 @@ module Internal = struct
       t.pos <- 0)
   ;;
 
-  (* [get_data_until] calls [get_data] to read into [t.buf] until [t.available >=
-     available_at_least], or until it reaches EOF.  It returns [`Ok] if [t.available >=
-     available_at_least], and [`Eof] if not. *)
+  (* [get_data_until] calls [get_data] to read into [t.buf] until
+     [t.available >= available_at_least], or until it reaches EOF. It returns [`Ok] if
+     [t.available >= available_at_least], and [`Eof] if not. *)
   let get_data_until t ~available_at_least =
     if t.available >= available_at_least
     then return `Ok
@@ -421,7 +420,7 @@ module Internal = struct
 
   (* [with_nonempty_buffer t f] waits for [t.buf] to have data, and then returns [f `Ok].
      If no data can be read, then [with_nonempty_buffer] returns [f `Eof].
-     [with_nonempty_buffer] must be called with [t.state] as [`Closed] or [`In_use].  It
+     [with_nonempty_buffer] must be called with [t.state] as [`Closed] or [`In_use]. It
      guarantees that if [f `Ok] is called, that [t.state = `In_use]. *)
   let with_nonempty_buffer (type a) t (f : [ `Ok | `Eof ] -> a) : a Deferred.t =
     match t.state with
@@ -535,7 +534,7 @@ module Internal = struct
                      | `Need_unknown ->
                        if t.available = buf_len
                           (* The buffer is full and the client doesn't know how much to
-                          expect: double the buffer size. *)
+                             expect: double the buffer size. *)
                        then buf_len * 2
                        else buf_len
                      | `Need need ->
@@ -689,7 +688,7 @@ module Internal = struct
       let rec loop pos =
         if pos = limit then None else if p buf.{pos} then Some pos else loop (pos + 1)
       in
-      (* [p] is supplied by the user and may raise, so we wrap [loop] in a [try_with].  We
+      (* [p] is supplied by the user and may raise, so we wrap [loop] in a [try_with]. We
          put the [try_with] here rather than around the call to [p] to avoid per-character
          try-with overhead. *)
       Or_error.try_with (fun () -> loop t.pos)
@@ -848,7 +847,7 @@ module Internal = struct
     in
     let parse ~pos ~len buf : (_, sexp) Sexp.parse_result =
       (* [parse_pos] will be threaded through the entire reading process by the sexplib
-         code.  Every occurrence of [parse_pos] above will be identical to the [parse_pos]
+         code. Every occurrence of [parse_pos] above will be identical to the [parse_pos]
          defined here. *)
       let parse_pos =
         match parse_pos with
@@ -1150,7 +1149,7 @@ end
 
 open Internal
 
-(* We now expose all the functions in the mli.  For functions that access a reader in a
+(* We now expose all the functions in the mli. For functions that access a reader in a
    deferred manner, we enclude code to dynamically ensure that there aren't simultaneous
    reads. *)
 
@@ -1190,7 +1189,7 @@ let use t =
 
 let finished_read t =
   match t.state with
-  | `Closed -> () (* [f ()] closed it.  Leave it closed. *)
+  | `Closed -> () (* [f ()] closed it. Leave it closed. *)
   | `Not_in_use -> assert false (* we're using it *)
   | `In_use -> t.state <- `Not_in_use
 ;;
@@ -1238,7 +1237,7 @@ let read_line t = do_read t (fun () -> read_line t)
 let really_read_line ~wait_time t = do_read t (fun () -> really_read_line ~wait_time t)
 
 (* [do_read_k] takes a [read_k] function that takes a continuation expecting an
-   [Or_error.t].  It uses this to do a read returning a deferred.  This allows it to call
+   [Or_error.t]. It uses this to do a read returning a deferred. This allows it to call
    [finished_read] before continuing, in the event that the result is an error. *)
 let do_read_k
   (type r r')
@@ -1368,8 +1367,8 @@ let get_error
         | Some bad_annotated_sexp ->
           (match Sexp.Annotated.get_conv_exn ~file ~exc bad_annotated_sexp with
            | Of_sexp_error (Sexp.Annotated.Conv_exn (pos, exn), sexp) ->
-             (* The error produced by [get_conv_exn] already has the file position, so
-                we don't wrap with a redundant error message. *)
+             (* The error produced by [get_conv_exn] already has the file position, so we
+                don't wrap with a redundant error message. *)
              Or_error.error
                "invalid sexp"
                (pos, exn, "in", sexp)
@@ -1393,8 +1392,8 @@ let gen_load_exn
       Monitor.try_with ~run:`Schedule ~rest:`Log ~extract_exn:true (fun () ->
         with_file ?exclusive file ~f:(fun t ->
           (may_load_file_multiple_times
-           := (* Although [file] typically is of kind [Fd.Kind.File], it may also have other
-                    kinds.  We can only load it multiple times if it has kind [File]. *)
+           := (* Although [file] typically is of kind [Fd.Kind.File], it may also have
+                    other kinds. We can only load it multiple times if it has kind [File]. *)
               match Fd.kind (fd t) with
               | File -> true
               | Char | Fifo | Socket _ -> false);
@@ -1405,8 +1404,7 @@ let gen_load_exn
     | Error exn ->
       (match exn with
        | Sexp.Parse_error { err_msg; parse_state; _ } ->
-         (* This code reformats the [Parse_error] produced by sexplib to be more
-            readable. *)
+         (* This code reformats the [Parse_error] produced by sexplib to be more readable. *)
          let parse_pos =
            match parse_state with
            | `Sexp { parse_pos; _ } | `Annot { parse_pos; _ } -> parse_pos

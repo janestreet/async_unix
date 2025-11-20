@@ -102,9 +102,9 @@ let run_after_scheduler_is_started
         (match thread_pool_cpu_affinity t with
          | Inherit -> try_to_lock_for_cycle_if_scheduler_sleeping t
          | Cpuset _ ->
-           (* If the user specified an affinity for the thread pool, they presumably intend
-              for Async jobs to be affinitized differently from thread-pool threads, so we
-              don't even attempt to run jobs on the thread-pool thread. *)
+           (* If the user specified an affinity for the thread pool, they presumably
+              intend for Async jobs to be affinitized differently from thread-pool
+              threads, so we don't even attempt to run jobs on the thread-pool thread. *)
            false)
     in
     if locked
@@ -147,10 +147,10 @@ let run_after_scheduler_is_started
 let run ?priority ?thread ?name f =
   let when_finished = !When_finished.default in
   (* We use [with_t_once_started] to force calls to [run_after_scheduler_is_started] to
-     wait until after the scheduler is started.  We do this because
+     wait until after the scheduler is started. We do this because
      [run_after_scheduler_is_started] will cause things to run in other threads, and when
      a job is finished in another thread, it will try to acquire the async lock and
-     manipulate async datastructures.  This seems hard to think about if async hasn't even
+     manipulate async datastructures. This seems hard to think about if async hasn't even
      started yet. *)
   Raw_scheduler.with_t_once_started ~f:(fun t ->
     run_after_scheduler_is_started ~priority ~thread ~when_finished ~name ~t f)
@@ -174,13 +174,13 @@ module Helper_thread = struct
 
   (* Both [create] and [create_now] add Async finalizers to the returned helper thread so
      that the thread can be added back to the set of worker threads when there are no
-     references to the helper thread and the thread has no pending work.  Because
+     references to the helper thread and the thread has no pending work. Because
      [Thread_pool.finished_with_helper_thread] needs to acquire the thread pool lock, it
      cannot be run within an ordinary finalizer, since that could cause it to be run in a
      context where the code interrupted by the GC might already be holding the thread pool
-     lock, which would result in a deadlock.  Hence we use an Async finalizer -- this
+     lock, which would result in a deadlock. Hence we use an Async finalizer -- this
      causes the GC to merely schedule an Async job that calls
-     [Thread_pool.finished_with_helper_thread].  We don't attach the finalizer inside
+     [Thread_pool.finished_with_helper_thread]. We don't attach the finalizer inside
      [Thread_pool] because the thread pool doesn't know about Async, and in particular
      doesn't know about Async finalizers. *)
   let create_internal scheduler thread_pool_helper_thread =

@@ -41,7 +41,7 @@ module Check_buffer_age' = struct
          [Queue.length bytes_received_queue = Queue.length times_received_queue]. *)
       bytes_received_queue : Int63.t Queue.t
     ; times_received_queue : Time_ns.t Queue.t
-    ; (* Number of bytes "seen" by the checker.  [t.writer.bytes_received - t.bytes_seen]
+    ; (* Number of bytes "seen" by the checker. [t.writer.bytes_received - t.bytes_seen]
          represents the number of bytes received by the writer since the last time the
          checker ran. *)
       mutable bytes_seen : Int63.t
@@ -98,9 +98,9 @@ end
 type t =
   { id : Id.t
   ; mutable fd : Fd.t
-  ; (* The writer uses a background job to flush data.  The job runs within
-       [inner_monitor], which has a handler that wraps all errors to include [sexp_of_t
-       t], and sends them to [monitor]. *)
+  ; (* The writer uses a background job to flush data. The job runs within
+       [inner_monitor], which has a handler that wraps all errors to include
+       [sexp_of_t t], and sends them to [monitor]. *)
     monitor : Monitor.t
   ; inner_monitor : Monitor.t
   ; mutable background_writer_state :
@@ -121,7 +121,7 @@ type t =
     scheduled : Scheduled.t
   ; (* [scheduled_bytes] is the sum of the lengths of the iovecs in[scheduled] *)
     mutable scheduled_bytes : int
-  ; (* [buf] has three regions:
+  ; (*=[buf] has three regions:
        [0, scheduled_back)             received and scheduled
        [scheduled_back, back)          received but not scheduled
        [back, Bigstring.length buf)    free space*)
@@ -130,44 +130,44 @@ type t =
   ; mutable back : int
   ; time_source : Time_source.t
   ; flushes : (Flush_result.t Ivar.t * Int63.t) Queue.t
-  ; (* [closed_state] tracks the state of the writer as it is being closed.  Initially,
-       [closed_state] is [`Open].  When [close] is called, [closed_state] transitions to
-       [`Closed_and_flushing].  Once the writer is flushed and we're actually going to
+  ; (* [closed_state] tracks the state of the writer as it is being closed. Initially,
+       [closed_state] is [`Open]. When [close] is called, [closed_state] transitions to
+       [`Closed_and_flushing]. Once the writer is flushed and we're actually going to
        close [fd], it transitions to[`Closed].
 
        The distinction between [`Closed] and [`Closed_and_flushing] is necessary because
        we want to allow [write]s to happen while [`Closed_and_flushing], but not when
-       [`Closed].  This is necessary to allow upstream producers to flush their data to
-       the writer when it is closed. *)
+       [`Closed]. This is necessary to allow upstream producers to flush their data to the
+       writer when it is closed. *)
     mutable close_state : [ `Open | `Closed_and_flushing | `Closed ]
   ; (* [close_finished] is filled when the close() system call on [fd] finishes. *)
     close_finished : unit Ivar.t
   ; (* [close_started] is filled when [close] is called. *)
     close_started : unit Ivar.t
   ; (* [producers_to_flush_at_close] holds all upstream producers feeding data to this
-       writer, and thus should be flushed when we close this writer, before flushing
-       the writer itself. *)
+       writer, and thus should be flushed when we close this writer, before flushing the
+       writer itself. *)
     producers_to_flush_at_close : (unit -> unit Deferred.t) Bag.t
   ; (* [flush_at_shutdown_elt] holds the element in [writers_to_flush_at_shutdown] for
-       this writer.  Being in that bag is what causes this writer to be automatically
+       this writer. Being in that bag is what causes this writer to be automatically
        closed when [shutdown] is called, and for shutdown to wait for the close to finish.
-       [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the
-       close finishes, at which point it transitions to[None]. *)
+       [flush_at_shutdown_elt] is [Some] for the lifetime of the writer, until the close
+       finishes, at which point it transitions to[None]. *)
     mutable flush_at_shutdown_elt : t Bag.Elt.t option
   ; (* Lazy buffer age check so that forcing either [Writer.stdout] and [Writer.stderr]
        doesn't schedule async work. *)
     mutable check_buffer_age : t Check_buffer_age'.t Bag.Elt.t option Lazy.t
-  ; (* The "consumer" of a writer is whomever is reading the bytes that the writer
-       is writing.  E.g. if the writer's file descriptor is a socket, then it is whomever
-       is on the other side of the socket connection.  If the consumer leaves, Unix will
-       indicate this by returning EPIPE or ECONNRESET to a write() syscall.  We keep
-       track of this with the [consumer_left] ivar, which is exposed in writer.mli.
-       We also allow the user to configure what action the writer takes when the
-       consumer leaves.  By default, it raises, but that can be disabled. *)
+  ; (* The "consumer" of a writer is whomever is reading the bytes that the writer is
+       writing. E.g. if the writer's file descriptor is a socket, then it is whomever is
+       on the other side of the socket connection. If the consumer leaves, Unix will
+       indicate this by returning EPIPE or ECONNRESET to a write() syscall. We keep track
+       of this with the [consumer_left] ivar, which is exposed in writer.mli. We also
+       allow the user to configure what action the writer takes when the consumer leaves.
+       By default, it raises, but that can be disabled. *)
     consumer_left : unit Ivar.t
   ; mutable raise_when_consumer_leaves : bool (* default is [true] *)
-  ; (* [open_flags] is the open-file-descriptor bits of [fd].
-       [open_flags] is used to report an error when [fd] is not writable. *)
+  ; (* [open_flags] is the open-file-descriptor bits of [fd]. [open_flags] is used to
+       report an error when [fd] is not writable. *)
     open_flags : open_flags
   ; line_ending : Line_ending.t
   ; (* If specified, subsequent writes are synchronously redirected here. *)
@@ -220,7 +220,7 @@ let sexp_of_t_internals
     if phys_equal time_source (Time_source.wall_clock ()) then None else Some time_source
   in
   (* [open_flags] are non-deterministic across CentOS versions and have been suppressed in
-     tests.  Linux kernels (CentOS 6) expose O_CLOEXEC via fcntl(fd, F_GETFL), but newer
+     tests. Linux kernels (CentOS 6) expose O_CLOEXEC via fcntl(fd, F_GETFL), but newer
      (CentOS 7) ones don't *)
   [%sexp
     { id = (suppress_in_test id : (Id.t option[@sexp.option]))
@@ -484,7 +484,8 @@ end = struct
       let compare t1 t2 = Time_source.Id.compare (Time_source.id t1) (Time_source.id t2)
     end)
 
-  (* [by_time_source] holds the set of [Per_time_source.t]'s with nonempty [active_checks]. *)
+  (* [by_time_source] holds the set of [Per_time_source.t]'s with nonempty
+     [active_checks]. *)
   let by_time_source : Per_time_source.t Time_source_key.Table.t =
     Time_source_key.Table.create ()
   ;;
@@ -593,8 +594,8 @@ let flushed_time_ns t =
 let flushed_time t = eager_map (flushed_time_ns t) ~f:Time_ns.to_time_float_round_nearest
 
 let flushed t =
-  (* even though we don't promise any eagerness, there are tests in the tree
-     that depend on it *)
+  (* even though we don't promise any eagerness, there are tests in the tree that depend
+     on it *)
   eager_map (flushed_time_ns t) ~f:(ignore : Time_ns.t -> unit)
 ;;
 
@@ -632,7 +633,7 @@ let with_synchronous_backing_out_channel t backing_out_channel ~f =
   let saved_backing_out_channel = t.backing_out_channel in
   (* This code will flush a bit more eagerly than it needs to if
      [with_synchronous_backing_out_channel t oc] is called recursively on the same [t] and
-     [oc].  The flush is caused by [set_synchronous_backing_out_channel].  In theory this
+     [oc]. The flush is caused by [set_synchronous_backing_out_channel]. In theory this
      could happen but in practice is exceedingly unlikely. *)
   Monitor.protect
     ~run:`Schedule
@@ -673,12 +674,11 @@ let eval_force ?force t =
   match force with
   | Some fc -> fc
   | None ->
-    (* We used to use [after (sec 5.)] as the default value for [force] for all kinds
-       of underlying fds.  This was problematic, because it silently caused data in
-       the writer's buffer to be dropped when it kicked in.  We care about data
-       getting out only for the files, when we want to get data to disk.  When we
-       close socket writers, we usually just want to drop the connection, so using
-       [after (sec 5.)]  makes sense. *)
+    (* We used to use [after (sec 5.)] as the default value for [force] for all kinds of
+       underlying fds. This was problematic, because it silently caused data in the
+       writer's buffer to be dropped when it kicked in. We care about data getting out
+       only for the files, when we want to get data to disk. When we close socket writers,
+       we usually just want to drop the connection, so using [after (sec 5.)] makes sense. *)
     (match Fd.kind t.fd with
      | File -> Deferred.never ()
      | Char | Fifo | Socket _ -> Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
@@ -688,7 +688,7 @@ let final_flush ?force t =
   let producers_flushed =
     (* Note that each element of [producers_to_flush_at_close] checks that the upstream
        producer is flushed, which includes checking that [t] itself is flushed once the
-       producer has written everything to [t].  So, there is no need to call [flushed t]
+       producer has written everything to [t]. So, there is no need to call [flushed t]
        after the producer is flushed. *)
     Deferred.List.iter
       ~how:`Parallel
@@ -725,8 +725,8 @@ let stop_background_writer_and_close_fd t =
      unblocks due to this) *)
   let%bind () = Unix.close t.fd in
   (* [background_writer_stopped] is pretty much always determined here because
-     [Unix.close] is much slower, but theoretically it's still necessary in case
-     the ordering changes. *)
+     [Unix.close] is much slower, but theoretically it's still necessary in case the
+     ordering changes. *)
   Ivar.read t.background_writer_stopped
 ;;
 
@@ -849,8 +849,7 @@ let create
          result, these buffers are allocated using mmap, so they are returned to the OS
          when OCaml GCs them. If this were less than M_MMAP_THRESHOLD, the buffers would
          be allocated with brk, so malloc might hold on to them even after OCaml GCs them,
-         which could _increase_ memory usage for programs that create many such
-         buffers. *)
+         which could _increase_ memory usage for programs that create many such buffers. *)
       65 * 1024 * 2 (* largest observed single write call * 2 *)
     | Some buf_len ->
       if buf_len <= 0 then invalid_arg "Writer.create: buf_len <= 0" else buf_len
@@ -939,8 +938,8 @@ let open_file
   ?time_source
   file
   =
-  (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of
-     a file. *)
+  (* Writing to NFS needs the [`Trunc] flag to avoid leaving extra junk at the end of a
+     file. *)
   let mode = [ `Wronly; `Creat ] in
   let mode = (if append then `Append else `Trunc) :: mode in
   Unix.openfile ?info file ~mode ~perm
@@ -1035,7 +1034,7 @@ module Background_writer = struct
     iovecs, !contains_mmapped_ref, !iovecs_len
   ;;
 
-  (* Size of I/O- or blit operation for which a helper thread should be used.  This number
+  (* Size of I/O- or blit operation for which a helper thread should be used. This number
      (a power of two) is somewhat empirically motivated, but there is no reason why it
      should be the best. *)
   let thread_io_cutoff = 262_144
@@ -1045,7 +1044,7 @@ module Background_writer = struct
     | _ -> false
   ;;
 
-  (* If the writer was closed, we should be quiet.  But if it wasn't, then someone was
+  (* If the writer was closed, we should be quiet. But if it wasn't, then someone was
      monkeying around with the fd behind our back, and we should complain.
 
      There are some libraries that close the fd without closing the writer, e.g. Tcp,
@@ -1082,8 +1081,8 @@ module Background_writer = struct
       | Some ({ buf; pos; len }, kind) ->
         if bytes_written >= len
         then (
-          (* Current I/O-vector completely written.  Internally generated buffers get
-             destroyed immediately unless they are still in use for buffering.  *)
+          (* Current I/O-vector completely written. Internally generated buffers get
+             destroyed immediately unless they are still in use for buffering. *)
           (match kind with
            | Destroy -> Bigstring.unsafe_destroy buf
            | Keep -> ());
@@ -1144,7 +1143,7 @@ module Background_writer = struct
       (not (Fd.supports_nonblock t.fd))
       (* Though the write will not block in this case, a memory-mapped bigstring in an
          I/O-vector may cause a page fault, which would cause the async scheduler thread
-         to block.  So, we write in a separate thread, and the [Bigstring.writev] releases
+         to block. So, we write in a separate thread, and the [Bigstring.writev] releases
          the OCaml lock, allowing the async scheduler thread to continue. *)
       || iovecs_len > thread_io_cutoff
       || contains_mmapped
@@ -1187,9 +1186,9 @@ module Background_writer = struct
     (* since we're writing, ensure the buffer age check is running *)
     let (_ : _) = force t.check_buffer_age in
     t.background_writer_state <- `Running;
-    (* We schedule the background writer thread to run with low priority, so that it
-       runs at the end of the cycle and that all of the calls to Writer.write will
-       usually be batched into a single system call. *)
+    (* We schedule the background writer thread to run with low priority, so that it runs
+       at the end of the cycle and that all of the calls to Writer.write will usually be
+       batched into a single system call. *)
     schedule ~monitor:t.inner_monitor ~priority:Priority.low (fun () ->
       let open_flags = t.open_flags in
       let can_write_fd =
@@ -1199,9 +1198,9 @@ module Background_writer = struct
       in
       if not can_write_fd
       then
-        (* The reason we produce a custom error message in this case is that
-           Linux conflates this case with "not a valid file descriptor" (EBADF), which
-           normally indicates a serious bug in file descriptor handling. *)
+        (* The reason we produce a custom error message in this case is that Linux
+           conflates this case with "not a valid file descriptor" (EBADF), which normally
+           indicates a serious bug in file descriptor handling. *)
         die
           t
           [%message
@@ -1245,13 +1244,14 @@ module Writes = struct
       let pos = t.back in
       t.back <- t.back + desired;
       t.buf, pos)
-    else if (* Preallocated buffer too small; schedule buffered writes.  We create a new buffer of
-               exactly the desired size if the desired size is more than half the buffer length.
-               If we only created a new buffer when the desired size was greater than the buffer
-               length, then multiple consecutive writes of slightly more than half the buffer
-               length would each waste slightly less than half of the buffer.  Although, it is
-               still the case that multiple consecutive writes of slightly more than one quarter
-               of the buffer length will waste slightly less than one quarter of the buffer. *)
+    else if (* Preallocated buffer too small; schedule buffered writes. We create a new
+               buffer of exactly the desired size if the desired size is more than half
+               the buffer length. If we only created a new buffer when the desired size
+               was greater than the buffer length, then multiple consecutive writes of
+               slightly more than half the buffer length would each waste slightly less
+               than half of the buffer. Although, it is still the case that multiple
+               consecutive writes of slightly more than one quarter of the buffer length
+               will waste slightly less than one quarter of the buffer. *)
             desired > buf_len / 2
     then (
       schedule_unscheduled t Keep;
@@ -1274,9 +1274,9 @@ module Writes = struct
       buf, 0)
   ;;
 
-  (* If [blit_to_bigstring] raises, [write_gen_unchecked] may leave some unexpected bytes in
-     the bigstring.  However it leaves [t.back] and [t.bytes_received] in agreement. *)
-  let write_gen_internal
+  (* If [blit_to_bigstring] raises, [write_gen_unchecked] may leave some unexpected bytes
+     in the bigstring. However it leaves [t.back] and [t.bytes_received] in agreement. *)
+  let%template[@mode m = (local, global)] write_gen_internal
     (type a)
     t
     src
@@ -1284,7 +1284,7 @@ module Writes = struct
     ~src_len
     ~allow_partial_write
     ~(blit_to_bigstring :
-        src:a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
+        src:a @ m -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
     =
     if is_stopped_permanently t
     then got_bytes t src_len
@@ -1332,11 +1332,18 @@ module Writes = struct
       Some x)
   ;;
 
-  let write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length =
+  let%template[@mode m = (local, global)] write_gen_unchecked
+    ?pos
+    ?len
+    t
+    src
+    ~blit_to_bigstring
+    ~length
+    =
     let src_pos, src_len =
       Ordered_collection_common.get_pos_len_exn () ?pos ?len ~total_length:(length src)
     in
-    write_gen_internal
+    (write_gen_internal [@mode m])
       t
       src
       ~src_pos
@@ -1370,8 +1377,8 @@ module Writes = struct
       ~length:Bytes.length
   ;;
 
-  let write ?pos ?len t src =
-    write_gen_unchecked
+  let%template[@mode m = (local, global)] write ?pos ?len t src =
+    (write_gen_unchecked [@mode m])
       ?pos
       ?len
       t
@@ -1647,7 +1654,7 @@ module Checked_writes = struct
 
   let write ?pos ?len t s =
     ensure_can_write t;
-    write ?pos ?len t s
+    (write [@mode local]) ?pos ?len t s
   ;;
 
   let write_line ?line_ending t s =
@@ -1756,8 +1763,8 @@ module Stdout_and_stderr = struct
              let stdout, stderr =
                if [%compare.equal: int * int] (dev_and_ino stdout) (dev_and_ino stderr)
                then
-                 (* If stdout and stderr point to the same file, we must share a single writer
-                    between them.  See the comment in writer.mli for details. *)
+                 (* If stdout and stderr point to the same file, we must share a single
+                    writer between them. See the comment in writer.mli for details. *)
                  t, t
                else t, create stderr
              in
@@ -1862,8 +1869,8 @@ module Filesystem_stuff = struct
                 [%message
                   "Writer.with_file_atomic: not replacing special file" ~_:(file : string)])
          | `Link ->
-           (* [Unix.stat] resolves the symlinks already.
-              Unfortunately, this means we won't be able to replace a "broken" symlink. *)
+           (* [Unix.stat] resolves the symlinks already. Unfortunately, this means we
+              won't be able to replace a "broken" symlink. *)
            assert false)
       | Error _ -> None
     in
@@ -1906,12 +1913,12 @@ module Filesystem_stuff = struct
          let%bind () =
            match current_file_permissions with
            | None ->
-             (* We don't need to change the permissions here.
-                The [initial_permissions] (with umask applied by the OS) should be good. *)
+             (* We don't need to change the permissions here. The [initial_permissions]
+                (with umask applied by the OS) should be good. *)
              return ()
            | Some _ ->
-             (* We are overwriting permissions here to undo the umask that was applied
-                by [openfile]. This is, perhaps, unreasonable, but it preserves the previous
+             (* We are overwriting permissions here to undo the umask that was applied by
+                [openfile]. This is, perhaps, unreasonable, but it preserves the previous
                 behavior. *)
              Unix.fchmod fd ~perm:initial_permissions
          in
@@ -1927,8 +1934,7 @@ module Filesystem_stuff = struct
       let%bind unlink_result =
         Monitor.try_with_or_error (fun () -> Unix.unlink temp_file)
       in
-      (* NB we may have tried to close above, but that's OK because close is
-         idempotent. *)
+      (* NB we may have tried to close above, but that's OK because close is idempotent. *)
       let%map close_result = Monitor.try_with_or_error (fun () -> close t) in
       (match Or_error.combine_errors_unit [ close_result; unlink_result ] with
        | Ok () ->
@@ -2034,9 +2040,9 @@ module Streaming = struct
             flushed t >>> iter))
     in
     let doit () =
-      (* Concurrecy between [iter] and [choose] is essential.  Even if [iter] gets blocked,
-         for example on [flushed], the result of [doit] can still be determined by [choice]s
-         other than [end_of_pipe_r]. *)
+      (* Concurrecy between [iter] and [choose] is essential. Even if [iter] gets blocked,
+         for example on [flushed], the result of [doit] can still be determined by
+         [choice]s other than [end_of_pipe_r]. *)
       iter ();
       match%map
         choose

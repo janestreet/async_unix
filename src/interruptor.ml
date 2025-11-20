@@ -4,7 +4,7 @@ module Fd = Raw_fd
 
 let debug = Debug.interruptor
 
-(* The [phase] state machine of an interruptor looks like this:
+(*=The [phase] state machine of an interruptor looks like this:
 
            [create]
                |
@@ -58,9 +58,9 @@ let create ~create_fd =
   }
 ;;
 
-(* [thread_safe_interrupt]
-   As the name implies, it is safe to call from any thread; [thread_safe_interrupt] does
-   not assume the scheduler lock is held, although it is fine if it is. *)
+(* [thread_safe_interrupt] As the name implies, it is safe to call from any thread;
+   [thread_safe_interrupt] does not assume the scheduler lock is held, although it is fine
+   if it is. *)
 let thread_safe_interrupt t =
   if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
   let rec loop () =
@@ -79,9 +79,9 @@ let thread_safe_interrupt t =
 
             - someone else finished an interrupt.
 
-            Neither of these cases is likely to be contended.  If the watcher went to
-            sleep, we should just wake it up.  If someone else finished an interrupt, then
-            we are done.  It is highly unlikely that we would need multiple retries and
+            Neither of these cases is likely to be contended. If the watcher went to
+            sleep, we should just wake it up. If someone else finished an interrupt, then
+            we are done. It is highly unlikely that we would need multiple retries and
             adding a backoff here is unlikely to improve performance. *)
          loop ())
     | Sleeping ->
@@ -125,11 +125,11 @@ let clear_fd t =
     with
     | () -> ()
     | exception Unix.Unix_error (EAGAIN, _, _) ->
-      (* This happens because Async schedules fd readiness callback jobs every cycle,
-         with no guarantee that these jobs run the same cycle.
+      (* This happens because Async schedules fd readiness callback jobs every cycle, with
+         no guarantee that these jobs run the same cycle.
 
-         So if the limit of 500 jobs per cycle is reached, these callbacks are left in
-         the queue and duplicated next cycle. *)
+         So if the limit of 500 jobs per cycle is reached, these callbacks are left in the
+         queue and duplicated next cycle. *)
       ())
 ;;
 

@@ -37,8 +37,8 @@ let manage
           signal
           (Handle
              (fun _ ->
-               (* Everything in this function body must be thread safe, since it is running
-                  in an OCaml signal handler. *)
+               (* Everything in this function body must be thread safe, since it is
+                  running in an OCaml signal handler. *)
                Atomic.update delivered ~pure_f:(fun signals -> signal :: signals);
                thread_safe_notify_signal_delivered ())))
   in

@@ -161,8 +161,8 @@ module%test _ = struct
     finished_with t
   ;;
 
-  (* Calling [finished_with_helper_thread] while work remains is allowed, and causes
-       the thread to be returned to the general pool once it finishes all its work. *)
+  (* Calling [finished_with_helper_thread] while work remains is allowed, and causes the
+     thread to be returned to the general pool once it finishes all its work. *)
   let%expect_test _ =
     let t = ok_exn (create ~max_num_threads:1 ()) in
     let helper_thread = ok_exn (create_helper_thread t) in
@@ -376,9 +376,8 @@ module%test _ = struct
 
     let quickcheck_generator =
       let cpuids = ok_exn Thread.getaffinity_self_exn () |> Set.to_list in
-      (* Fail if it's not possible to test on more than one CPU. We already
-           have a test above to cover that case, so the rest of this would be
-           pointless. *)
+      (* Fail if it's not possible to test on more than one CPU. We already have a test
+         above to cover that case, so the rest of this would be pointless. *)
       let cpucount = List.length cpuids in
       assert (cpucount > 1);
       let open Base_quickcheck in
@@ -433,7 +432,7 @@ module%test _ = struct
     Thread_safe_ivar.fill release_jobs ();
     wait_until_no_unfinished_work t;
     (* The stats also include results since the last time that [get_and_reset_stats] was
-         called. *)
+       called. *)
     let stats = get_and_reset_stats t in
     [%test_result: int] stats.num_work_completed ~expect:2;
     [%test_result: int] stats.unfinished_work ~expect:0;
@@ -476,7 +475,7 @@ module%test _ = struct
     Thread_safe_ivar.fill release_jobs ();
     wait_until_no_unfinished_work t;
     (* The stats also include results since the last time that [get_and_reset_stats] was
-         called. *)
+       called. *)
     let stats = get_and_reset_stats t in
     [%test_result: int] stats.num_work_completed ~expect:50;
     [%test_result: int] stats.unfinished_work ~expect:0;

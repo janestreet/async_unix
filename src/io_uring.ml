@@ -20,12 +20,12 @@ let rec attempt_syscall_internal f count =
     let%bind () = Raw_scheduler.yield () in
     attempt_syscall_internal f (count + 1)
   | Error (Unix.EUNKNOWNERR 125) ->
-    (* We've seen some weird behavior where our calls return with ECANCELED
-       even though we're not asking to cancel. Work around this issue,
-       which seems like it may be a kernel bug.
+    (* We've seen some weird behavior where our calls return with ECANCELED even though
+       we're not asking to cancel. Work around this issue, which seems like it may be a
+       kernel bug.
 
-       This can't be a real cancellation because the job handle is made by
-       [f ()] above and we don't ever call cancel on that. *)
+       This can't be a real cancellation because the job handle is made by [f ()] above
+       and we don't ever call cancel on that. *)
     attempt_syscall_internal f (count + 1)
   | Error err -> return (Error err)
   | Ok result -> return (Ok result)
@@ -37,8 +37,8 @@ let with_file_descr_deferred ~name fd f =
   match%map Fd.with_file_descr_deferred ~extract_exn:true fd (fun fd -> f fd) with
   | `Already_closed ->
     (* We have to match the error messages of [Fd.syscall_in_thread_exn] because if we
-       default [Async] to using [Io_uring], inline tests that catch error messages
-       will start failing. *)
+       default [Async] to using [Io_uring], inline tests that catch error messages will
+       start failing. *)
     Error
       (try
          raise_s
