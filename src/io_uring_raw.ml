@@ -246,12 +246,12 @@ let syscall_result_retry_on_ECANCELED f =
     else (
       match%bind syscall_result_noretry (f ()) with
       | Error (Unix.EUNKNOWNERR 125) ->
-        (* We've seen some weird behavior where our calls return with ECANCELED
-           even though we're not asking to cancel. Work around this issue,
-           which seems like it may be a kernel bug.
+        (* We've seen some weird behavior where our calls return with ECANCELED even
+           though we're not asking to cancel. Work around this issue, which seems like it
+           may be a kernel bug.
 
-           This can't be a real cancellation because the job handle is made by
-           [f ()] above and we don't ever call cancel on that. *)
+           This can't be a real cancellation because the job handle is made by [f ()]
+           above and we don't ever call cancel on that. *)
         retry_loop f (count + 1)
       | Error err -> return (Error err)
       | Ok result -> return (Ok result))

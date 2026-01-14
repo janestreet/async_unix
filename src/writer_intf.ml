@@ -815,6 +815,10 @@ module type Writer0 = sig
 
     val set_bytes_received : t -> Int63.t -> unit
     val set_bytes_written : t -> Int63.t -> unit
+
+    module Internal_for_unit_test : sig
+      val eval_force_timeout : Time_ns.Span.t
+    end
   end
 end
 

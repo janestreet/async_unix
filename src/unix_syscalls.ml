@@ -92,10 +92,9 @@ module Uring_openfile = struct
     | O_SYNC -> sync
     (* According to the open man page:
 
-       Linux implements O_SYNC and O_DSYNC, but not O_RSYNC.  Somewhat
-       incorrectly, glibc defines O_RSYNC to have the same value as
-       O_SYNC.  (O_RSYNC is defined in the Linux header file
-       <asm/fcntl.h> on HP PA-RISC, but it is not used.
+       Linux implements O_SYNC and O_DSYNC, but not O_RSYNC. Somewhat incorrectly, glibc
+       defines O_RSYNC to have the same value as O_SYNC. (O_RSYNC is defined in the Linux
+       header file <asm/fcntl.h> on HP PA-RISC, but it is not used.
     *)
     | O_RSYNC -> sync
     | O_CLOEXEC -> cloexec
@@ -157,9 +156,9 @@ module Uring_openfile = struct
                  ; perm : string = Printf.sprintf "0o%o" perm_if_creat
                  }] ))
     in
-    (* Arguably, ENOENT is rather misleading here. However, this is the historical behavior,
-       inherited all the way from Caml_unix, and nobody handles Invalid_argument, so it's
-       not clear this should change. *)
+    (* Arguably, ENOENT is rather misleading here. However, this is the historical
+       behavior, inherited all the way from Caml_unix, and nobody handles
+       Invalid_argument, so it's not clear this should change. *)
     if String.contains file '\000' then raise_unix_error ENOENT;
     match%map
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
@@ -443,12 +442,12 @@ module Stats = struct
     let of_timespec sec nsec =
       Time.of_span_since_epoch Time.Span.(of_sec (Float.of_int64 sec) + of_int_ns nsec)
     in
-    (* Some precision loss is happening in [ino], [dev], [rdev] fields below.
-       In fact, [ino] is not merely theoretical: the full 64-bit inode range is used
-       by some filesystems.
+    (* Some precision loss is happening in [ino], [dev], [rdev] fields below. In fact,
+       [ino] is not merely theoretical: the full 64-bit inode range is used by some
+       filesystems.
 
-       [nlink], [uid], [gid] are in fact coming from the kernel as 32-bit integers,
-       so no precision loss there.
+       [nlink], [uid], [gid] are in fact coming from the kernel as 32-bit integers, so no
+       precision loss there.
 
        Of course we lose precision for timestamps as well.
     *)
@@ -794,9 +793,9 @@ end = struct
 
   let deferred_wait (type q r) (wait_on : q) ~(kind : (q, r) Kind.t) =
     (* We are going to install a handler for SIGCHLD that will call [wait_nohang wait_on]
-       in the future.  However, we must also call [wait_nohang wait_on] right now, in case
-       the child already exited, and will thus never cause a SIGCHLD in the future.  We
-       must install the SIGCHLD handler first and then call [wait_nohang].  If we did
+       in the future. However, we must also call [wait_nohang wait_on] right now, in case
+       the child already exited, and will thus never cause a SIGCHLD in the future. We
+       must install the SIGCHLD handler first and then call [wait_nohang]. If we did
        [wait_nohang] first, we could miss a SIGCHLD that was delivered after calling
        [wait_nohang] and before installing the handler. *)
     Lazy.force install_sigchld_handler_the_first_time;
@@ -1201,9 +1200,9 @@ module Socket = struct
   ;;
 
   let accept_nonblocking t =
-    (* We call [accept] with [~nonblocking:true] because there is no way to use
-       [select] to guarantee that an [accept] will not block (see Stevens' book on
-       Unix Network Programming, p422). *)
+    (* We call [accept] with [~nonblocking:true] because there is no way to use [select]
+       to guarantee that an [accept] will not block (see Stevens' book on Unix Network
+       Programming, p422). *)
     match
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->
         Unix.accept file_descr ~close_on_exec:true)
@@ -1225,7 +1224,7 @@ module Socket = struct
       turn_off_nagle sockaddr s;
       `Ok (s, address)
     | `Error (Unix_error ((EAGAIN | EWOULDBLOCK | ECONNABORTED | EINTR), _, _)) ->
-      (* If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
+      (*=If [accept] would have blocked (EAGAIN|EWOULDBLOCK) or got interrupted
          (EINTR), then we return [`Would_block].
 
          If the kernel returns ECONNABORTED, this means that we first got a connection
@@ -1312,7 +1311,7 @@ module Socket = struct
       `Ok t
     in
     (* We call [connect] with [~nonblocking:true] to initiate an asynchronous connect (see
-       Stevens' book on Unix Network Programming, p413).  Once the connect succeeds or
+       Stevens' book on Unix Network Programming, p413). Once the connect succeeds or
        fails, [select] on the socket will return it in the writeable set. *)
     match
       Fd.with_file_descr t.fd ~nonblocking:true (fun file_descr ->

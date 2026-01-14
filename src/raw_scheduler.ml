@@ -9,9 +9,9 @@ module Tsc = Time_stamp_counter
 let debug = Debug.scheduler
 
 module File_descr_watcher = struct
-  (* A file descriptor watcher implementation + a watcher.  We need the file-descr watcher
+  (* A file descriptor watcher implementation + a watcher. We need the file-descr watcher
      as a first-class value to support choosing which file-descr watcher to use in
-     [go_main].  We could define [t] as [Epoll of ... | Select of ...] and dispatch every
+     [go_main]. We could define [t] as [Epoll of ... | Select of ...] and dispatch every
      call, but it is simpler to just pack the file descriptor watcher with its associated
      functions (OO-programming with modules...). *)
   module type S = sig
@@ -75,46 +75,46 @@ type start_type =
 
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
-       data structures, which is almost all async code.  The [mutex] is automatically
-       locked in the main thread when the scheduler is first created.  A [Nano_mutex]
-       keeps track of which thread is holding the lock.  This means we can detect errors
-       in which code incorrectly accesses async from a thread not holding the lock.  We do
-       this when [detect_invalid_access_from_thread = true].  We also detect errors in
-       which code tries to acquire the async lock while it already holds it, or releases
-       the lock when it doesn't hold it. *)
+       data structures, which is almost all async code. The [mutex] is automatically
+       locked in the main thread when the scheduler is first created. A [Nano_mutex] keeps
+       track of which thread is holding the lock. This means we can detect errors in which
+       code incorrectly accesses async from a thread not holding the lock. We do this when
+       [detect_invalid_access_from_thread = true]. We also detect errors in which code
+       tries to acquire the async lock while it already holds it, or releases the lock
+       when it doesn't hold it. *)
     mutex : Nano_mutex.t
   ; mutable start_type : start_type
-  ; (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since
-       the last time their desired state was set in the [file_descr_watcher]. *)
+  ; (* [fds_whose_watching_has_changed] holds all fds whose watching has changed since the
+       last time their desired state was set in the [file_descr_watcher]. *)
     fds_whose_watching_has_changed : Fd.t Stack.t
   ; file_descr_watcher : File_descr_watcher.t
   ; (* Returns how many events the poll has processed. *)
     busy_pollers : (Busy_poller.packed Uniform_array.t[@sexp.opaque])
   ; mutable num_busy_pollers : int
   ; mutable time_spent_waiting_for_io : Tsc.Span.t
-  ; (* [fd_by_descr] holds every file descriptor that Async manages.  Fds are added
-       when they are created, and removed when they transition to [Closed]. *)
+  ; (* [fd_by_descr] holds every file descriptor that Async manages. Fds are added when
+       they are created, and removed when they transition to [Closed]. *)
     fd_by_descr : Fd.t By_descr.t
-  ; (* [external_fd_by_descr] holds file descriptors registered via External.
-       Async does no I/O on these, nor does it open or close them, but it reports
-       readiness of them from External.run_one_cycle *)
+  ; (* [external_fd_by_descr] holds file descriptors registered via External. Async does
+       no I/O on these, nor does it open or close them, but it reports readiness of them
+       from External.run_one_cycle *)
     external_fd_by_descr : bool Read_write_pair.t By_descr.t
   ; (* [external_ready_fds] communicates the set of ready external file descriptors from
        [post_check_handle_fd] to [run_one_cycle], and is empty at other times *)
     mutable external_fd_events : (External_fd_event.t list[@sexp.opaque])
   ; (* If we are using a file descriptor watcher that does not support sub-millisecond
        timeout, [timerfd] contains a timerfd used to handle the next expiration.
-       [timerfd_set_at] holds the the time at which [timerfd] is set to expire.  This
-       lets us avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_after] unless
-       we need to change that time. *)
+       [timerfd_set_at] holds the the time at which [timerfd] is set to expire. This lets
+       us avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_after] unless we need to
+       change that time. *)
     mutable timerfd : Linux_ext.Timerfd.t option
   ; mutable timerfd_set_at : Time_ns.t
   ; (* A distinguished thread, called the "scheduler" thread, is continually looping,
-       checking file descriptors for I/O and then running a cycle.  It manages
-       the [file_descr_watcher] and runs signal handlers.
+       checking file descriptors for I/O and then running a cycle. It manages the
+       [file_descr_watcher] and runs signal handlers.
 
        [scheduler_thread_id] is mutable because we create the scheduler before starting
-       the scheduler running.  Once we start running the scheduler, [scheduler_thread_id]
+       the scheduler running. Once we start running the scheduler, [scheduler_thread_id]
        is set and never changes again. *)
     mutable scheduler_thread_id : int
   ; (* The [interruptor] is used to wake up the scheduler when it is blocked on the file
@@ -129,19 +129,20 @@ type t =
     mutable handle_thread_pool_stuck : Thread_pool.t -> stuck_for:Time_ns.Span.t -> unit
   ; mutable thread_pool_stuck : Thread_pool_stuck_status.t
   ; dns_lookup_throttle : unit Throttle.t
-      (* [dns_lookup_throttle] exists to prevent the entire thread pool from being used on DNS
-     lookups. DNS is being special-cased here compared to other blocking operations as
-     it's somewhat common for processes to do lots of concurrent DNS lookups, and DNS
-     lookups can block for a long time, especially in the presence network unavailability.
+      (* [dns_lookup_throttle] exists to prevent the entire thread pool from being used on
+         DNS lookups. DNS is being special-cased here compared to other blocking
+         operations as it's somewhat common for processes to do lots of concurrent DNS
+         lookups, and DNS lookups can block for a long time, especially in the presence
+         network unavailability.
       *)
   ; mutable next_tsc_calibration : Tsc.t
   ; kernel_scheduler : Kernel_scheduler.t
   ; (* [have_lock_do_cycle] is used to customize the implementation of running a cycle.
        E.g. in Ecaml it is set to something that causes Emacs to run a cycle. *)
-    mutable have_lock_do_cycle : (unit -> unit) option (* configuration*)
+    mutable have_lock_do_cycle : (unit -> unit) option (* configuration *)
   ; mutable max_inter_cycle_timeout : Max_inter_cycle_timeout.t
   ; mutable min_inter_cycle_timeout : Min_inter_cycle_timeout.t
-  ; (* [initialized_at] is the call stack from when the scheduler was initialized.  It's
+  ; (* [initialized_at] is the call stack from when the scheduler was initialized. It's
        generally more confusing than useful if it's shown on crash, so we omit it from the
        sexp. *)
     initialized_at : (Backtrace.t[@sexp.opaque])
@@ -199,15 +200,15 @@ let am_holding_lock t = Nano_mutex.current_thread_has_lock t.mutex
 
 type the_one_and_only =
   | Not_ready_to_initialize of
-      (* this [unit] makes the representation always be a pointer, thus
-         making the pattern-match faster *)
+      (* this [unit] makes the representation always be a pointer, thus making the
+         pattern-match faster *)
       unit
   | Ready_to_initialize of (unit -> t)
   | Initialized of t
 
 (* We use a mutex to protect creation of the one-and-only scheduler in the event that
-   multiple threads attempt to call [the_one_and_only] simultaneously, which can
-   happen in programs that are using [Thread_safe.run_in_async]. *)
+   multiple threads attempt to call [the_one_and_only] simultaneously, which can happen in
+   programs that are using [Thread_safe.run_in_async]. *)
 let mutex_for_initializing_the_one_and_only_ref = Nano_mutex.create ()
 let the_one_and_only_ref : the_one_and_only ref = ref (Not_ready_to_initialize ())
 
@@ -281,8 +282,8 @@ let create_fd ?avoid_setting_nonblock kind file_descr info =
 
 let current_thread_id () = Core_thread.(id (self ()))
 
-(* OCaml runtime happens to assign the thread id of [0] to the main thread
-   (the initial thread that starts the program). *)
+(* OCaml runtime happens to assign the thread id of [0] to the main thread (the initial
+   thread that starts the program). *)
 let is_main_thread () = current_thread_id () = 0
 let remove_fd t fd = By_descr.remove t.fd_by_descr fd.Fd.file_descr
 
@@ -292,9 +293,9 @@ let maybe_start_closing_fd t (fd : Fd.t) =
     match fd.state with
     | Closed | Open _ -> ()
     | Close_requested (execution_context, do_close_syscall) ->
-      (* We must remove the fd now and not after the close has finished.  If we waited
-         until after the close had finished, then the fd might have already been
-         reused by the OS and replaced. *)
+      (* We must remove the fd now and not after the close has finished. If we waited
+         until after the close had finished, then the fd might have already been reused by
+         the OS and replaced. *)
       remove_fd t fd;
       Fd.set_state fd Closed;
       Kernel_scheduler.enqueue t.kernel_scheduler execution_context do_close_syscall ())
@@ -386,7 +387,7 @@ let update_check_access t do_check =
              exit 1)))
 ;;
 
-(* Try to create a timerfd.  It returns [None] if [Core] is not built with timerfd support
+(* Try to create a timerfd. It returns [None] if [Core] is not built with timerfd support
    or if it is not available on the current system. *)
 let try_create_timerfd () =
   match Timerfd.create with
@@ -496,7 +497,7 @@ let request_start_watching t fd read_or_write watching =
     | Watch_once _ | Watch_repeatedly _ -> `Already_watching
     | Stop_requested ->
       (* We don't [inc_num_active_syscalls] in this case, because we already did when we
-         transitioned from [Not_watching] to [Watching].  Also, it is possible that [fd]
+         transitioned from [Not_watching] to [Watching]. Also, it is possible that [fd]
          was closed since we transitioned to [Stop_requested], in which case we don't want
          to [start_watching]; we want to report that it was closed and leave it
          [Stop_requested] so the the file-descr-watcher will stop watching it and we can
@@ -561,8 +562,8 @@ let post_check_handle_fd t file_descr read_or_write (event_type : [ `Ready | `Ba
     | Some tfd when File_descr.equal file_descr (tfd :> Unix.File_descr.t) ->
       (match read_or_write with
        | `Read ->
-         (* We don't need to actually call [read] since we are using the
-            edge-triggered behavior. *)
+         (* We don't need to actually call [read] since we are using the edge-triggered
+            behavior. *)
          ()
        | `Write -> post_check_got_timerfd file_descr)
     | _ ->
@@ -643,13 +644,13 @@ let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate"
   [%test_result: int] (words_after - words_before) ~expect:0
 ;;
 
-(* If busy pollers are present, the [cycle_time] also includes the time of the last
-   busy pollers invocation.
+(* If busy pollers are present, the [cycle_time] also includes the time of the last busy
+   pollers invocation.
 
-   This makes [cycle_time] a bit of a misnomer, but the up-side is that
-   this value is a more reliable indicator of cycle-to-cycle latency.
-   The latency is bounded by [cycle_time + max_busy_wait_duration],
-   rather than being unbounded due to a slow busy poller callback. *)
+   This makes [cycle_time] a bit of a misnomer, but the up-side is that this value is a
+   more reliable indicator of cycle-to-cycle latency. The latency is bounded by
+   [cycle_time + max_busy_wait_duration], rather than being unbounded due to a slow busy
+   poller callback. *)
 let[@inline] measure_and_maybe_report_long_async_cycles_to_magic_trace ~start : unit =
   let cycle_time =
     Tsc.diff (Tsc.now ()) start
@@ -826,12 +827,11 @@ let init ~take_the_lock =
   let mutex = Nano_mutex.create () in
   if take_the_lock
   then
-    (* We create a mutex that's initially locked by the main thread to support the
-       case when the user does async stuff at the top level before calling
-       [Scheduler.go].  This lock makes sure that async jobs don't run until
-       [Scheduler.go] is called.  That could happen, e.g. by creating a reader that
-       does a read system call in another (true) thread.  The scheduler remains
-       locked until the scheduler unlocks it. *)
+    (* We create a mutex that's initially locked by the main thread to support the case
+       when the user does async stuff at the top level before calling [Scheduler.go]. This
+       lock makes sure that async jobs don't run until [Scheduler.go] is called. That
+       could happen, e.g. by creating a reader that does a read system call in another
+       (true) thread. The scheduler remains locked until the scheduler unlocks it. *)
     Nano_mutex.lock_exn mutex;
   the_one_and_only_ref := Ready_to_initialize (fun () -> create ~mutex ())
 ;;
@@ -938,9 +938,9 @@ let sync_changed_fds_to_file_descr_watcher t =
       with
       | `Unsupported -> Read_write_pair.iteri fd.watching ~f:(give_up_on_watching t fd)
       | `Ok ->
-        (* We modify Async's data structures after calling [F.set], so that
-           the error message produced by [sync_changed_fd_failed] displays
-           them as they were before the call. *)
+        (* We modify Async's data structures after calling [F.set], so that the error
+           message produced by [sync_changed_fd_failed] displays them as they were before
+           the call. *)
         Read_write_pair.iteri fd.watching ~f:(fun read_or_write watching ->
           match watching with
           | Watch_once _ | Watch_repeatedly _ | Not_watching -> ()
@@ -1033,24 +1033,25 @@ let init t =
 
 let fds_may_produce_events t =
   By_descr.exists t.fd_by_descr ~f:(fun fd ->
-    (* Jobs created by the interruptor don't do anything, so we don't need to
-       count them as something that can drive progress. When interruptor is involved, the
-       progress is driven by other modules (e.g. the thread_pool).
-       The caller should inspect those directly.
+    (* Jobs created by the interruptor don't do anything, so we don't need to count them
+       as something that can drive progress. When interruptor is involved, the progress is
+       driven by other modules (e.g. the thread_pool). The caller should inspect those
+       directly.
 
-       We don't need a similar special-case for [timerfd] because that's never added
-       to [fd_by_descr], in the first place.
+       We don't need a similar special-case for [timerfd] because that's never added to
+       [fd_by_descr], in the first place.
     *)
     Read_write_pair.exists (Fd.watching fd) ~f:(fun watching ->
       match (watching : Fd.Watching.t) with
       | Not_watching -> false
-      (* Stop_requested will enqueue a single job, so we have jobs to do still at this point. *)
+      (* Stop_requested will enqueue a single job, so we have jobs to do still at this
+         point. *)
       | Watch_once _ | Stop_requested -> true
       | Watch_repeatedly { pending; _ } -> pending ()))
 ;;
 
-(* We avoid allocation in [check_file_descr_watcher], since it is called every time in
-   the scheduler loop. *)
+(* We avoid allocation in [check_file_descr_watcher], since it is called every time in the
+   scheduler loop. *)
 let check_file_descr_watcher t ~timeout span_or_unit =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   if Debug.file_descr_watcher
@@ -1058,9 +1059,9 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   let pre = F.pre_check F.watcher in
   unlock t;
   (* We yield so that other OCaml threads (especially thread-pool threads) get a chance to
-     run.  This is a good point to yield, because we do not hold the Async lock, which
-     allows other threads to acquire it.  [Thread.yield] only yields if other OCaml
-     threads are waiting to acquire the OCaml lock, and is fast if not.  As of OCaml 4.07,
+     run. This is a good point to yield, because we do not hold the Async lock, which
+     allows other threads to acquire it. [Thread.yield] only yields if other OCaml threads
+     are waiting to acquire the OCaml lock, and is fast if not. As of OCaml 4.07,
      [Thread.yield] on Linux calls [nanosleep], which causes the Linux scheduler to
      actually switch to other threads. *)
   Thread.yield ();
@@ -1081,10 +1082,9 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   <- Tsc.Span.( + ) t.time_spent_waiting_for_io (Tsc.diff after before);
   lock t;
   (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
-     processing that needs to happen in response to [thread_safe_interrupt].  That
-     way, even if [Interruptor.clear] clears out an interrupt that hasn't been
-     serviced yet, the interrupt will still be serviced by the immediately following
-     processing. *)
+     processing that needs to happen in response to [thread_safe_interrupt]. That way,
+     even if [Interruptor.clear] clears out an interrupt that hasn't been serviced yet,
+     the interrupt will still be serviced by the immediately following processing. *)
   Interruptor.clear t.interruptor;
   if Debug.file_descr_watcher
   then
@@ -1138,12 +1138,12 @@ let run_busy_pollers t ~timeout =
   !start_time_of_last_busy_poll
 ;;
 
-(* We compute the timeout as the last thing before [check_file_descr_watcher], because
-   we want to make sure the timeout is zero if there are any scheduled jobs.  The code
-   is structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if
-   possible.  In particular, we only call [Time_ns.now] if we need to compute the
-   timeout-after span.  And we only call [Linux_ext.Timerfd.set_after] if the time that
-   we want it to fire is different than the time it is already set to fire.
+(* We compute the timeout as the last thing before [check_file_descr_watcher], because we
+   want to make sure the timeout is zero if there are any scheduled jobs. The code is
+   structured to avoid calling [Time_ns.now] and [Linux_ext.Timerfd.set_*] if possible. In
+   particular, we only call [Time_ns.now] if we need to compute the timeout-after span.
+   And we only call [Linux_ext.Timerfd.set_after] if the time that we want it to fire is
+   different than the time it is already set to fire.
 
    We return a "start" time for the purposes of the magic-trace trigger. In particular, we
    want to capture the time spent in busy-pollers (e.g. Netkit direct IO handlers). The
@@ -1217,7 +1217,7 @@ let compute_timeout_and_check_file_descr_watcher t =
   else (
     check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout;
     (* We want to exclude the time spent in any epolls with a long timeout from the
-       purpose of the magic-trace trigger.*)
+       purpose of the magic-trace trigger. *)
     Tsc.now ())
 ;;
 
@@ -1258,9 +1258,9 @@ let be_the_scheduler ?(raise_unhandled_exn = false) t =
   then Error.raise error
   else (
     (* One reason to run [do_at_exit] handlers before printing out the error message is
-       that it helps curses applications bring the terminal in a good state, otherwise
-       the error message might get corrupted.  Also, the OCaml top-level uncaught
-       exception handler does the same. *)
+       that it helps curses applications bring the terminal in a good state, otherwise the
+       error message might get corrupted. Also, the OCaml top-level uncaught exception
+       handler does the same. *)
     (try Stdlib.do_at_exit () with
      | _ -> ());
     (match error_kind with
@@ -1313,8 +1313,8 @@ let go ?raise_unhandled_exn () =
   set_task_id ();
   let t = the_one_and_only () in
   (* [go] can be called from a thread other than the main thread, for example in programs
-     that reset scheduler after fork, so in some cases it must acquire the lock if
-     the thread has not already done so. *)
+     that reset scheduler after fork, so in some cases it must acquire the lock if the
+     thread has not already done so. *)
   if not (am_holding_lock t) then lock t;
   match t.start_type with
   | Not_started ->
@@ -1322,8 +1322,8 @@ let go ?raise_unhandled_exn () =
     be_the_scheduler t ?raise_unhandled_exn
   | Called_block_on_async ->
     (* This case can occur if the main thread uses Thread_safe.block_on_async before
-       starting Async. Then, the scheduler is started and running in another thread,
-       so we block forever instead of calling [be_the_scheduler] *)
+       starting Async. Then, the scheduler is started and running in another thread, so we
+       block forever instead of calling [be_the_scheduler] *)
     unlock t;
     (* We wakeup the scheduler so it can respond to whatever async changes this thread
        made. *)
@@ -1570,8 +1570,8 @@ module External = struct
       match F.set F.watcher fd not_watching with
       | exception exn -> Error (Error.of_exn ~backtrace:`Get exn)
       | `Unsupported ->
-        (* Probably this can't happen because unsupported fd can't be registered
-           in the first place *)
+        (* Probably this can't happen because unsupported fd can't be registered in the
+           first place *)
         Error (Error.of_string "Unsupported file descriptor type in unregister_fd")
       | `Ok -> Ok ())
   ;;
@@ -1615,8 +1615,8 @@ module External = struct
             without spinning uselessly, we temporarily unregister the ready fds and
             re-register afterwards.
 
-            This is not tail recursive, but the stack depth is bounded by the number
-            of externally registered FDs that are or become ready *)
+            This is not tail recursive, but the stack depth is bounded by the number of
+            externally registered FDs that are or become ready *)
          let t = the_one_and_only () in
          let fd_ops =
            List.map ~f:fst ready_fds
@@ -1625,8 +1625,8 @@ module External = struct
            |> List.dedup_and_sort ~compare:[%compare: File_descr.t]
            |> List.map ~f:(fun fd -> fd, By_descr.find_exn t.external_fd_by_descr fd)
          in
-         (* Try to ensure that we leave the set of registered fds unchanged,
-            even if an exception is raised somewhere *)
+         (* Try to ensure that we leave the set of registered fds unchanged, even if an
+            exception is raised somewhere *)
          let rec temporarily_unregister = function
            | [] -> run_cycles_until_determined d
            | (fd, ops) :: fd_ops ->

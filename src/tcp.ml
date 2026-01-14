@@ -79,17 +79,23 @@ let close_sock_on_error s f =
   >>| function
   | Ok v -> v
   | Error e ->
-    (* [close] may fail, but we don't really care, since it will fail
-       asynchronously.  The error we really care about is [e], and the
-       [raise_error] will cause the current monitor to see that. *)
+    (* [close] may fail, but we don't really care, since it will fail asynchronously. The
+       error we really care about is [e], and the [raise_error] will cause the current
+       monitor to see that. *)
     don't_wait_for (Unix.close (Socket.fd s));
     raise e
 ;;
 
-let reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size s =
+let reader_writer_of_sock
+  ?buffer_age_limit
+  ?reader_buffer_size
+  ?writer_buffer_size
+  ?time_source
+  s
+  =
   let fd = Socket.fd s in
   ( Reader.create ?buf_len:reader_buffer_size fd
-  , Writer.create ?buffer_age_limit ?buf_len:writer_buffer_size fd )
+  , Writer.create ?buffer_age_limit ?buf_len:writer_buffer_size ?time_source fd )
 ;;
 
 let connect_sock
@@ -159,7 +165,12 @@ let connect
   connect_sock ?socket ?interrupt ?timeout ?time_source where_to_connect
   >>| fun s ->
   let r, w =
-    reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size s
+    reader_writer_of_sock
+      ?buffer_age_limit
+      ?reader_buffer_size
+      ?writer_buffer_size
+      ?time_source
+      s
   in
   s, r, w
 ;;
@@ -371,7 +382,7 @@ module Server = struct
     (* We make sure not to be too spammy with logs. This number was chosen pretty
        arbitrarily. *)
     let log_threshold = Time_ns.Span.of_min 1.
-    let max_connection_limit_logger = ref (eprint_s ?mach:None)
+    let max_connection_limit_logger = ref [%eta1 eprint_s ?mach:None]
     let set_logger = ( := ) max_connection_limit_logger
 
     let log_at_limit t ~now =
@@ -477,17 +488,15 @@ module Server = struct
       | `Socket_closed -> ()
       | `Ok conns ->
         (* It is possible that someone called [close t] after the [accept] returned but
-           before we got here.  In that case, we just close the clients.  One might argue
+           before we got here. In that case, we just close the clients. One might argue
            that if [close] was called with [close_existing_connections = false], then we
            should not close these, but instead let the clients finish their business. One
            may want this for example to arrange a smooth handover when using
-           [SO_REUSEPORT].
-           Unfortunately, even if we make this fix, a smooth handover
-           does not seem to be possible on Linux, since Linux assigns a connection to a
-           process before [accept] is called, which creates an inherent race between that
-           and [close]: any connections assigned to a listening socket at the time of
-           [close] will be dropped.
-        *)
+           [SO_REUSEPORT]. Unfortunately, even if we make this fix, a smooth handover does
+           not seem to be possible on Linux, since Linux assigns a connection to a process
+           before [accept] is called, which creates an inherent race between that and
+           [close]: any connections assigned to a listening socket at the time of [close]
+           will be dropped.  *)
         if is_closed t || t.drop_incoming_connections
         then
           List.iter conns ~f:(fun (sock, _) -> don't_wait_for (Fd.close (Socket.fd sock)))
@@ -692,7 +701,7 @@ module Server = struct
         ~limit:(get_max_connections_limit max_connections)
         ~time_source
           (* We must call [Fd.info] on the socket's fd after [Socket.bind] is called,
-           otherwise the [Info.t] won't have been set yet. *)
+             otherwise the [Info.t] won't have been set yet. *)
         ~listening_on:(Fd.info (Socket.fd socket))
     in
     create_from_socket
@@ -732,7 +741,7 @@ module Server = struct
         ~limit:(get_max_connections_limit max_connections)
         ~time_source
           (* We must call [Fd.info] on the socket's fd after [Socket.bind_inet] is called,
-           otherwise the [Info.t] won't have been set yet. *)
+             otherwise the [Info.t] won't have been set yet. *)
         ~listening_on:(Fd.info (Socket.fd socket))
     in
     create_from_socket

@@ -108,14 +108,13 @@ let create
       ; working_dir
       ; env
       ; wait =
-          (* It's ok that we're not using [Lazy_deferred] here because
-             there are no known exceptions that [waitpid] can raise.
-             Also, we need the deferred to be determined in the same Async job
-             that makes the syscall, to make [send_signal] safe, so we can't use
-             [Lazy_deferred] as is.
-             The reason we don't want to eagerly reap the process is that the user might
-             want to refer to this process by pid. The only way to do this safely
-             is to do it before calling [wait].
+          (* It's ok that we're not using [Lazy_deferred] here because there are no known
+             exceptions that [waitpid] can raise. Also, we need the deferred to be
+             determined in the same Async job that makes the syscall, to make
+             [send_signal] safe, so we can't use [Lazy_deferred] as is. The reason we
+             don't want to eagerly reap the process is that the user might want to refer
+             to this process by pid. The only way to do this safely is to do it before
+             calling [wait].
           *)
           lazy (Unix.waitpid_prompt pid)
       }
@@ -488,8 +487,8 @@ let handle_output_exn (type output)
 ;;
 
 let send_signal_internal t signal =
-  (* We don't force the lazy (and therefore we don't reap the PID) here. We only do
-     that if the user calls [wait] explicitly. *)
+  (* We don't force the lazy (and therefore we don't reap the PID) here. We only do that
+     if the user calls [wait] explicitly. *)
   if Lazy.is_val t.wait && Deferred.is_determined (Lazy.force t.wait)
   then
     (* The process was reaped, so it's not safe to send signals to this pid. *)

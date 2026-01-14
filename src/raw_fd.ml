@@ -16,20 +16,20 @@ end
 
 module State = struct
   (* [State] is is used to keep track of when the file descriptor is in use or being
-     closed.  Here are the allowed transitions.
+     closed. Here are the allowed transitions.
 
      Open --> Close_requested --> Closed *)
   type t =
     (* [Close_requested (execution_context, do_close_syscall)] indicates that [Fd.close t]
        has been called, but that we haven't yet started the close() syscall, because there
-       are still active syscalls using the file descriptor.  Once there are no active
+       are still active syscalls using the file descriptor. Once there are no active
        syscalls, we enqueue a job to [do_close_syscall] in [execution_context]. *)
     | Close_requested of Execution_context.t * (unit -> unit)
     (* [Closed] indicates that there are no more active syscalls and we have started the
        close() syscall. *)
     | Closed
     (* [Open] is the initial state of a file descriptor, and the normal state when it is
-       in use.  It indicates that it has not not yet been closed.  The argument is an ivar
+       in use. It indicates that it has not not yet been closed. The argument is an ivar
        to be filled when [close] is called. *)
     | Open of unit Ivar.t
   [@@deriving sexp_of]
@@ -57,24 +57,24 @@ type ready_to_result =
 
 module Watching = struct
   (* Every fd can be monitored by a file_descr_watcher for read, for write, for both, or
-     for neither.  Each fd also has its own notion, independent of the file_descr_watcher,
+     for neither. Each fd also has its own notion, independent of the file_descr_watcher,
      of a [Watching.t], for both read and write that indicates the desired state of the
-     file_descr_watcher for this fd.  That desired state is maintained only in the fd
-     while async jobs are running, and is then synchronized with the file_descr_watcher's
+     file_descr_watcher for this fd. That desired state is maintained only in the fd while
+     async jobs are running, and is then synchronized with the file_descr_watcher's
      notion, via calls to [File_descr_watcher.set], just prior to asking the
      file_descr_watcher to check fds for ready I/O.
 
-     Initially, watching state starts as [Not_watching].  When one initially requests that
+     Initially, watching state starts as [Not_watching]. When one initially requests that
      the fd be monitored via [request_start_watching], the state transitions to
-     [Watch_once] or [Watch_repeatedly].  After the file_descr_watcher detects I/O is
+     [Watch_once] or [Watch_repeatedly]. After the file_descr_watcher detects I/O is
      available, the job in [Watch_repeatedly] is enqueued, or the ivar in [Watch_once] is
-     filled and the state transitions to [Stop_requested].  Or, if one calls
-     [request_stop_watching], the state transitions to [Stop_requested].  Finally,
+     filled and the state transitions to [Stop_requested]. Or, if one calls
+     [request_stop_watching], the state transitions to [Stop_requested]. Finally,
      [Stop_requested] will transition to [Not_watching] when the desired state is
      synchronized with the file_descr_watcher.
 
-     [pending] callback is used to check if we expect an event on this fd shortly.
-     If it returns false, this fd is ignored for the purpose of
+     [pending] callback is used to check if we expect an event on this fd shortly. If it
+     returns false, this fd is ignored for the purpose of
      [Scheduler.fds_may_produce_events]. (In principle the callback equally makes sense
      for [Watch_once] too, we can add it there if/when that becomes necessary) *)
   type t =
@@ -116,21 +116,21 @@ module T = struct
       mutable info : Info.t
     ; (* [kind] is mutable because it changes after [bind], [listen], or [connect]. *)
       mutable kind : Kind.t
-    ; (* if [can_set_nonblock] is true, async will switch the underlying file
-         descriptor into nonblocking mode any time a non-blocking operation is attempted.
-         It can be [false] if the user explicitly tells async to avoid modifying that
-         flag on the underlying fd, or if Async detects that the file descriptor
-         doesn't support nonblocking I/O. *)
+    ; (* if [can_set_nonblock] is true, async will switch the underlying file descriptor
+         into nonblocking mode any time a non-blocking operation is attempted. It can be
+         [false] if the user explicitly tells async to avoid modifying that flag on the
+         underlying fd, or if Async detects that the file descriptor doesn't support
+         nonblocking I/O. *)
       mutable can_set_nonblock : bool
     ; mutable nonblock_status : Nonblock_status.t
     ; mutable state : State.t
     ; watching : Watching.t Read_write_pair.Mutable.t
     ; (* [watching_has_changed] is true if [watching] has changed since the last time
-         [watching] was synchronized with the file_descr_watcher.  In this case, the
-         fd appears in the scheduler's [fds_whose_watching_has_changed] list so that
-         it can be synchronized later. *)
+         [watching] was synchronized with the file_descr_watcher. In this case, the fd
+         appears in the scheduler's [fds_whose_watching_has_changed] list so that it can
+         be synchronized later. *)
       mutable watching_has_changed : bool
-    ; (* [num_active_syscalls] is used to ensure that we don't call [close] on a file
+    ; (*=[num_active_syscalls] is used to ensure that we don't call [close] on a file
          descriptor until there are no active system calls involving that file descriptor.
          This prevents races in which the OS assigns that file descriptor to a new
          open file, and thus a system call deals with the wrong open file.   If the
@@ -142,8 +142,8 @@ module T = struct
          file_descr_watcher to check for ready I/O.  Watching for read and for write
          each potentially count for one active syscall. *)
       mutable num_active_syscalls : int
-    ; (* [close_finished] becomes determined after the file descriptor has been closed
-         and the underlying close() system call has finished. *)
+    ; (* [close_finished] becomes determined after the file descriptor has been closed and
+         the underlying close() system call has finished. *)
       close_finished : unit Ivar.t
     }
   [@@deriving fields ~iterators:iter, sexp_of]
@@ -204,7 +204,7 @@ let create ?(avoid_setting_nonblock = false) (kind : Kind.t) file_descr info =
     then false
     else (
       match kind with
-      (* No point in setting nonblocking for files.  Unix doesn't care. *)
+      (* No point in setting nonblocking for files. Unix doesn't care. *)
       | File -> false
       (* We don't use nonblocking I/O for char devices because we don't want to change the
          blocking status of TTYs, which would affect all processes currently attached to
@@ -212,12 +212,12 @@ let create ?(avoid_setting_nonblock = false) (kind : Kind.t) file_descr info =
 
          Also, /dev/null is a char device not supported by epoll.
 
-         We don't really care about doing nonblocking I/O on other character devices,
-         e.g. /dev/random. *)
+         We don't really care about doing nonblocking I/O on other character devices, e.g.
+         /dev/random. *)
       | Char -> false
       | Fifo -> true
       | Socket _ ->
-        (* All one can do on a `Bound socket is listen() to it, and we don't use listen()
+        (*=All one can do on a `Bound socket is listen() to it, and we don't use listen()
            in a nonblocking way.
            `Unconnected sockets support nonblocking so we can connect() them.
            `Passive     sockets support nonblocking so we can accept() them.

@@ -58,10 +58,10 @@ let debug = ref false
    When reading code here, keep in mind that there are two entry points:
 
    (1) The functions that are exposed for external consumption in the mli (these are
-   protected by the mutex).
+       protected by the mutex).
 
-   (2) Code that is called within threads created in this module.  All such code should
-   acquire the mutex before it affects the thread state. *)
+   (2) Code that is called within threads created in this module. All such code should
+       acquire the mutex before it affects the thread state. *)
 
 module Internal = struct
   module Mutex = Nano_mutex
@@ -106,10 +106,10 @@ module Internal = struct
       ; mutable state : [ `In_use | `Finishing | `Finished ]
       ; thread : 'thread
           (* [default_name] will be used as the name of work run by the helper thread,
-         unless that work is added with an overriding name. *)
+             unless that work is added with an overriding name. *)
       ; default_name : string
           (* [default_priority] will be used as the priority of work run by the helper
-         thread, unless that work is added with an overriding priority. *)
+             thread, unless that work is added with an overriding priority. *)
       ; default_priority : Priority.t
       }
     [@@deriving fields ~getters, sexp_of]
@@ -121,25 +121,25 @@ module Internal = struct
            to the most recent call to [set_thread_name] by the thread. *)
         mutable name : string
           (* [thread_id] is the OCaml thread id of the OCaml thread that this corresponds
-         to.  It is an option only because we create this object before creating the
-         thread.  We set it to [Some] as soon as we create the thread, and then never
-         change it. *)
+             to. It is an option only because we create this object before creating the
+             thread. We set it to [Some] as soon as we create the thread, and then never
+             change it. *)
       ; mutable thread_id : Thread_id.t option
           (* [priority] is the priority of the thread that the OS knows, i.e. the argument
-         supplied in the most recent call to [setpriority] by the thread. *)
+             supplied in the most recent call to [setpriority] by the thread. *)
       ; mutable priority : Priority.t
           (* A thread can be "available", meaning that it isn't working on anything, or
-         doing work added to the thread pool, or serving as a helper thread.  *)
+             doing work added to the thread pool, or serving as a helper thread. *)
       ; mutable state :
           [ `Available | `Working | `Helper of (t[@sexp.opaque]) Helper_thread.t ]
-          (* [unfinished_work] is the amount of work remaining for this thread to do.  It
-         includes all the work in [work_queue], plus perhaps an additional work that is
-         running. *)
+          (* [unfinished_work] is the amount of work remaining for this thread to do. It
+             includes all the work in [work_queue], plus perhaps an additional work that
+             is running. *)
       ; mutable unfinished_work : int
-          (* [work_queue] is where this thread pulls work from.  Each thread has its own
-         queue.  If a thread is working for the general pool, then its work queue has at
-         most one element.  If a thread is a helper thread, then the work queue has all
-         the unfinished work that has been added for the helper thread. *)
+          (* [work_queue] is where this thread pulls work from. Each thread has its own
+             queue. If a thread is working for the general pool, then its work queue has
+             at most one element. If a thread is a helper thread, then the work queue has
+             all the unfinished work that has been added for the helper thread. *)
       ; work_queue : Work_queue.t
       }
     [@@deriving fields ~iterators:iter, sexp_of]
@@ -187,10 +187,10 @@ module Internal = struct
 
     let initialize_ocaml_thread t (cpu_affinity : Cpu_affinity.t) =
       set_thread_name t.name;
-      (* We call [getpriority] to see whether we need to set the priority.  This is not a
-         performance optimization.  It is done so that in programs that don't use
+      (* We call [getpriority] to see whether we need to set the priority. This is not a
+         performance optimization. It is done so that in programs that don't use
          priorities, we never call [setpriority], and thus prevent problems due to the
-         user's "ulimit -e" being too restrictive.  The use of [getpriority] is limited to
+         user's "ulimit -e" being too restrictive. The use of [getpriority] is limited to
          initialization, and is not used elsewhere in this module. *)
       if not (Priority.equal (getpriority ()) t.priority) then setpriority t.priority;
       match cpu_affinity with
@@ -233,37 +233,37 @@ module Internal = struct
     ; mutable state : [ `In_use | `Finishing | `Finished ]
     ; finished : unit Thread_safe_ivar.t
         (* [mutex] is used to protect all access to [t] and its substructures, since the
-       threads actually doing the work need to access[t]. *)
+           threads actually doing the work need to access[t]. *)
     ; mutex : Mutex.t
     (** [default_priority] is the priority that will be used for work unless that work is
         added with an overriding priority. It is set to whatever the priority is when the
         thread pool is created. *)
     ; default_priority : Priority.t
-        (* [max_num_threads] is the maximum number of threads that the thread pool is allowed
-       to create. *)
+        (* [max_num_threads] is the maximum number of threads that the thread pool is
+           allowed to create. *)
     ; max_num_threads : int
         (* [cpu_affinity] is the desired CPU affinity for threads in this pool. *)
     ; cpu_affinity : Cpu_affinity.t
-        (* [num_threads] is the number of threads that have been created by the pool.  The
-       thread pool guarantees that [num_threads <= max_num_threads]. *)
+        (* [num_threads] is the number of threads that have been created by the pool. The
+           thread pool guarantees that [num_threads <= max_num_threads]. *)
     ; mutable num_threads : int
         (* [thread_creation_failure_lockout] is the amount of time that must pass after a
-       thread-creation failure before the thread pool will make another attempt to create
-       a thread. *)
+           thread-creation failure before the thread pool will make another attempt to
+           create a thread. *)
     ; mutable thread_creation_failure_lockout : Time_ns.Span.t
         (* [last_thread_creation_failure] has information about the last time that
-       [Core_thread.create] raised. *)
+           [Core_thread.create] raised. *)
     ; mutable last_thread_creation_failure : Thread_creation_failure.t option
         (* [thread_by_id] holds all the threads that have been created by the pool. *)
     ; mutable thread_by_id : Thread.t Thread_id.Table.t
-        (* [available_threads] holds all threads that have [state = `Available].  It is used
-       as a stack so that the most recently used available thread is used next, on the
-       theory that this is better for locality. *)
+        (* [available_threads] holds all threads that have [state = `Available]. It is
+           used as a stack so that the most recently used available thread is used next,
+           on the theory that this is better for locality. *)
     ; mutable available_threads : Thread.t list
         (* [work_queue] holds work to be done for which no thread is available. *)
     ; work_queue : Work.t Queue.t
-        (* [unfinished_work] holds the amount of work that has been submitted to the pool but
-       not yet been completed. *)
+        (* [unfinished_work] holds the amount of work that has been submitted to the pool
+           but not yet been completed. *)
     ; mutable unfinished_work : int
     ; mutable num_work_completed : int
     ; mutable num_working_threads : int
@@ -326,13 +326,13 @@ module Internal = struct
              (* It is possible that:
 
                 {[
-                  has_unstarted_work t
-                  && t.num_threads < t.max_num_threads ]}
+                  has_unstarted_work t && t.num_threads < t.max_num_threads
+                ]}
 
-                This happens when adding work and [Core_thread.create] raises.  In that
+                This happens when adding work and [Core_thread.create] raises. In that
                 case, the thread pool enqueues the work and continues with the threads it
-                has.  If the thread pool can't make progress, then Async's thread-pool-stuck
-                detection will later report it. *)
+                has. If the thread pool can't make progress, then Async's
+                thread-pool-stuck detection will later report it. *)
              assert (Queue.is_empty work_queue || List.is_empty t.available_threads)))
         ~unfinished_work:(check (fun unfinished_work -> assert (unfinished_work >= 0)))
         ~num_work_completed:

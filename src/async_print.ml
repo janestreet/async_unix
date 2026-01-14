@@ -31,13 +31,13 @@ let prerr_float f = prerr_string (Float.to_string_12 f)
 let print_s ?mach sexp =
   print_endline
     (match mach with
-     | Some () -> Sexp.to_string_mach sexp
-     | None -> Sexp.to_string_hum sexp)
+     | Some () -> (Sexp.to_string_mach [@alloc stack]) sexp
+     | None -> (Sexp.to_string_hum [@alloc stack]) sexp) [@nontail]
 ;;
 
 let eprint_s ?mach sexp =
   prerr_endline
     (match mach with
-     | Some () -> Sexp.to_string_mach sexp
-     | None -> Sexp.to_string_hum sexp)
+     | Some () -> (Sexp.to_string_mach [@alloc stack]) sexp
+     | None -> (Sexp.to_string_hum [@alloc stack]) sexp) [@nontail]
 ;;

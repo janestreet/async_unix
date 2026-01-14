@@ -122,18 +122,18 @@ let block_on_async_not_holding_async_lock t f =
   match maybe_blocked with
   | `Available v -> v
   | `Blocked_wait_on_squeue q ->
-    (* [run_holding_async_lock] released the lock.  If the scheduler wasn't already
-       running when [block_on_async] was called, then we started it above.  So, the
-       scheduler is running, and will eventually run the job to put something on the
-       squeue.  So, it's OK to block waiting for it. *)
+    (* [run_holding_async_lock] released the lock. If the scheduler wasn't already running
+       when [block_on_async] was called, then we started it above. So, the scheduler is
+       running, and will eventually run the job to put something on the squeue. So, it's
+       OK to block waiting for it. *)
     Squeue.pop q
 ;;
 
 let block_on_async t f =
   if debug then Debug.log "block_on_async" t [%sexp_of: t];
-  (* We disallow calling [block_on_async] if the caller is running inside async.  This can
+  (* We disallow calling [block_on_async] if the caller is running inside async. This can
      happen if one is the scheduler, or if one is in some other thread that has used, e.g.
-     [run_in_async] to call into async and run a cycle.  We do however, want to allow the
+     [run_in_async] to call into async and run a cycle. We do however, want to allow the
      main thread to call [block_on_async], in which case it should release the lock and
      allow the scheduler, which is running in another thread, to run. *)
   if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
@@ -148,9 +148,9 @@ let block_on_async t f =
     let res = block_on_async_not_holding_async_lock t f in
     (* If we're the main thread, we should lock the scheduler for the rest of main, to
        prevent the scheduler, which is now running in another thread, from interfering
-       with the main thread.  We also restore the execution context, so that the code
-       in the main thread will be in the same execution context as before it called
-       [block_on_async].  The restored execution context will usually be
+       with the main thread. We also restore the execution context, so that the code in
+       the main thread will be in the same execution context as before it called
+       [block_on_async]. The restored execution context will usually be
        [Execution_context.main], but need not be, if the user has done operations that
        adjust the current execution context, e.g. [Monitor.within]. *)
     lock t;

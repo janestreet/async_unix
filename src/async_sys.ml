@@ -164,8 +164,8 @@ include struct
   include (
     Base.Sys :
     sig
-      (* It seems like just aliasing primitives doesn't satisfy the compiler,
-         so this is brought in through [include] instead of a [let]. *)
+      (* It seems like just aliasing primitives doesn't satisfy the compiler, so this is
+         brought in through [include] instead of a [let]. *)
       external opaque_identity : 'a. ('a[@local_opt]) -> ('a[@local_opt]) = "%opaque"
       [@@layout_poly]
 
@@ -182,8 +182,8 @@ end
 include (
   Sys_unix :
   sig
-    (* It seems like just aliasing primitives doesn't satisfy the compiler,
-         so this is brought in through [include] instead of a [let]. *)
+    (* It seems like just aliasing primitives doesn't satisfy the compiler, so this is
+       brought in through [include] instead of a [let]. *)
     external c_int_size : unit -> int = "c_int_size" [@@noalloc]
   end)
 
