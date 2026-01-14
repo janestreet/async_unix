@@ -282,8 +282,8 @@ let create_fd ?avoid_setting_nonblock kind file_descr info =
 
 let current_thread_id () = Core_thread.(id (self ()))
 
-(* OCaml runtime happens to assign the thread id of [0] to the main thread
-   (the initial thread that starts the program). *)
+(* OCaml runtime happens to assign the thread id of [0] to the main thread (the initial
+   thread that starts the program). *)
 let is_main_thread () = current_thread_id () = 0
 let remove_fd t fd = By_descr.remove t.fd_by_descr fd.Fd.file_descr
 

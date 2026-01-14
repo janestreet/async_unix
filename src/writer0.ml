@@ -113,10 +113,10 @@ type t =
     mutable bytes_received : Int63.t
   ; mutable bytes_written : Int63.t
   ; (* Bytes that we have received but not yet written are stored in two places:
-       [scheduled] and [buf].  The bytes that we need to write are the concatenation of
-       the sequence of iovecs in [scheduled] followed by the bytes in [buf] from
-       [scheduled_back] to [back].  Note that iovecs in [scheduled] can point to regions
-       in [buf], even the current [buf] in the writer. *)
+       [scheduled] and [buf]. The bytes that we need to write are the concatenation of the
+       sequence of iovecs in [scheduled] followed by the bytes in [buf] from
+       [scheduled_back] to [back]. Note that iovecs in [scheduled] can point to regions in
+       [buf], even the current [buf] in the writer. *)
     (* [scheduled] holds iovecs that we plan to write. *)
     scheduled : Scheduled.t
   ; (* [scheduled_bytes] is the sum of the lengths of the iovecs in[scheduled] *)
@@ -669,10 +669,11 @@ let is_closed t =
 
 let is_open t = not (is_closed t)
 let writers_to_flush_at_shutdown : t Bag.t = Bag.create ()
+let eval_force_timeout = Time_ns.Span.of_sec 5.
 
-let eval_force ?force t =
+let eval_force ?force t ~natural_stop_condition =
   match force with
-  | Some fc -> fc
+  | Some fc -> Deferred.any_unit [ fc; natural_stop_condition ]
   | None ->
     (* We used to use [after (sec 5.)] as the default value for [force] for all kinds of
        underlying fds. This was problematic, because it silently caused data in the
@@ -680,8 +681,13 @@ let eval_force ?force t =
        only for the files, when we want to get data to disk. When we close socket writers,
        we usually just want to drop the connection, so using [after (sec 5.)] makes sense. *)
     (match Fd.kind t.fd with
-     | File -> Deferred.never ()
-     | Char | Fifo | Socket _ -> Time_source.after t.time_source (Time_ns.Span.of_sec 5.))
+     | File -> natural_stop_condition
+     | Char | Fifo | Socket _ ->
+       (* We use [Time_source.with_timeout] so that we don't leak the async execution
+          context for [eval_force_timeout] (which happens when we use [Time_source.after])
+       *)
+       Time_source.with_timeout t.time_source eval_force_timeout natural_stop_condition
+       |> Deferred.ignore_m)
 ;;
 
 let final_flush ?force t =
@@ -695,15 +701,16 @@ let final_flush ?force t =
       ~f:(fun f -> f ())
       (Bag.to_list t.producers_to_flush_at_close)
   in
-  let force = eval_force ?force t in
-  Deferred.any_unit
-    [ (* If the consumer leaves, there's no more writing we can do. *)
-      consumer_left t
-    ; Deferred.all_unit [ producers_flushed; flushed t ]
-    ; force
-    ; (* The buffer-age check might fire while we're waiting. *)
-      Check_buffer_age.too_old (Lazy.force t.check_buffer_age)
-    ]
+  let natural_stop_condition =
+    Deferred.any_unit
+      [ (* If the consumer leaves, there's no more writing we can do. *)
+        consumer_left t
+      ; Deferred.all_unit [ producers_flushed; flushed t ]
+      ; (* The buffer-age check might fire while we're waiting. *)
+        Check_buffer_age.too_old (Lazy.force t.check_buffer_age)
+      ]
+  in
+  eval_force ?force t ~natural_stop_condition
 ;;
 
 let stop_background_writer_if_not_running_now t =
@@ -2086,6 +2093,10 @@ module Private = struct
   let set_bytes_written t i = t.bytes_written <- i
 
   module Check_buffer_age = Check_buffer_age
+
+  module Internal_for_unit_test = struct
+    let eval_force_timeout = eval_force_timeout
+  end
 end
 
 include Stdout_and_stderr

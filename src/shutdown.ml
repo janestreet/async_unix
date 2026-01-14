@@ -1,4 +1,4 @@
-(* Unit tests are in ../../lib_test/shutdown_tests.ml *)
+(* Unit tests are in ../test/src/test_shutdown.ml *)
 
 open Core
 open Import
@@ -43,7 +43,14 @@ let ignore_exn f =
 
 let debug = Debug.shutdown
 
-module Handler = struct
+module Handler : sig
+  type t
+
+  val create : call_pos:Source_code_position.t -> f:(unit -> unit Deferred.t) -> t
+  val run : t -> unit Or_error.t Deferred.t
+  val state : t -> [ `Waiting | `Ran of unit Or_error.t Deferred.t ]
+  val call_pos : t -> Source_code_position.t
+end = struct
   module State = struct
     type t =
       | Waiting of (unit -> unit Deferred.t)
@@ -53,11 +60,10 @@ module Handler = struct
   type t =
     { call_pos : Source_code_position.t
     ; mutable state : State.t
-    ; mutable bag_elt : t Bag.Elt.t option
     }
 
-  let todo = Bag.create ()
-  let create ~call_pos ~f = { call_pos; state = Waiting f; bag_elt = None }
+  let create ~call_pos ~f = { call_pos; state = Waiting f }
+  let call_pos t = t.call_pos
 
   let forward_result deferred ivar =
     match Deferred.peek deferred with
@@ -93,28 +99,24 @@ module Handler = struct
       result
   ;;
 
-  let remove t =
-    Option.iter t.bag_elt ~f:(fun elt ->
-      Bag.remove todo elt;
-      t.bag_elt <- None);
+  let state t =
     match t.state with
-    | Waiting _ -> `Ok
-    | Ran _ -> `Ran
+    | Waiting _ -> `Waiting
+    | Ran result -> `Ran result
   ;;
 end
 
-let todo = Handler.todo
+let normal_handlers = Bag.create ()
+let late_handlers = Bag.create ()
 
-let at_shutdown_removable ~(here : [%call_pos]) f =
+let at_shutdown_removable ~(here : [%call_pos]) bag f =
   if debug then Debug.log "at_shutdown" here [%sexp_of: Source_code_position.t];
   let handler = Handler.create ~call_pos:here ~f in
-  let bag_elt = Bag.add todo handler in
-  handler.bag_elt <- Some bag_elt;
-  handler
+  Bag.add bag handler
 ;;
 
 let at_shutdown ~(here : [%call_pos]) f =
-  let _ : Handler.t = at_shutdown_removable ~here f in
+  let _ : Handler.t Bag.Elt.t = at_shutdown_removable ~here normal_handlers f in
   ()
 ;;
 
@@ -166,21 +168,25 @@ let shutdown_with_status ?force status =
      | Compatible_and_do_not_replace -> ())
   | No ->
     shutting_down_ref := Yes status;
-    upon
-      (Deferred.all (Bag.to_list todo |> List.map ~f:Handler.run))
-      (fun results ->
-        match shutting_down () with
-        | No -> assert false
-        | Yes status ->
-          let status =
-            match Or_error.combine_errors_unit results with
-            | Ok () -> status
-            | Error _ ->
-              (match status with
-               | Exit 0 -> Exit 1
-               | _ -> status)
-          in
-          exit_reliably status);
+    don't_wait_for
+      (let%bind normal_results =
+         Deferred.all (Bag.to_list normal_handlers |> List.map ~f:Handler.run)
+       in
+       let%bind late_results =
+         Deferred.all (Bag.to_list late_handlers |> List.map ~f:Handler.run)
+       in
+       match shutting_down () with
+       | No -> assert false
+       | Yes status ->
+         let status =
+           match Or_error.combine_errors_unit (normal_results @ late_results) with
+           | Ok () -> status
+           | Error _ ->
+             (match status with
+              | Exit 0 -> Exit 1
+              | _ -> status)
+         in
+         exit_reliably status);
     let force =
       match force with
       | None -> !default_force_ref ()
@@ -192,15 +198,17 @@ let shutdown_with_status ?force status =
           "Shutdown forced."
           [%sexp
             { unfinished_handlers =
-                (List.filter_map (Bag.to_list todo) ~f:(fun handler ->
-                   match handler.state with
-                   | Waiting _ ->
-                     (* added after shutdown started, so actually won't be waited for *)
-                     None
-                   | Ran deferred ->
-                     if Deferred.is_determined deferred
-                     then None
-                     else Some handler.call_pos)
+                (List.filter_map
+                   (Bag.to_list normal_handlers @ Bag.to_list late_handlers)
+                   ~f:(fun handler ->
+                     match Handler.state handler with
+                     | `Waiting ->
+                       (* added after shutdown started, so actually won't be waited for *)
+                       None
+                     | `Ran deferred ->
+                       if Deferred.is_determined deferred
+                       then None
+                       else Some (Handler.call_pos handler))
                  : Source_code_position.t list)
             }]
           (fun s -> s));
@@ -220,10 +228,16 @@ let shutdown_with_signal_exn ?force signal =
           (default_sys_behavior : [ `Stop | `Continue | `Ignore ])]
 ;;
 
+let shutdown_on_unhandled_exn_logger = ref (fun ~msg:(_ : string) (_ : Exn.t) -> ())
+
 let shutdown_on_unhandled_exn () =
   Monitor.detach_and_iter_errors Monitor.main ~f:(fun exn ->
     ignore_exn (fun () ->
       Debug.log "shutting down due to unhandled exception" exn [%sexp_of: exn]);
+    ignore_exn (fun () ->
+      !shutdown_on_unhandled_exn_logger
+        ~msg:"shutting down due to unhandled exception"
+        exn);
     try shutdown 1 with
     | _ ->
       (* The above [shutdown] call raises if we have already called shutdown with a
@@ -237,8 +251,15 @@ let exit ?force status =
 ;;
 
 let don't_finish_before ~(here : [%call_pos]) d =
-  let handler = at_shutdown_removable ~here (fun _ -> d) in
-  upon d (fun () ->
-    let _ : [ `Ok | `Ran ] = Handler.remove handler in
-    ())
+  let bag_elt = at_shutdown_removable ~here normal_handlers (fun () -> d) in
+  upon d (fun () -> Bag.remove normal_handlers bag_elt)
 ;;
+
+module Private = struct
+  let run_after_other_shutdown_handlers ~(here : [%call_pos]) f =
+    let _ : Handler.t Bag.Elt.t = at_shutdown_removable ~here late_handlers f in
+    ()
+  ;;
+
+  let set_shutdown_on_unhandled_exn_logger f = shutdown_on_unhandled_exn_logger := f
+end

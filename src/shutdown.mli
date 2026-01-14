@@ -27,7 +27,10 @@ val shutdown_with_signal_exn : ?force:unit Deferred.t -> Signal.t -> unit
     [shutdown 1] is called. This is useful when one wants to ensure that [at_shutdown]
     handlers run when there is an unhandled exception. Calling [shutdown_on_unhandled_exn]
     ensures that [Scheduler.go] will not raise due to an unhandled exception, and instead
-    that the program will exit once [at_shutdown] handlers finish. *)
+    that the program will exit once [at_shutdown] handlers finish.
+
+    Note that [async_command], which is downstream of this library, does not use this
+    function, but instead has its own unhandled exception shutdown handler. *)
 val shutdown_on_unhandled_exn : unit -> unit
 
 (** [exit ?force status] is [shutdown ?force status; Deferred.never ()].
@@ -100,3 +103,24 @@ val at_shutdown : here:[%call_pos] -> (unit -> unit Deferred.t) -> unit
     once [d] is determined. [don't_finish_before] does not override the [force] argument
     passed to shutdown. *)
 val don't_finish_before : here:[%call_pos] -> unit Deferred.t -> unit
+
+(*_ See the Jane Street Style Guide for an explanation of [Private] submodules:
+
+    https://opensource.janestreet.com/standards/#private-submodules *)
+module Private : sig
+  (** [shutdown_on_unhandled_exn] normally logs to stderr on shutdown. This allows a
+      private downstream library to set an additional logging handler on shutdown. This is
+      used by [Async_log], other uses of it will clobber [Async_log]'s usecase. *)
+  val set_shutdown_on_unhandled_exn_logger : (msg:string -> exn -> unit) -> unit
+
+  (** This function allows certain async-related libraries to ensure their shutdown
+      handlers are run after user-supplied shutdown handlers. An example is for async-log
+      to flush pending logs from other handlers.
+
+      If shutdown is forced (e.g. due to timeout) before regular shutdown handlers have
+      completed, this shutdown handler will not run. *)
+  val run_after_other_shutdown_handlers
+    :  here:[%call_pos]
+    -> (unit -> unit Deferred.t)
+    -> unit
+end

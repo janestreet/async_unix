@@ -86,10 +86,16 @@ let close_sock_on_error s f =
     raise e
 ;;
 
-let reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size s =
+let reader_writer_of_sock
+  ?buffer_age_limit
+  ?reader_buffer_size
+  ?writer_buffer_size
+  ?time_source
+  s
+  =
   let fd = Socket.fd s in
   ( Reader.create ?buf_len:reader_buffer_size fd
-  , Writer.create ?buffer_age_limit ?buf_len:writer_buffer_size fd )
+  , Writer.create ?buffer_age_limit ?buf_len:writer_buffer_size ?time_source fd )
 ;;
 
 let connect_sock
@@ -159,7 +165,12 @@ let connect
   connect_sock ?socket ?interrupt ?timeout ?time_source where_to_connect
   >>| fun s ->
   let r, w =
-    reader_writer_of_sock ?buffer_age_limit ?reader_buffer_size ?writer_buffer_size s
+    reader_writer_of_sock
+      ?buffer_age_limit
+      ?reader_buffer_size
+      ?writer_buffer_size
+      ?time_source
+      s
   in
   s, r, w
 ;;
