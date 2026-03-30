@@ -63,7 +63,7 @@ let create ~create_fd =
    if it is. *)
 let thread_safe_interrupt t =
   if debug then Debug.log_string "Interruptor.thread_safe_interrupt";
-  let rec loop () =
+  let rec loop t ~debug =
     match Atomic.get t.phase with
     | Interrupted ->
       ( (* Nothing to do as both of these indicate that an interrupt was already made. *) )
@@ -83,7 +83,7 @@ let thread_safe_interrupt t =
             sleep, we should just wake it up. If someone else finished an interrupt, then
             we are done. It is highly unlikely that we would need multiple retries and
             adding a backoff here is unlikely to improve performance. *)
-         loop ())
+         loop t ~debug)
     | Sleeping ->
       (match
          Atomic.compare_and_set
@@ -102,7 +102,7 @@ let thread_safe_interrupt t =
               accumulate bytes in the pipe. *)
            assert (bytes_written = 1)))
   in
-  loop ()
+  loop t ~debug
 ;;
 
 module Sleep = struct

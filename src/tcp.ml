@@ -905,6 +905,7 @@ module Server = struct
     ?drop_incoming_connections
     ?socket
     ?time_source
+    ?on_socket_accepted
     ~on_handler_error
     where_to_listen
     handle_client
@@ -919,6 +920,7 @@ module Server = struct
       ~on_handler_error
       where_to_listen
       (fun client_address client_socket ->
+         Option.iter on_socket_accepted ~f:(fun f -> f client_socket);
          let r, w =
            reader_writer_of_sock
              ?buffer_age_limit
@@ -944,6 +946,7 @@ module Server = struct
     ?drop_incoming_connections
     ?socket
     ?time_source
+    ?on_socket_accepted
     ~on_handler_error
     where_to_listen
     handle_client
@@ -959,6 +962,7 @@ module Server = struct
       ?drop_incoming_connections
       ?socket
       ?time_source
+      ?on_socket_accepted
       ~on_handler_error
       where_to_listen
       handle_client
@@ -974,6 +978,7 @@ module Server = struct
     ?drop_incoming_connections
     ?socket
     ?time_source
+    ?on_socket_accepted
     ~on_handler_error
     where_to_listen
     handle_client
@@ -989,6 +994,7 @@ module Server = struct
       ?drop_incoming_connections
       ?socket
       ?time_source
+      ?on_socket_accepted
       ~on_handler_error
       where_to_listen
       handle_client

@@ -98,7 +98,15 @@ let create ?polling_timeout ~queue_depth () =
 let exit = Uring.exit
 let supports_ext_arg = Uring.supports_ext_arg
 let register_eventfd = Uring.register_eventfd
-let submit t = Uring.submit t
+
+module Submit_outcome = struct
+  type t = Uring.Submit_outcome.t =
+    | All_submitted
+    | Remaining_unsubmitted
+end
+
+let submit t = Uring.submit_check t
+let submit_raw t = Uring.submit t
 let cqe_ready t = Uring.cqe_ready t
 
 let rec iter_completions_internal io_uring ~f count =

@@ -294,6 +294,9 @@ module Server : sig
     -> ?socket:([ `Unconnected ], ([< Socket.Address.t ] as 'address)) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
          (** default is [Time_source.wall_clock ()] *)
+    -> ?on_socket_accepted:(([ `Active ], 'address) Socket.t -> unit)
+         (** Called after TCP accept but before Reader/Writer creation. This allows
+             setting socket options on the accepted connection before any I/O begins. *)
     -> on_handler_error:[ `Call of 'address -> exn -> unit | `Ignore | `Raise ]
     -> ('address, 'listening_on) Where_to_listen.t
     -> ('address -> Reader.t -> Writer.t -> unit Deferred.t)
@@ -311,6 +314,9 @@ module Server : sig
     -> ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t
     -> ?time_source:[> read ] Time_source.T1.t
          (** default is [Time_source.wall_clock ()] *)
+    -> ?on_socket_accepted:(([ `Active ], Socket.Address.Inet.t) Socket.t -> unit)
+         (** Called after TCP accept but before Reader/Writer creation. This allows
+             setting socket options on the accepted connection before any I/O begins. *)
     -> on_handler_error:
          [ `Call of Socket.Address.Inet.t -> exn -> unit | `Ignore | `Raise ]
     -> Where_to_listen.inet
