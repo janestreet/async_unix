@@ -58,16 +58,16 @@ val run_in_async_exn
     running the cycle will cause the deferred to become determined.
 
     [block_on_async] will automatically start the scheduler if it isn't already running. *)
-val block_on_async : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
+val block_on_async : here:[%call_pos] -> (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 
-val block_on_async_exn : (unit -> 'a Deferred.t) -> 'a
+val block_on_async_exn : here:[%call_pos] -> (unit -> 'a Deferred.t) -> 'a
 
 (** [run_in_async_wait f] is like [block_on_async f], except that it must be called from a
     thread that's not holding the Async lock. (there's no exception for the main thread)
     On return, the caller does not have the Async lock. *)
-val run_in_async_wait : (unit -> 'a Deferred.t) -> ('a, exn) Result.t
+val run_in_async_wait : here:[%call_pos] -> (unit -> 'a Deferred.t) -> ('a, exn) Result.t
 
-val run_in_async_wait_exn : (unit -> 'a Deferred.t) -> 'a
+val run_in_async_wait_exn : here:[%call_pos] -> (unit -> 'a Deferred.t) -> 'a
 
 (** [without_async_lock f] can not be called from async, usually because [f] is expected
     to block. It's safe to call it in these two circumstances:

@@ -58,7 +58,11 @@ val max_num_threads : unit -> int
     Async execution ceases. Then, by default, Async pretty prints the exception, and exits
     with status 1. If you don't want this, pass [~raise_unhandled_exn:true], which will
     cause the unhandled exception to be raised to the caller of [go ()]. *)
-val go : ?raise_unhandled_exn:bool (** default is [false] *) -> unit -> never_returns
+val go
+  :  ?raise_unhandled_exn:bool (** default is [false] *)
+  -> here:[%call_pos]
+  -> unit
+  -> never_returns
 
 (** [go_main] is like [go], except that you supply a [main] function that will be run to
     initialize the Async computation, and that [go_main] will fail if any Async has been
@@ -71,6 +75,7 @@ val go_main
   -> ?max_num_open_file_descrs:int (** default is [Config] *)
   -> ?max_num_threads:int (** default is [Config] *)
   -> main:(unit -> unit)
+  -> here:[%call_pos]
   -> unit
   -> never_returns
 
@@ -88,6 +93,9 @@ val report_long_cycle_times : ?cutoff:Time.Span.t -> unit -> unit
 
 (** [is_running ()] returns true if the scheduler has been started. *)
 val is_running : unit -> bool
+
+(** Returns debug information as a sexp regarding how the scheduler was started. *)
+val start_debug_info : unit -> Sexp.t
 
 (** [set_max_inter_cycle_timeout span] sets the maximum amount of time the scheduler will
     remain blocked (on epoll or select) between cycles. *)

@@ -59,7 +59,7 @@ let without_async_lock t f =
   else f ()
 ;;
 
-let ensure_the_scheduler_is_started t =
+let ensure_the_scheduler_is_started ~here t =
   if not (is_running t)
   then (
     let starting =
@@ -67,7 +67,7 @@ let ensure_the_scheduler_is_started t =
       with_async_lock t (fun () ->
         if not (is_running t)
         then (
-          t.start_type <- Called_block_on_async;
+          t.start_type <- Called_block_on_async here;
           let scheduler_ran_a_job = Thread_safe_ivar.create () in
           upon (return ()) (fun () -> Thread_safe_ivar.fill scheduler_ran_a_job ());
           `Yes scheduler_ran_a_job)
@@ -96,9 +96,9 @@ let ensure_the_scheduler_is_started t =
         Thread_safe_ivar.read scheduler_ran_a_job))
 ;;
 
-let block_on_async_not_holding_async_lock t f =
+let block_on_async_not_holding_async_lock ~here t f =
   (* Create a scheduler thread if the scheduler isn't already running. *)
-  ensure_the_scheduler_is_started t;
+  ensure_the_scheduler_is_started ~here t;
   let maybe_blocked =
     run_holding_async_lock
       t
@@ -129,7 +129,7 @@ let block_on_async_not_holding_async_lock t f =
     Squeue.pop q
 ;;
 
-let block_on_async t f =
+let block_on_async ~here t f =
   if debug then Debug.log "block_on_async" t [%sexp_of: t];
   (* We disallow calling [block_on_async] if the caller is running inside async. This can
      happen if one is the scheduler, or if one is in some other thread that has used, e.g.
@@ -139,13 +139,13 @@ let block_on_async t f =
   if i_am_the_scheduler t || (am_holding_lock t && not (is_main_thread ()))
   then raise_s [%message "called [block_on_async] from within async"];
   if not (am_holding_lock t)
-  then block_on_async_not_holding_async_lock t f
+  then block_on_async_not_holding_async_lock ~here t f
   else (
     let execution_context =
       Kernel_scheduler.current_execution_context t.kernel_scheduler
     in
     unlock t;
-    let res = block_on_async_not_holding_async_lock t f in
+    let res = block_on_async_not_holding_async_lock ~here t f in
     (* If we're the main thread, we should lock the scheduler for the rest of main, to
        prevent the scheduler, which is now running in another thread, from interfering
        with the main thread. We also restore the execution context, so that the code in
@@ -158,7 +158,7 @@ let block_on_async t f =
     res)
 ;;
 
-let block_on_async_exn t f = Result.ok_exn (block_on_async t f)
+let block_on_async_exn ~here t f = Result.ok_exn (block_on_async ~here t f)
 
 let run_in_async ?wakeup_scheduler t f =
   if debug then Debug.log "run_in_async" t [%sexp_of: t];
@@ -170,13 +170,13 @@ let run_in_async_exn ?wakeup_scheduler t f =
   Result.ok_exn (run_in_async ?wakeup_scheduler t f)
 ;;
 
-let run_in_async_wait t f =
+let run_in_async_wait ~here t f =
   if debug then Debug.log "run_in_async_wait" t [%sexp_of: t];
   ensure_in_a_thread t "run_in_async_wait";
-  block_on_async t f
+  block_on_async ~here t f
 ;;
 
-let run_in_async_wait_exn t f = Result.ok_exn (run_in_async_wait t f)
+let run_in_async_wait_exn ~here t f = Result.ok_exn (run_in_async_wait ~here t f)
 
 let deferred t =
   let ivar =
@@ -198,10 +198,10 @@ let run_in_async_with_optional_cycle ?wakeup_scheduler f =
 
 let run_in_async ?wakeup_scheduler f = run_in_async ?wakeup_scheduler (t ()) f
 let run_in_async_exn ?wakeup_scheduler f = run_in_async_exn ?wakeup_scheduler (t ()) f
-let block_on_async f = block_on_async (t ()) f
-let block_on_async_exn f = block_on_async_exn (t ()) f
-let run_in_async_wait f = run_in_async_wait (t ()) f
-let run_in_async_wait_exn f = run_in_async_wait_exn (t ()) f
+let block_on_async ~(here : [%call_pos]) f = block_on_async ~here (t ()) f
+let block_on_async_exn ~(here : [%call_pos]) f = block_on_async_exn ~here (t ()) f
+let run_in_async_wait ~(here : [%call_pos]) f = run_in_async_wait ~here (t ()) f
+let run_in_async_wait_exn ~(here : [%call_pos]) f = run_in_async_wait_exn ~here (t ()) f
 
 let ok_to_drop_lock t =
   is_main_thread () && not (Kernel_scheduler.in_cycle t.kernel_scheduler)

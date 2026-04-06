@@ -168,7 +168,7 @@ end
 
 let pre_check t =
   (* This has the efect of submitting at the end of every cycle. *)
-  let (_ : int) = Io_uring_raw.submit t.uring in
+  let (_ : Io_uring_raw.Submit_outcome.t) = Io_uring_raw.submit t.uring in
   ()
 ;;
 

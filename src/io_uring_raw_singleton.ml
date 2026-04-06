@@ -15,9 +15,11 @@ module Eventfd_driver = struct
       scheduler checks for I/O through the file descriptor watcher. *)
   let register_hooks uring eventfd =
     Io_uring_raw.register_eventfd uring (Eventfd.to_file_descr eventfd);
-    Async_kernel_scheduler.Expert.run_every_cycle_end (fun () ->
-      let (_ : int) = Io_uring_raw.submit uring in
-      ());
+    let scheduler = Raw_scheduler.the_one_and_only () in
+    Raw_scheduler.add_extra_event_source scheduler (fun () ->
+      match Io_uring_raw.submit uring with
+      | All_submitted -> Quiescent
+      | Remaining_unsubmitted -> Active);
     let fd =
       Raw_scheduler.create_fd
         Raw_fd.Kind.Fifo
@@ -33,7 +35,7 @@ module Eventfd_driver = struct
     *)
     let eventfd_ready_job =
       Raw_scheduler.create_job
-        (Raw_scheduler.the_one_and_only ())
+        scheduler
         (fun () ->
           try
             let (_ : Int64.t) = Eventfd.read eventfd in
@@ -47,7 +49,7 @@ module Eventfd_driver = struct
     let finished_watching = Ivar.create () in
     (match
        Raw_scheduler.request_start_watching
-         (Raw_scheduler.the_one_and_only ())
+         scheduler
          fd
          `Read
          (Raw_fd.Watching.Watch_repeatedly

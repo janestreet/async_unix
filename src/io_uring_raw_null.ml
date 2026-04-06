@@ -3,6 +3,12 @@ open Import
 
 type t
 
+module Submit_outcome = struct
+  type t =
+    | All_submitted
+    | Remaining_unsubmitted
+end
+
 module Int63 = struct
   type t : immediate64
 
@@ -193,6 +199,7 @@ let create ?polling_timeout:_ ~queue_depth:_ () =
 let exit _ = assert false
 let supports_ext_arg _ = assert false
 let submit _ = assert false
+let submit_raw _ = assert false
 let cqe_ready _ ~timeout:_ = assert false
 let fill_completions _ = assert false
 let noop _ = assert false

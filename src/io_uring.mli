@@ -5,7 +5,7 @@ type t = Io_uring_raw.t
 
 val create : ?polling_timeout:int -> queue_depth:int -> unit -> t Or_error.t
 val exit : t -> unit
-val submit : t -> int
+val submit : t -> Io_uring_raw.Submit_outcome.t
 val fill_completions : t -> int
 
 val read

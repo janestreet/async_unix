@@ -42,11 +42,18 @@ module type S = sig
     include Invariant.S with type t := t
   end
 
+  module Submit_outcome : sig
+    type t =
+      | All_submitted
+      | Remaining_unsubmitted
+  end
+
   val create : ?polling_timeout:int -> queue_depth:int -> unit -> t Or_error.t
   val supports_ext_arg : t -> bool
   val exit : t -> unit
   val register_eventfd : t -> File_descr.t -> unit
-  val submit : t -> int
+  val submit : t -> Submit_outcome.t
+  val submit_raw : t -> int
   val cqe_ready : t -> timeout:float -> bool
   val fill_completions : t -> int
   val noop : t -> Handle.t

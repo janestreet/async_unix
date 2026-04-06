@@ -37,6 +37,7 @@ let has_pending_external_jobs () = has_pending_external_jobs (t ())
 let max_num_threads () = max_num_threads (t ())
 let _ = current_execution_context
 let is_running () = is_the_one_and_only_running ()
+let start_debug_info () = start_debug_info (t ())
 
 module For_tests = struct
   let warm_up_fds () =

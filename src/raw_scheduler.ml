@@ -68,10 +68,26 @@ include Async_kernel_scheduler
 
 type start_type =
   | Not_started
-  | Called_go
-  | Called_block_on_async (* Thread_safe.block_on_async started the scheduler *)
-  | Called_external_run of { active : bool ref }
+  | Called_go of Source_code_position.t
+  | Called_block_on_async of
+      Source_code_position.t (* Thread_safe.block_on_async started the scheduler *)
+  | Called_external_run of
+      { active : bool ref
+      ; call_pos : Source_code_position.t
+      }
 [@@deriving sexp_of]
+
+module Extra_event_source_result = struct
+  (* Extra event sources are polled before going to sleep waiting for fd watcher. If any
+     of them return [Active], we don't go to sleep, so the scheduler keeps spinning until
+     the event source goes [Quiescent]
+
+     These are similar to busy_pollers and maybe they should be unified, except they are
+     not expected to do any looping, and can go quiescent. *)
+  type t =
+    | Quiescent
+    | Active
+end
 
 type t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
@@ -91,6 +107,8 @@ type t =
   ; (* Returns how many events the poll has processed. *)
     busy_pollers : (Busy_poller.packed Uniform_array.t[@sexp.opaque])
   ; mutable num_busy_pollers : int
+  ; mutable extra_event_sources :
+      ((unit -> Extra_event_source_result.t)[@sexp.opaque]) Uniform_array.t
   ; mutable time_spent_waiting_for_io : Tsc.Span.t
   ; (* [fd_by_descr] holds every file descriptor that Async manages. Fds are added when
        they are created, and removed when they transition to [Closed]. *)
@@ -334,6 +352,7 @@ let invariant t : unit =
                raise_s [%message "fd problem" (exn : exn) (file_descr : File_descr.t)])))
       ~busy_pollers:ignore
       ~num_busy_pollers:ignore
+      ~extra_event_sources:ignore
       ~time_spent_waiting_for_io:ignore
       ~fd_by_descr:
         (check (fun fd_by_descr ->
@@ -644,21 +663,6 @@ let%test_unit ("maybe_report_long_async_cycles_to_magic_trace doesn't allocate"
   [%test_result: int] (words_after - words_before) ~expect:0
 ;;
 
-(* If busy pollers are present, the [cycle_time] also includes the time of the last busy
-   pollers invocation.
-
-   This makes [cycle_time] a bit of a misnomer, but the up-side is that this value is a
-   more reliable indicator of cycle-to-cycle latency. The latency is bounded by
-   [cycle_time + max_busy_wait_duration], rather than being unbounded due to a slow busy
-   poller callback. *)
-let[@inline] measure_and_maybe_report_long_async_cycles_to_magic_trace ~start : unit =
-  let cycle_time =
-    Tsc.diff (Tsc.now ()) start
-    |> Tsc.Span.to_time_ns_span ~calibrator:(force Tsc.calibrator)
-  in
-  maybe_report_long_async_cycles_to_magic_trace ~cycle_time
-;;
-
 let create
   ~mutex
   ?(thread_pool_cpu_affinity = Config.thread_pool_cpu_affinity)
@@ -791,6 +795,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; fds_whose_watching_has_changed = Stack.create ()
     ; file_descr_watcher
     ; busy_pollers = Uniform_array.create ~len:256 Busy_poller.empty
+    ; extra_event_sources = Uniform_array.empty
     ; num_busy_pollers = 0
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
@@ -871,14 +876,12 @@ let thread_safe_enqueue_external_job t f =
   Kernel_scheduler.thread_safe_enqueue_external_job t.kernel_scheduler f
 ;;
 
-let have_lock_do_cycle_default ?(maybe_report_to_magic_trace = true) t =
-  Kernel_scheduler.run_cycle t.kernel_scheduler;
+let have_lock_do_cycle_default ?(additional_cycle_time @ local) t =
+  Kernel_scheduler.run_cycle ?additional_cycle_time t.kernel_scheduler;
   (* If we are not the scheduler, wake it up so it can process any remaining jobs, clock
      events, or an unhandled exception. *)
-  if maybe_report_to_magic_trace
-  then
-    maybe_report_long_async_cycles_to_magic_trace
-      ~cycle_time:t.kernel_scheduler.last_cycle_time;
+  maybe_report_long_async_cycles_to_magic_trace
+    ~cycle_time:t.kernel_scheduler.last_cycle_time;
   if not (i_am_the_scheduler t) then thread_safe_wakeup_scheduler t
 ;;
 
@@ -888,11 +891,11 @@ let have_lock_do_cycle_if_scheduler t =
   else thread_safe_wakeup_scheduler t
 ;;
 
-let have_lock_do_cycle ?maybe_report_to_magic_trace t =
+let have_lock_do_cycle ?(additional_cycle_time @ local) t =
   if debug then Debug.log "have_lock_do_cycle" t [%sexp_of: t];
   match t.have_lock_do_cycle with
   | Some f -> f ()
-  | None -> have_lock_do_cycle_default ?maybe_report_to_magic_trace t
+  | None -> have_lock_do_cycle_default ?additional_cycle_time t
 ;;
 
 let[@cold] log_sync_changed_fds_to_file_descr_watcher t file_descr desired =
@@ -992,6 +995,11 @@ let add_busy_poller t ~max_busy_wait_duration f =
        (Time_ns.Span.min
           (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
           max_busy_wait_duration)
+;;
+
+let add_extra_event_source t f =
+  t.extra_event_sources
+  <- Uniform_array.concat [ t.extra_event_sources; Uniform_array.singleton f ]
 ;;
 
 let init t =
@@ -1107,17 +1115,23 @@ let[@inline always] run_busy_pollers_once t ~deadline =
   !did_work
 ;;
 
-(* Returns the start time of the last [run_busy_pollers_once] call. *)
+(* Returns time spent in useful busy polls. *)
 let run_busy_pollers t ~timeout =
   let calibrator = force Tsc.calibrator in
   let now = ref (Tsc.now ()) in
   let deadline = ref (Tsc.add !now (Tsc.Span.of_time_ns_span timeout ~calibrator)) in
-  let start_time_of_last_busy_poll = ref !now in
+  let busy_poll_cycle_time = ref Tsc.Span.zero in
   while
+    let start =
+      (* We're going to assume the [if pollers_did_something] branch doesn't materially
+         advance [now] (from the prior loop). *)
+      !now
+    in
     let pollers_did_something = run_busy_pollers_once t ~deadline:!deadline in
     now := Tsc.now ();
     if pollers_did_something
-    then
+    then (
+      busy_poll_cycle_time := Tsc.Span.( + ) !busy_poll_cycle_time (Tsc.diff !now start);
       if Kernel_scheduler.can_run_a_job t.kernel_scheduler
       then deadline := !now
       else if Kernel_scheduler.has_upcoming_event t.kernel_scheduler
@@ -1128,14 +1142,22 @@ let run_busy_pollers t ~timeout =
             (Tsc.to_time_ns !now ~calibrator)
           |> Tsc.Span.of_time_ns_span ~calibrator
         in
-        deadline := Tsc.min !deadline (Tsc.add !now new_timeout));
+        deadline := Tsc.min !deadline (Tsc.add !now new_timeout)));
     Tsc.( < ) !now !deadline
   do
-    (* We're going to assume the [if pollers_did_something] branch doesn't materially
-       advance [now]. *)
-    start_time_of_last_busy_poll := !now
+    ()
   done;
-  !start_time_of_last_busy_poll
+  Tsc.Span.to_time_ns_span !busy_poll_cycle_time ~calibrator:(force Tsc.calibrator)
+;;
+
+let check_extra_event_sources_active t =
+  let outcome = ref false in
+  for i = 0 to Uniform_array.length t.extra_event_sources - 1 do
+    match (Uniform_array.get t.extra_event_sources i) () with
+    | Active -> outcome := true
+    | Quiescent -> ()
+  done;
+  !outcome
 ;;
 
 (* We compute the timeout as the last thing before [check_file_descr_watcher], because we
@@ -1145,20 +1167,27 @@ let run_busy_pollers t ~timeout =
    And we only call [Linux_ext.Timerfd.set_after] if the time that we want it to fire is
    different than the time it is already set to fire.
 
-   We return a "start" time for the purposes of the magic-trace trigger. In particular, we
-   want to capture the time spent in busy-pollers (e.g. Netkit direct IO handlers). The
-   logic here is hacky to avoid including time spent in epoll (unless we call it with an
-   immediate timeout).
+   We return an extra span to add on the the reported asyc cycle time. If busy pollers are
+   present, this is the total duration of the busy poller invocations that did something.
+   The logic here is hacky to avoid including time spent in epoll (unless we call it with
+   an immediate timeout).
+
+   This makes [cycle_time] a bit of a misnomer, but the up-side is that this value is a
+   more reliable indicator of cycle-to-cycle latency. The latency is bounded by
+   [cycle_time + max_busy_wait_duration], rather than being unbounded due to a slow busy
+   poller callback.
 *)
 let compute_timeout_and_check_file_descr_watcher t =
   let min_inter_cycle_timeout = (t.min_inter_cycle_timeout :> Time_ns.Span.t) in
   let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
   let have_busy_pollers = t.num_busy_pollers > 0 in
+  let scheduler_active = Kernel_scheduler.can_run_a_job t.kernel_scheduler in
+  let scheduler_active = scheduler_active || check_extra_event_sources_active t in
   let file_descr_watcher_timeout =
     match t.timerfd, have_busy_pollers with
     | None, _ | Some _, true ->
       (* Since there is no timerfd, use the file descriptor watcher timeout. *)
-      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+      if scheduler_active
       then min_inter_cycle_timeout
       else if not (Kernel_scheduler.has_upcoming_event t.kernel_scheduler)
       then max_inter_cycle_timeout
@@ -1175,7 +1204,7 @@ let compute_timeout_and_check_file_descr_watcher t =
       let have_min_inter_cycle_timeout =
         Time_ns.Span.( > ) min_inter_cycle_timeout Time_ns.Span.zero
       in
-      if Kernel_scheduler.can_run_a_job t.kernel_scheduler
+      if scheduler_active
       then
         if not have_min_inter_cycle_timeout
         then Time_ns.Span.zero
@@ -1201,43 +1230,39 @@ let compute_timeout_and_check_file_descr_watcher t =
           Linux_ext.Timerfd.set_at timerfd set_timerfd_at);
         max_inter_cycle_timeout)
   in
+  let span_since start =
+    let tsc_span = Tsc.diff (Tsc.now ()) start in
+    Tsc.Span.to_time_ns_span tsc_span ~calibrator:(force Tsc.calibrator)
+  in
   if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
   then (
-    let magic_trace_cycle_start = Tsc.now () in
-    ignore (run_busy_pollers_once t ~deadline:Tsc.zero : bool);
-    check_file_descr_watcher t ~timeout:Immediately ();
-    magic_trace_cycle_start)
-  else if have_busy_pollers
-  then (
-    let start_of_last_busy_poll =
-      run_busy_pollers t ~timeout:file_descr_watcher_timeout
+    let start = Tsc.now () in
+    let pollers_did_something = run_busy_pollers_once t ~deadline:Tsc.zero in
+    let busy_poll_cycle_time =
+      if pollers_did_something then span_since start else Time_ns.Span.zero
     in
     check_file_descr_watcher t ~timeout:Immediately ();
-    start_of_last_busy_poll)
+    busy_poll_cycle_time)
+  else if have_busy_pollers
+  then (
+    let busy_poll_cycle_time = run_busy_pollers t ~timeout:file_descr_watcher_timeout in
+    check_file_descr_watcher t ~timeout:Immediately ();
+    busy_poll_cycle_time)
   else (
     check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout;
     (* We want to exclude the time spent in any epolls with a long timeout from the
        purpose of the magic-trace trigger. *)
-    Tsc.now ())
+    Time_ns.Span.zero)
 ;;
 
 let one_iter t =
   if Kernel_scheduler.check_invariants t.kernel_scheduler then invariant t;
   maybe_calibrate_tsc t;
   sync_changed_fds_to_file_descr_watcher t;
-  let magic_trace_long_async_cycle_start =
-    compute_timeout_and_check_file_descr_watcher t
-  in
+  let additional_cycle_time = compute_timeout_and_check_file_descr_watcher t in
   if debug then Debug.log_string "handling delivered signals";
   Signal_manager.handle_delivered t.signal_manager;
-  have_lock_do_cycle
-    t
-    ~maybe_report_to_magic_trace:
-      (* We're reporting ourselves below to include the time taken in the last busy
-         pollers invocation. *)
-      false;
-  measure_and_maybe_report_long_async_cycles_to_magic_trace
-    ~start:magic_trace_long_async_cycle_start;
+  have_lock_do_cycle t ~additional_cycle_time;
   Kernel_scheduler.uncaught_exn t.kernel_scheduler
 ;;
 
@@ -1308,7 +1333,17 @@ let is_running t =
   | _ -> true
 ;;
 
-let go ?raise_unhandled_exn () =
+let start_debug_info t =
+  match t.start_type with
+  | Not_started -> [%message "Not_started"]
+  | Called_go call_pos -> [%message "Called_go" ~_:(call_pos : Source_code_position.t)]
+  | Called_block_on_async call_pos ->
+    [%message "Called_block_on_async" ~_:(call_pos : Source_code_position.t)]
+  | Called_external_run { call_pos; _ } ->
+    [%message "Called_external_run" ~_:(call_pos : Source_code_position.t)]
+;;
+
+let go ?raise_unhandled_exn ~(here : [%call_pos]) () =
   if debug then Debug.log_string "Scheduler.go";
   set_task_id ();
   let t = the_one_and_only () in
@@ -1318,9 +1353,9 @@ let go ?raise_unhandled_exn () =
   if not (am_holding_lock t) then lock t;
   match t.start_type with
   | Not_started ->
-    t.start_type <- Called_go;
+    t.start_type <- Called_go here;
     be_the_scheduler t ?raise_unhandled_exn
-  | Called_block_on_async ->
+  | Called_block_on_async _ ->
     (* This case can occur if the main thread uses Thread_safe.block_on_async before
        starting Async. Then, the scheduler is started and running in another thread, so we
        block forever instead of calling [be_the_scheduler] *)
@@ -1332,7 +1367,7 @@ let go ?raise_unhandled_exn () =
     Time.pause_forever ()
   | Called_external_run _ ->
     raise_s [%message "cannot mix Scheduler.go and Scheduler.External"]
-  | Called_go -> raise_s [%message "cannot Scheduler.go more than once"]
+  | Called_go _ -> raise_s [%message "cannot Scheduler.go more than once"]
 ;;
 
 let go_main
@@ -1341,6 +1376,7 @@ let go_main
   ?max_num_open_file_descrs
   ?max_num_threads
   ~main
+  ~(here : [%call_pos])
   ()
   =
   (match !the_one_and_only_ref with
@@ -1361,7 +1397,7 @@ let go_main
        (fun () ->
          create ~mutex ?file_descr_watcher ?max_num_open_file_descrs ?max_num_threads ());
   Deferred.upon (return ()) main;
-  go ?raise_unhandled_exn ()
+  go ?raise_unhandled_exn ~here ()
 ;;
 
 let is_the_one_and_only_running () =
@@ -1408,6 +1444,7 @@ let fold_fields (type a) ~init folder : a =
     ~start_type:f
     ~fds_whose_watching_has_changed:f
     ~file_descr_watcher:f
+    ~extra_event_sources:f
     ~busy_pollers:f
     ~num_busy_pollers:f
     ~time_spent_waiting_for_io:f
@@ -1477,8 +1514,8 @@ module External = struct
           [%message "Attempt to call current_thread_can_cycle without holding Async lock"];
       match t.start_type with
       | Not_started -> true
-      | Called_external_run { active } when not !active -> i_am_the_scheduler t
-      | Called_go | Called_block_on_async | Called_external_run _ ->
+      | Called_external_run { active; _ } when not !active -> i_am_the_scheduler t
+      | Called_go _ | Called_block_on_async _ | Called_external_run _ ->
         if i_am_the_scheduler t
         then
           raise_s
@@ -1494,12 +1531,12 @@ module External = struct
       | `Ready -> ev.file_descr, ev.read_or_write)
   ;;
 
-  let run_one_cycle t =
+  let run_one_cycle ~(here : [%call_pos]) t =
     set_task_id ();
     let active =
       match t.start_type with
-      | Called_external_run { active } -> active
-      | Called_go | Called_block_on_async ->
+      | Called_external_run { active; _ } -> active
+      | Called_go _ | Called_block_on_async _ ->
         if t.scheduler_thread_id = current_thread_id ()
         then
           raise_s [%message "Scheduler.External.run_one_cycle called from within Async"]
@@ -1510,7 +1547,7 @@ module External = struct
                in another thread"]
       | Not_started ->
         let active = ref false in
-        t.start_type <- Called_external_run { active };
+        t.start_type <- Called_external_run { active; call_pos = here };
         init t;
         active
     in
