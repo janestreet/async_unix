@@ -113,8 +113,8 @@ val collect_output_and_wait : t -> Output.t Deferred.t
     [run_lines] is like [run] but returns the lines of stdout as a string list, using
     [String.split_lines].
 
-    [run_expect_no_output] is like [run] but expects the command to produce no output, and
-    returns an error if the command does produce output.
+    [run_expect_no_stdout] is like [run] but expects the command to produce no stdout, and
+    returns an error if the command does produce stdout.
 
     [run_forwarding] is like [run] but it forwards the stdout and stderr of the child
     process to the stdout and stderr of the calling process. One can choose to share the
@@ -142,17 +142,29 @@ type 'a run :=
   -> unit
   -> 'a Deferred.t
 
+(** Note that stderr is both ignored and not forwarded in all [run*] functions in the case
+    of success except for [run_forwarding]/[run_forwarding_exn], which forward (but still
+    ignore) stderr. *)
+
 val run : string Or_error.t run
 val run_exn : string run
 val run_lines : string list Or_error.t run
 val run_lines_exn : string list run
+val run_expect_no_stdout : unit Or_error.t run
+val run_expect_no_stdout_exn : unit run
+
 val run_expect_no_output : unit Or_error.t run
+[@@deprecated "[since 2025-02] Use [run_expect_no_stdout], which is equivalent"]
+
 val run_expect_no_output_exn : unit run
+[@@deprecated "[since 2025-02] Use [run_expect_no_stdout], which is equivalent"]
+
 val run_forwarding : ?child_fds:[ `Share | `Splice ] -> unit Or_error.t run
 val run_forwarding_exn : ?child_fds:[ `Share | `Splice ] -> unit run
 
 (** [collect_stdout_and_wait] and [collect_stdout_lines_and_wait] are like [run] and
-    [run_lines] but work from an existing process instead of creating a new one. *)
+    [run_lines] but work from an existing process instead of creating a new one. Note that
+    stderr is not forwarded, and in the case of success it's dropped entirely. *)
 type 'a collect :=
   ?accept_nonzero_exit:int list (** default is [] *) -> t -> 'a Deferred.t
 

@@ -1545,7 +1545,10 @@ module Writes = struct
       then
         raise_s
           [%message
-            "Writer.write_bin_prot_no_size_header bug!" (written : int) (size : int)];
+            "Writer.write_bin_prot_no_size_header: bin-prot writer wrote unexpected \
+             number of bytes"
+              (written : int)
+              (size : int)];
       maybe_start_writer t)
   ;;
 

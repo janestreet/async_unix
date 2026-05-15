@@ -381,7 +381,7 @@ val socketpair : unit -> Fd.t * Fd.t
 module Socket : sig
   module Address : sig
     module Unix : sig
-      type t = [ `Unix of string ] [@@deriving bin_io, sexp, compare ~localize]
+      type t = [ `Unix of string ] [@@deriving bin_io, sexp ~portable, compare ~localize]
 
       val create : string -> t
       val to_string : t -> string
@@ -390,7 +390,7 @@ module Socket : sig
 
     module Inet : sig
       type t = [ `Inet of Inet_addr.t * int ]
-      [@@deriving bin_io, compare ~localize, hash, sexp_of]
+      [@@deriving bin_io, compare ~localize, hash, sexp_of ~portable]
 
       (** [Blocking_sexp] performs DNS lookup to resolve hostnames to IP addresses. *)
       module Blocking_sexp : sig

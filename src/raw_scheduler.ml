@@ -985,32 +985,13 @@ let dump_core_on_job_delay () =
 
 let num_busy_pollers t = t.num_busy_pollers
 
-let add_busy_poller t ~max_busy_wait_duration f =
-  if t.num_busy_pollers = Uniform_array.length t.busy_pollers
-  then raise_s [%message "[add_busy_poller] maximum number of pollers exceeded"];
-  Uniform_array.set t.busy_pollers t.num_busy_pollers f;
-  t.num_busy_pollers <- t.num_busy_pollers + 1;
-  t.max_inter_cycle_timeout
-  <- Max_inter_cycle_timeout.create_exn
-       (Time_ns.Span.min
-          (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
-          max_busy_wait_duration)
-;;
-
 let add_extra_event_source t f =
   t.extra_event_sources
   <- Uniform_array.concat [ t.extra_event_sources; Uniform_array.singleton f ]
 ;;
 
-let init t =
-  dump_core_on_job_delay ();
+let start_watching_interruptor t =
   let interruptor = t.interruptor in
-  Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler (fun () ->
-    Interruptor.thread_safe_interrupt interruptor);
-  t.scheduler_thread_id <- current_thread_id ();
-  (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
-     the process doesn't die due to an unhandled SIGPIPE. *)
-  Signal_manager.manage ~behavior_when_no_handlers:No_op t.signal_manager Signal.pipe;
   let interruptor_finished = Ivar.create () in
   let interruptor_read_fd = Interruptor.read_fd t.interruptor in
   let problem_with_interruptor () =
@@ -1039,6 +1020,71 @@ let init t =
   upon (Ivar.read interruptor_finished) (fun _ -> problem_with_interruptor ())
 ;;
 
+(* De-register the interruptor fd from the file-descr-watcher once we know we will never
+   block in [thread_safe_check] again (because busy pollers are present).
+
+   Any bytes already sitting in the pipe are benign: after this point [Interruptor.sleep]
+   is never called, so the phase never becomes [Sleeping], so [thread_safe_interrupt]
+   never writes to the pipe again. Already-enqueued [clear_fd] jobs keep the [Fd.t] alive
+   and will read remaining bytes (or tolerate [EAGAIN]) when they run.
+
+   Safe to call only from the scheduler thread while holding the async lock, and only when
+   we're outside [thread_safe_check] (i.e. the interruptor phase is never [Sleeping]). *)
+let stop_watching_interruptor t =
+  let interruptor_read_fd = Interruptor.read_fd t.interruptor in
+  match Read_write_pair.get interruptor_read_fd.watching `Read with
+  | Not_watching -> ()
+  | Stop_requested | Watch_once _ -> (* not expected *) ()
+  | Watch_repeatedly { job; finished_ivar = _; pending = _ } ->
+    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+    Kernel_scheduler.free_job t.kernel_scheduler job;
+    Read_write_pair.set interruptor_read_fd.watching `Read Not_watching;
+    dec_num_active_syscalls_fd t interruptor_read_fd;
+    (match
+       F.set
+         F.watcher
+         interruptor_read_fd.file_descr
+         (Read_write_pair.create ~read:false ~write:false)
+     with
+     | `Ok | `Unsupported -> ())
+;;
+
+let init t =
+  dump_core_on_job_delay ();
+  let interruptor = t.interruptor in
+  Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler (fun () ->
+    Interruptor.thread_safe_interrupt interruptor);
+  t.scheduler_thread_id <- current_thread_id ();
+  (* We handle [Signal.pipe] so that write() calls on a closed pipe/socket get EPIPE but
+     the process doesn't die due to an unhandled SIGPIPE. *)
+  Signal_manager.manage ~behavior_when_no_handlers:No_op t.signal_manager Signal.pipe;
+  (* The interruptor fd is only needed to wake the scheduler out of a blocking
+     [thread_safe_check]. Once busy pollers are present, [thread_safe_check] is always
+     called with [~timeout:Immediately], so the fd is not needed. If busy pollers were
+     added before we got here, skip the registration entirely. *)
+  if t.num_busy_pollers = 0 then start_watching_interruptor t
+;;
+
+let scheduler_has_been_initialized t = t.scheduler_thread_id >= 0
+
+let add_busy_poller t ~max_busy_wait_duration f =
+  if t.num_busy_pollers = Uniform_array.length t.busy_pollers
+  then raise_s [%message "[add_busy_poller] maximum number of pollers exceeded"];
+  let was_empty = t.num_busy_pollers = 0 in
+  Uniform_array.set t.busy_pollers t.num_busy_pollers f;
+  t.num_busy_pollers <- t.num_busy_pollers + 1;
+  t.max_inter_cycle_timeout
+  <- Max_inter_cycle_timeout.create_exn
+       (Time_ns.Span.min
+          (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
+          max_busy_wait_duration);
+  (* If this is the first busy poller and [init] already registered the interruptor with
+     the file-descr-watcher, remove it now: we will no longer be sleeping in
+     [thread_safe_check], so the fd-based wakeup path is unnecessary. If [init] has not
+     yet run, it will notice the busy poller and skip the registration. *)
+  if was_empty && scheduler_has_been_initialized t then stop_watching_interruptor t
+;;
+
 let fds_may_produce_events t =
   By_descr.exists t.fd_by_descr ~f:(fun fd ->
     (* Jobs created by the interruptor don't do anything, so we don't need to count them
@@ -1060,7 +1106,12 @@ let fds_may_produce_events t =
 
 (* We avoid allocation in [check_file_descr_watcher], since it is called every time in the
    scheduler loop. *)
-let check_file_descr_watcher t ~timeout span_or_unit =
+let check_file_descr_watcher
+  (type a)
+  t
+  ~(timeout : a File_descr_watcher_intf.Timeout.t)
+  (span_or_unit : a)
+  =
   let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
   if Debug.file_descr_watcher
   then Debug.log "File_descr_watcher.pre_check" t [%sexp_of: t];
@@ -1081,9 +1132,12 @@ let check_file_descr_watcher t ~timeout span_or_unit =
       [%sexp_of: [ `Immediately | `After of Time_ns.Span.t ] * t];
   let before = Tsc.now () in
   let check_result =
-    match Interruptor.sleep t.interruptor with
-    | Sleep -> F.thread_safe_check F.watcher pre timeout span_or_unit
-    | Clear_pending_interrupts -> F.thread_safe_check F.watcher pre Immediately ()
+    match timeout with
+    | Immediately -> F.thread_safe_check F.watcher pre timeout span_or_unit
+    | After ->
+      (match Interruptor.sleep t.interruptor with
+       | Sleep -> F.thread_safe_check F.watcher pre timeout span_or_unit
+       | Clear_pending_interrupts -> F.thread_safe_check F.watcher pre Immediately ())
   in
   let after = Tsc.now () in
   t.time_spent_waiting_for_io
@@ -1092,7 +1146,10 @@ let check_file_descr_watcher t ~timeout span_or_unit =
   (* We call [Interruptor.clear] after [thread_safe_check] and before any of the
      processing that needs to happen in response to [thread_safe_interrupt]. That way,
      even if [Interruptor.clear] clears out an interrupt that hasn't been serviced yet,
-     the interrupt will still be serviced by the immediately following processing. *)
+     the interrupt will still be serviced by the immediately following processing.
+
+     We [clear] even if we didn't [sleep], to ensure we don't stay in the [Interrupted]
+     state forever. *)
   Interruptor.clear t.interruptor;
   if Debug.file_descr_watcher
   then
@@ -1182,7 +1239,13 @@ let compute_timeout_and_check_file_descr_watcher t =
   let max_inter_cycle_timeout = (t.max_inter_cycle_timeout :> Time_ns.Span.t) in
   let have_busy_pollers = t.num_busy_pollers > 0 in
   let scheduler_active = Kernel_scheduler.can_run_a_job t.kernel_scheduler in
-  let scheduler_active = scheduler_active || check_extra_event_sources_active t in
+  let extra_event_sources_active =
+    (* [check_extra_event_sources_active] is allowed to be side-effecting (and is, for
+       io_uring), so it's load-bearing that we call it here instead of short-circuiting it
+       when [scheduler_active]. *)
+    check_extra_event_sources_active t
+  in
+  let scheduler_active = scheduler_active || extra_event_sources_active in
   let file_descr_watcher_timeout =
     match t.timerfd, have_busy_pollers with
     | None, _ | Some _, true ->

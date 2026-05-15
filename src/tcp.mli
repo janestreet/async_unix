@@ -9,9 +9,9 @@ open! Unix_syscalls
 
 (** A [Where_to_connect] describes the socket that a tcp client should connect to. *)
 module Where_to_connect : sig
-  type 'a t constraint 'a = [< Socket.Address.t ] [@@deriving sexp_of]
-  type inet = Socket.Address.Inet.t t [@@deriving sexp_of]
-  type unix = Socket.Address.Unix.t t [@@deriving sexp_of]
+  type 'a t constraint 'a = [< Socket.Address.t ] [@@deriving sexp_of ~portable]
+  type inet = Socket.Address.Inet.t t [@@deriving sexp_of ~portable]
+  type unix = Socket.Address.Unix.t t [@@deriving sexp_of ~portable]
 
   val remote_address : 'a t -> 'a Deferred.t
 

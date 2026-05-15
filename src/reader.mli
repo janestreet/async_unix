@@ -97,6 +97,21 @@ val create
   -> Fd.t
   -> t
 
+(** [create ~buffer fd] creates a new reader like [create], but uses [buffer] as its
+    initial backing buffer.
+
+    Note that some operations can cause the buffer to be resized, so even a reader created
+    using this function could allocate a new buffer to use as its backing buffer. The
+    functions that do that are ones that might tell the [Reader] to read a large amount of
+    data into a single buffer, e.g. reading a large object with [read_bin_prot] or
+    returning a large [`Need] from [read_one_chunk_at_a_time]. If you avoid those
+    functions, [Reader] shouldn't allocate a new buffer.
+
+    Also note that because of the above, it's not valid to expect [buffer] to always
+    contain the pending data inside the reader, since a new buffer may have been
+    allocated. *)
+val create_with_initial_buffer : Fd.t -> buffer:Bigstring.t -> t
+
 val of_in_channel : In_channel.t -> Fd.Kind.t -> t
 
 (** [with_file file f] opens [file], creates a reader with it, and passes the reader to
