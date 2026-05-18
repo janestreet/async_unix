@@ -305,7 +305,7 @@ let run_exn = map_run run ok_exn
 let run_lines = map_run run (Or_error.map ~f:String.split_lines)
 let run_lines_exn = map_run run_lines ok_exn
 
-let run_expect_no_output
+let run_expect_no_stdout
   ?accept_nonzero_exit
   ?argv0
   ?env
@@ -331,11 +331,13 @@ let run_expect_no_output
   | Error _ as err -> err
   | Ok "" -> Ok ()
   | Ok non_empty_output ->
-    Or_error.error "Process.run_expect_no_output: non-empty output" () (fun () ->
+    Or_error.error "Process.run_expect_no_stdout: non-empty output" () (fun () ->
       [%sexp { prog : string; args : string list; output = (non_empty_output : string) }])
 ;;
 
-let run_expect_no_output_exn = map_run run_expect_no_output ok_exn
+let run_expect_no_stdout_exn = map_run run_expect_no_stdout ok_exn
+let run_expect_no_output = run_expect_no_stdout
+let run_expect_no_output_exn = run_expect_no_stdout_exn
 
 let transfer_and_close reader writer =
   Reader.with_close reader ~f:(fun () -> Writer.splice ~from:reader writer)

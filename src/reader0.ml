@@ -128,6 +128,26 @@ module Internal = struct
     assert (t.pos + t.available <= Bigstring.length t.buf)
   ;;
 
+  let create' fd ~buf ~close_may_destroy_buf =
+    let open_flags =
+      (* Even though [fcntl] in general can block, [fcntl_getfl] simply reads flags that
+         are already in memory, so it does not need to be run in a separate thread. *)
+      Fd.syscall fd (fun file_descr -> Core_unix.fcntl_getfl file_descr)
+    in
+    { fd
+    ; id = Id.create ()
+    ; bytes_read = Int63.zero
+    ; buf
+    ; close_may_destroy_buf
+    ; pos = 0
+    ; available = 0
+    ; state = `Not_in_use
+    ; close_finished = Ivar.create ()
+    ; last_read_time = Scheduler.cycle_start ()
+    ; open_flags
+    }
+  ;;
+
   let create ?buf_len fd =
     let buf_len =
       match buf_len with
@@ -150,23 +170,16 @@ module Internal = struct
             [%message
               "Reader.create got non positive buf_len" (buf_len : int) (fd : Fd.t)]
     in
-    let open_flags =
-      (* Even though [fcntl] in general can block, [fcntl_getfl] simply reads flags that
-         are already in memory, so it does not need to be run in a separate thread. *)
-      Fd.syscall fd (fun file_descr -> Core_unix.fcntl_getfl file_descr)
-    in
-    { fd
-    ; id = Id.create ()
-    ; bytes_read = Int63.zero
-    ; buf = Bigstring.create buf_len
-    ; close_may_destroy_buf = `Yes
-    ; pos = 0
-    ; available = 0
-    ; state = `Not_in_use
-    ; close_finished = Ivar.create ()
-    ; last_read_time = Scheduler.cycle_start ()
-    ; open_flags
-    }
+    let buf = Bigstring.create buf_len in
+    (* Since we created this buffer and it hasn't been exposed to the user, it's initially
+       safe to destroy it on close. *)
+    create' fd ~buf ~close_may_destroy_buf:`Yes
+  ;;
+
+  let create_with_initial_buffer fd ~buffer =
+    (* Since this buffer was exposed to the user who may still use it after this reader is
+       closed, we can't safely destroy it ourselves. *)
+    create' fd ~buf:buffer ~close_may_destroy_buf:`Not_ever
   ;;
 
   let of_in_channel ic kind = create (Fd.of_in_channel ic kind)
@@ -1165,6 +1178,7 @@ type nonrec 'a read = 'a read
 let close = close
 let close_finished = close_finished
 let create = create
+let create_with_initial_buffer = create_with_initial_buffer
 let fd = fd
 let id = id
 let invariant = invariant
@@ -1393,7 +1407,7 @@ let gen_load_exn
         with_file ?exclusive file ~f:(fun t ->
           (may_load_file_multiple_times
            := (* Although [file] typically is of kind [Fd.Kind.File], it may also have
-                    other kinds. We can only load it multiple times if it has kind [File]. *)
+                 other kinds. We can only load it multiple times if it has kind [File]. *)
               match Fd.kind (fd t) with
               | File -> true
               | Char | Fifo | Socket _ -> false);
