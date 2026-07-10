@@ -25,6 +25,7 @@ type t =
   ; epoll : Epoll.t
   ; handle_fd_read_ready : File_descr.t -> Flags.t -> unit
   ; handle_fd_write_ready : File_descr.t -> Flags.t -> unit
+  ; mutable num_fds : int
   }
 [@@deriving sexp_of, fields ~iterators:iter]
 
@@ -49,6 +50,11 @@ let invariant t : unit =
                  ~f:(fun flags' -> Flags.equal flags flags')))))
       ~handle_fd_read_ready:ignore
       ~handle_fd_write_ready:ignore
+      ~num_fds:
+        (check (fun num_fds ->
+           [%test_result: int]
+             (Epoll.fold t.epoll ~init:0 ~f:(fun _ _ acc -> acc + 1))
+             ~expect:(num_fds + (* timerfd *) 1)))
   with
   | exn ->
     raise_s
@@ -85,6 +91,7 @@ let create ~timerfd ~num_file_descrs ~handle_fd_read_ready ~handle_fd_write_read
   ; epoll
   ; handle_fd_read_ready = handle_fd `Read handle_fd_read_ready
   ; handle_fd_write_ready = handle_fd `Write handle_fd_write_ready
+  ; num_fds = 0
   }
 ;;
 
@@ -112,14 +119,19 @@ let set t file_descr desired =
   | None, Some d ->
     (match Epoll.set t.epoll file_descr d with
      | exception Core_unix.Unix_error (EPERM, _, _) -> `Unsupported
-     | () -> `Ok)
+     | () ->
+       t.num_fds <- t.num_fds + 1;
+       `Ok)
   | Some _, None ->
     Epoll.remove t.epoll file_descr;
+    t.num_fds <- t.num_fds - 1;
     `Ok
   | Some a, Some d ->
     if not (Flags.equal a d) then Epoll.set t.epoll file_descr d;
     `Ok
 ;;
+
+let has_fds t = t.num_fds > 0
 
 module Pre = struct
   type t = unit [@@deriving sexp_of]

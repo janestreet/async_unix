@@ -2,7 +2,7 @@ open Core
 open Import
 module Scheduler = Raw_scheduler
 module Unix = Unix_syscalls
-module Id = Unique_id.Int63 ()
+module Id = Types.Reader_id
 
 module Read_result = struct
   module Z = struct
@@ -54,7 +54,7 @@ module Internal = struct
     ]
   [@@deriving sexp_of]
 
-  type t =
+  type t = Types.Reader.t =
     { fd : Fd.t
     ; id : Id.t
     ; mutable bytes_read : Int63.t

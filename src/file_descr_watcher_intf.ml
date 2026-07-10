@@ -63,6 +63,11 @@ module type S = sig
       each of \{`Read,`Write\} that it is being watched for. *)
   val iter : t -> f:(File_descr.t -> Read_write_pair.Key.t -> unit) -> unit
 
+  (** [has_fds t] returns whether any file descriptor is currently being watched via
+      [set]. Excludes any file descriptors that the watcher manages internally (such as a
+      [timerfd] used to implement timeouts). *)
+  val has_fds : t -> bool
+
   (** [pre_check t] does whatever non-thread-safe work is necessary to prepare for the
       system call that checks file descriptors being ready for read or write. [pre_check]
       does not side effect [t]. *)

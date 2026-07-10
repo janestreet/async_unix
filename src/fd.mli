@@ -56,7 +56,7 @@ module Kind : sig
   val infer_using_stat : Unix.File_descr.t -> t Deferred.t
 end
 
-type t [@@deriving sexp_of]
+type t = Types.Fd.t [@@deriving sexp_of]
 type t_hum = t [@@deriving sexp_of]
 
 val info : t -> Info.t

@@ -27,7 +27,7 @@
 open! Core
 open! Import
 
-type t [@@deriving sexp_of]
+type t = Types.Interruptor.t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 

@@ -70,6 +70,10 @@ let set t file_descr desired =
   `Ok
 ;;
 
+let has_fds t =
+  Read_write_pair.exists t.descr_tables ~f:(fun table -> Table.length table > 0)
+;;
+
 let pre_check t = Read_write_pair.map t.descr_tables ~f:Table.keys
 
 module Check_result = struct

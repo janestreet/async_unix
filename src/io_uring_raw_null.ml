@@ -168,7 +168,6 @@ module Open_flags = struct
   let directory = 0
   let dsync = 0
   let excl = 0
-  let largefile = 0
   let noatime = 0
   let noctty = 0
   let nofollow = 0
