@@ -209,13 +209,16 @@ module Stats : sig
         and work that is waiting to start. This does not include work added directly to
         helper threads via [add_work_for_helper_thread]. *)
     }
-  [@@deriving sexp_of]
+  [@@deriving sexp_of, globalize]
 end
 
 (** [get_and_reset_stats t] computes [Stats.t]. The [max_] stats are only recorded since
     the previous call to [get_and_reset_stats], so there can only be one downstream caller
     of this function, multiple separate callers will interfere with each other. *)
 val get_and_reset_stats : t -> Stats.t
+
+(** Like [get_and_reset_stats], but returns [Stats.t @ local] to avoid heap allocation. *)
+val get_and_reset_stats_local : t -> Stats.t @ local
 
 (**/**)
 

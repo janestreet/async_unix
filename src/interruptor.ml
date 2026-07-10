@@ -25,13 +25,13 @@ let debug = Debug.interruptor
    pipe is needed.
 *)
 
-type phase =
+type phase = Types.Interruptor.phase =
   | Sleeping
   | Awake
   | Interrupted
 [@@deriving sexp_of]
 
-type t =
+type t = Types.Interruptor.t =
   { read_fd : (Fd.t Capsule.Initial.Data.t[@sexp.opaque])
   ; write_fd : File_descr.t
   ; (* See the [phase] state machine description above. *)

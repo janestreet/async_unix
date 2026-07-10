@@ -6,7 +6,7 @@ let debug = Debug.fd
 module File_descr = Unix.File_descr
 
 module Kind = struct
-  type t =
+  type t = Types.Fd.Kind.t =
     | Char
     | Fifo
     | File
@@ -19,7 +19,7 @@ module State = struct
      closed. Here are the allowed transitions.
 
      Open --> Close_requested --> Closed *)
-  type t =
+  type t = Types.Fd.State.t =
     (* [Close_requested (execution_context, do_close_syscall)] indicates that [Fd.close t]
        has been called, but that we haven't yet started the close() syscall, because there
        are still active syscalls using the file descriptor. Once there are no active
@@ -77,7 +77,7 @@ module Watching = struct
      returns false, this fd is ignored for the purpose of
      [Scheduler.fds_may_produce_events]. (In principle the callback equally makes sense
      for [Watch_once] too, we can add it there if/when that becomes necessary) *)
-  type t =
+  type t = Types.Fd.Watching.t =
     | Not_watching
     | Watch_once of ready_to_result Ivar.t
     | Watch_repeatedly of
@@ -101,7 +101,7 @@ end
 
 module Nonblock_status = struct
   (* Encodes the knowledge of the O_NONBLOCK flag of an fd. *)
-  type t =
+  type t = Types.Fd.Nonblock_status.t =
     | Blocking
     | Nonblocking
     | Unknown
@@ -109,7 +109,7 @@ module Nonblock_status = struct
 end
 
 module T = struct
-  type t =
+  type t = Types.Fd.t =
     { file_descr : File_descr.t
     ; (* [info] is for debugging info. It is mutable because it changes after [bind],
          [listen], or[connect]. *)

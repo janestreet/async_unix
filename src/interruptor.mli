@@ -27,7 +27,7 @@
 open! Core
 open! Import
 
-type t : value mod portable [@@deriving sexp_of]
+type t : value mod portable = Types.Interruptor.t [@@deriving sexp_of]
 
 include Invariant.S with type t := t
 

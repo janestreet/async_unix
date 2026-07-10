@@ -6,7 +6,7 @@
 open! Core
 open! Import
 
-type 'a t [@@deriving sexp_of]
+type 'a t = 'a Types.By_descr.t [@@deriving sexp_of]
 
 include Invariant.S with type t := Raw_fd.t t
 

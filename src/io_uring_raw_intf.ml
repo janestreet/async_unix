@@ -76,7 +76,7 @@ module type S = sig
     -> Handle.t
 
   val close : t -> File_descr.t -> Handle.t
-  val link : t -> follow:bool -> target:string -> link_name:string -> Handle.t
+  val link : t -> follow:bool -> old_path:string -> new_path:string -> Handle.t
   val unlink : t -> dir:bool -> ?fd:File_descr.t -> string -> Handle.t
   val timeout : t -> ?absolute:bool -> Clock.t -> int64 -> Handle.t
 

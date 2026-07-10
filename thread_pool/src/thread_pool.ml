@@ -721,14 +721,14 @@ module Internal = struct
       ; max_unfinished_work : int
       ; max_queue_wait : Time_ns.Span.t
       }
-    [@@deriving sexp_of]
+    [@@deriving globalize, sexp_of]
   end
 
-  let get_and_reset_stats t =
+  let get_and_reset_stats t = exclave_
     let current_queue_wait =
-      match Queue.peek t.work_queue with
-      | None -> Time_ns.Span.zero
-      | Some work -> Work.enqueued_for work
+      match Queue.peek_or_null t.work_queue with
+      | Null -> Time_ns.Span.zero
+      | This work -> Work.enqueued_for work
     in
     let max_queue_wait =
       Time_ns.Span.max current_queue_wait t.max_recent_completed_queue_wait
@@ -770,9 +770,12 @@ let last_thread_creation_failure t =
   Option.map t.last_thread_creation_failure ~f:Thread_creation_failure.sexp_of_t
 ;;
 
-let critical_section t ~f =
-  Mutex.critical_section t.mutex ~f:(fun () ->
-    protect ~f ~finally:(fun () -> if !check_invariant then invariant t))
+let%template[@mode l = (global, local)] critical_section t ~f =
+  (Mutex.critical_section [@mode l]) t.mutex ~f:(fun () ->
+    (Exn.protect [@mode l]) ~f ~finally:(stack_ fun () ->
+      if !check_invariant then invariant t)
+    [@nontail] [@exclave_if_local l ~reasons:[ May_return_local ]])
+  [@exclave_if_local l ~reasons:[ May_return_local ]]
 ;;
 
 let invariant t = critical_section t ~f:(fun () -> invariant t)
@@ -832,7 +835,13 @@ let finished_with_helper_thread t helper_thread =
 
 module Stats = Stats
 
-let get_and_reset_stats t = critical_section t ~f:(fun () -> get_and_reset_stats t)
+let get_and_reset_stats_local t : Stats.t = exclave_
+  (critical_section [@mode local]) t ~f:(stack_ fun () -> exclave_ get_and_reset_stats t)
+;;
+
+let get_and_reset_stats t =
+  critical_section t ~f:(fun () -> (get_and_reset_stats t |> Stats.globalize) [@nontail])
+;;
 
 module Private = struct
   let check_invariant = check_invariant

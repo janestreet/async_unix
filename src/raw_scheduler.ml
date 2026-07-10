@@ -47,7 +47,7 @@ module Which_watcher = struct
 end
 
 module External_fd_event = struct
-  type t =
+  type t = Types.Scheduler.External_fd_event.t =
     { file_descr : File_descr.t
     ; read_or_write : Read_write_pair.Key.t
     ; event_type : [ `Ready | `Bad_fd ] (* HUP is reported as `Ready *)
@@ -55,7 +55,7 @@ module External_fd_event = struct
 end
 
 module Thread_pool_stuck_status = struct
-  type t =
+  type t = Types.Scheduler.Thread_pool_stuck_status.t =
     | No_unstarted_work
     | Stuck of
         { stuck_since : Time_ns.t
@@ -66,7 +66,7 @@ end
 
 include Async_kernel_scheduler
 
-type start_type =
+type start_type = Types.Scheduler.start_type =
   | Not_started
   | Called_go of Source_code_position.t
   | Called_block_on_async of
@@ -84,12 +84,12 @@ module Extra_event_source_result = struct
 
      These are similar to busy_pollers and maybe they should be unified, except they are
      not expected to do any looping, and can go quiescent. *)
-  type t =
+  type t = Types.Scheduler.Extra_event_source_result.t =
     | Quiescent
     | Active
 end
 
-type t =
+type t = Types.Scheduler.t =
   { (* The scheduler [mutex] must be locked by all code that is manipulating scheduler
        data structures, which is almost all async code. The [mutex] is automatically
        locked in the main thread when the scheduler is first created. A [Nano_mutex] keeps
@@ -216,7 +216,7 @@ let with_lock t f =
 
 let am_holding_lock t = Nano_mutex.current_thread_has_lock t.mutex
 
-type the_one_and_only =
+type the_one_and_only = Types.Scheduler.the_one_and_only =
   | Not_ready_to_initialize of
       (* this [unit] makes the representation always be a pointer, thus making the
          pattern-match faster *)
@@ -1162,10 +1162,12 @@ let check_file_descr_watcher
 
 let[@inline always] run_busy_pollers_once t ~deadline =
   let did_work = ref false in
+  let i = ref 0 in
   (try
-     for i = 0 to t.num_busy_pollers - 1 do
-       let poller = Uniform_array.unsafe_get t.busy_pollers i in
-       if Busy_poller.poll poller ~deadline > 0 then did_work := true
+     while !i < t.num_busy_pollers && not (Kernel_scheduler.is_dead t.kernel_scheduler) do
+       let poller = Uniform_array.unsafe_get t.busy_pollers !i in
+       if Busy_poller.poll poller ~deadline > 0 then did_work := true;
+       incr i
      done
    with
    | exn -> Monitor.send_exn Monitor.main exn);
@@ -1200,7 +1202,7 @@ let run_busy_pollers t ~timeout =
           |> Tsc.Span.of_time_ns_span ~calibrator
         in
         deadline := Tsc.min !deadline (Tsc.add !now new_timeout)));
-    Tsc.( < ) !now !deadline
+    (not (Kernel_scheduler.is_dead t.kernel_scheduler)) && Tsc.( < ) !now !deadline
   do
     ()
   done;
@@ -1297,6 +1299,18 @@ let compute_timeout_and_check_file_descr_watcher t =
     let tsc_span = Tsc.diff (Tsc.now ()) start in
     Tsc.Span.to_time_ns_span tsc_span ~calibrator:(force Tsc.calibrator)
   in
+  (* Don't check the file descr watcher if there are no fds to watch and we know the
+     timerfd is not armed (because the timeout is zero or we have busy pollers). We still
+     yield to give other threads a chance to run. *)
+  let maybe_check_file_descr_watcher () =
+    let module F = (val t.file_descr_watcher : File_descr_watcher.S) in
+    if F.has_fds F.watcher
+    then check_file_descr_watcher t ~timeout:Immediately ()
+    else (
+      unlock t;
+      Thread.yield ();
+      lock t)
+  in
   if Time_ns.Span.( <= ) file_descr_watcher_timeout Time_ns.Span.zero
   then (
     let start = Tsc.now () in
@@ -1304,12 +1318,12 @@ let compute_timeout_and_check_file_descr_watcher t =
     let busy_poll_cycle_time =
       if pollers_did_something then span_since start else Time_ns.Span.zero
     in
-    check_file_descr_watcher t ~timeout:Immediately ();
+    maybe_check_file_descr_watcher ();
     busy_poll_cycle_time)
   else if have_busy_pollers
   then (
     let busy_poll_cycle_time = run_busy_pollers t ~timeout:file_descr_watcher_timeout in
-    check_file_descr_watcher t ~timeout:Immediately ();
+    maybe_check_file_descr_watcher ();
     busy_poll_cycle_time)
   else (
     check_file_descr_watcher t ~timeout:After file_descr_watcher_timeout;
@@ -1558,9 +1572,9 @@ module For_metrics = struct
       ()
     ;;
 
-    let get_and_reset () =
+    let get_and_reset () = exclave_
       let t = t () in
-      Thread_pool.get_and_reset_stats t.thread_pool
+      Thread_pool.get_and_reset_stats_local t.thread_pool
     ;;
   end
 end

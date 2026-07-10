@@ -186,7 +186,8 @@ let link t ?(follow = false) ?(force = false) ~target ~link_name () =
     | Error exn -> return (Error exn)
     | Ok () ->
       (match%map
-         attempt_syscall (fun () -> Io_uring_raw.link t ~follow ~target ~link_name)
+         attempt_syscall (fun () ->
+           Io_uring_raw.link t ~follow ~old_path:target ~new_path:link_name)
        with
        | Error err -> unix_error "link" err
        | Ok _ -> Ok ()))

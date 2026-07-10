@@ -269,7 +269,7 @@ module For_metrics : sig
     (** See [Thread_pool.Stats] for documentation. Note that since calling this resets
         some stats, multiple different callers trying to use this function will interfere
         with each other. *)
-    val get_and_reset : t -> Thread_pool.Stats.t
+    val get_and_reset : t -> Thread_pool.Stats.t @ local
   end
 end
 

@@ -99,6 +99,8 @@ let iter t ~f =
     if Flags.mem Flags.pollout flags then f file_descr `Write)
 ;;
 
+let has_fds t = Table.length t.states > 0
+
 let rec add_poll t file_descr flags =
   let job_handle = Io_uring_raw.poll_add t.uring file_descr flags in
   Table.set t.states ~key:file_descr ~data:{ running_job = job_handle; flags };

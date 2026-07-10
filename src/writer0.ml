@@ -3,7 +3,7 @@ open Import
 open Require_explicit_time_source
 module Unix = Unix_syscalls
 module IOVec = Core_unix.IOVec
-module Id = Unique_id.Int63 ()
+module Id = Types.Writer_id
 
 let debug = Debug.writer
 
@@ -16,7 +16,7 @@ module Time_ns_suppress_sexp_in_test = struct
 end
 
 module Flush_result = struct
-  type t =
+  type t = Types.Writer.Flush_result.t =
     | Error
     | Consumer_left
     | Force_closed
@@ -25,14 +25,14 @@ module Flush_result = struct
 end
 
 module Line_ending = struct
-  type t =
+  type t = Types.Writer.Line_ending.t =
     | Dos
     | Unix
   [@@deriving sexp_of]
 end
 
 module Check_buffer_age' = struct
-  type 'a t =
+  type 'a t = 'a Types.Writer.Check_buffer_age'.t =
     { writer : 'a
     ; maximum_age : Time_ns.Span.t
     ; mutable bytes_received_at_now_minus_maximum_age : Int63.t
@@ -54,7 +54,7 @@ module Check_buffer_age' = struct
       for_this_time_source : 'a per_time_source
     }
 
-  and 'a per_time_source =
+  and 'a per_time_source = 'a Types.Writer.Check_buffer_age'.per_time_source =
     { active_checks : ('a t[@sexp.opaque]) Bag.t
     ; closed : unit Ivar.t
     }
@@ -73,20 +73,20 @@ type open_flags =
 module Backing_out_channel = Backing_out_channel
 
 module Destroy_or_keep = struct
-  type t =
+  type t = Types.Writer.Destroy_or_keep.t =
     | Destroy
     | Keep
   [@@deriving sexp_of]
 end
 
 module Scheduled = struct
-  type t = (Bigstring.t IOVec.t * Destroy_or_keep.t) Deque.t
+  type t = Types.Writer.Scheduled.t
 
   let length (t : t) = Deque.fold t ~init:0 ~f:(fun n (iovec, _) -> n + iovec.len)
 end
 
 module Stop_reason = struct
-  type t =
+  type t = Types.Writer.Stop_reason.t =
     | Error
     | Closed
     | (* [Consumer_left] is only reported when [raise_when_consumer_leaves = false],
@@ -95,7 +95,7 @@ module Stop_reason = struct
   [@@deriving sexp_of]
 end
 
-type t =
+type t = Types.Writer.t =
   { id : Id.t
   ; mutable fd : Fd.t
   ; (* The writer uses a background job to flush data. The job runs within
@@ -1291,7 +1291,8 @@ module Writes = struct
     ~src_len
     ~allow_partial_write
     ~(blit_to_bigstring :
-        src:a @ m -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
+        (src:a @ m -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
+        @ local)
     =
     if is_stopped_permanently t
     then got_bytes t src_len
@@ -1359,7 +1360,7 @@ module Writes = struct
       ~blit_to_bigstring
   ;;
 
-  let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
+  let write_gen_whole_unchecked t src ~(blit_to_bigstring @ local) ~(length @ local) =
     let src_len = length src in
     write_gen_internal
       t
@@ -1367,14 +1368,15 @@ module Writes = struct
       ~src_pos:0
       ~src_len
       ~allow_partial_write:false
-      ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
+      ~blit_to_bigstring:(stack_ fun ~src ~src_pos ~dst ~dst_pos ~len ->
         assert (src_pos = 0);
         assert (len = src_len);
         blit_to_bigstring src dst ~pos:dst_pos)
+    [@nontail]
   ;;
 
   let write_bytes ?pos ?len t src =
-    write_gen_unchecked
+    (write_gen_unchecked [@mode local])
       ?pos
       ?len
       t
@@ -1396,26 +1398,26 @@ module Writes = struct
   ;;
 
   let write_bigstring ?pos ?len t src =
-    write_gen_unchecked
+    (write_gen_unchecked [@mode local])
       ?pos
       ?len
       t
       src
       ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
         Bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
-      ~length:(fun buf -> Bigstring.length buf)
+      ~length:Bigstring.length
   ;;
 
   let write_iobuf ?pos ?len t iobuf =
-    let iobuf = Iobuf.read_only (Iobuf.no_seek iobuf) in
-    write_gen_unchecked
+    let iobuf = (Iobuf.read_only [@mode local]) ((Iobuf.no_seek [@mode local]) iobuf) in
+    (write_gen_unchecked [@mode local])
       ?pos
       ?len
       t
       iobuf
       ~blit_to_bigstring:(fun ~src ~src_pos ~dst ~dst_pos ~len ->
         Iobuf.Peek.To_bigstring.blit ~src ~src_pos ~dst ~dst_pos ~len)
-      ~length:(fun buf -> Iobuf.length buf)
+      ~length:Iobuf.length [@nontail]
   ;;
 
   let write_substring t substring =
@@ -1436,12 +1438,12 @@ module Writes = struct
 
   let writef t = ksprintf (fun s -> write t s)
 
-  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
+  let write_gen ?pos ?len t src ~(blit_to_bigstring @ local) ~(length @ local) =
     try write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length with
     | exn -> die t [%message "Writer.write_gen: error writing value" (exn : exn)]
   ;;
 
-  let write_gen_whole t src ~blit_to_bigstring ~length =
+  let write_gen_whole t src ~(blit_to_bigstring @ local) ~(length @ local) =
     try write_gen_whole_unchecked t src ~blit_to_bigstring ~length with
     | exn -> die t [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
   ;;
@@ -1483,7 +1485,7 @@ module Writes = struct
   ;;
 
   let write_line ?line_ending t s =
-    write t s;
+    (write [@mode local]) t s;
     newline t ?line_ending
   ;;
 
@@ -1652,7 +1654,7 @@ module Checked_writes = struct
     schedule_iobuf_consume t ?len iobuf
   ;;
 
-  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
+  let write_gen ?pos ?len t src ~(blit_to_bigstring @ local) ~(length @ local) =
     ensure_can_write t;
     write_gen ?pos ?len t src ~blit_to_bigstring ~length
   ;;

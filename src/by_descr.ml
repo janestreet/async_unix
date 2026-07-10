@@ -1,9 +1,8 @@
 open Core
 open Import
+include Types.By_descr
 
-type 'a t = 'a Option_array.t
-
-let capacity t = Option_array.length t
+let capacity t = Option_array.length (to_repr t)
 
 let create ~num_file_descrs =
   if num_file_descrs < 0
@@ -11,7 +10,7 @@ let create ~num_file_descrs =
     raise_s
       [%message
         "[By_descr.create] got negative [num_file_descrs]" (num_file_descrs : int)];
-  Option_array.create ~len:num_file_descrs
+  Option_array.create ~len:num_file_descrs |> of_repr
 ;;
 
 let bounds_check t file_descr =
@@ -36,47 +35,49 @@ let bounds_check_exn t file_descr =
 ;;
 
 let mem t file_descr =
-  bounds_check t file_descr && Option_array.is_some t (file_descr |> File_descr.to_int)
+  bounds_check t file_descr
+  && Option_array.is_some (to_repr t) (file_descr |> File_descr.to_int)
 ;;
 
 let find t file_descr =
   if not (bounds_check t file_descr)
   then None
-  else Option_array.get t (file_descr |> File_descr.to_int)
+  else Option_array.get (to_repr t) (file_descr |> File_descr.to_int)
 ;;
 
 let find_exn t file_descr =
   bounds_check_exn t file_descr;
-  if Option_array.is_none t (file_descr |> File_descr.to_int)
+  if Option_array.is_none (to_repr t) (file_descr |> File_descr.to_int)
   then
     raise_s
       [%message "[By_descr.find_exn] got unknown file_descr" (file_descr : File_descr.t)];
-  Option_array.get_some_exn t (file_descr |> File_descr.to_int)
+  Option_array.get_some_exn (to_repr t) (file_descr |> File_descr.to_int)
 ;;
 
 let remove t (fd : File_descr.t) =
   bounds_check_exn t fd;
-  Option_array.set_none t (fd |> File_descr.to_int)
+  Option_array.set_none (to_repr t) (fd |> File_descr.to_int)
 ;;
 
 let add t file_descr v =
   if not (bounds_check t file_descr)
   then error_s (bounds_check_error t file_descr)
-  else if Option_array.is_some t (file_descr |> File_descr.to_int)
+  else if Option_array.is_some (to_repr t) (file_descr |> File_descr.to_int)
   then
     error_s
       [%message
         "Attempt to register a file descriptor with Async that Async believes it is \
          already managing."]
   else (
-    Option_array.set_some t (file_descr |> File_descr.to_int) v;
+    Option_array.set_some (to_repr t) (file_descr |> File_descr.to_int) v;
     Ok ())
 ;;
 
 let fold t ~init ~f =
   let r = ref init in
   for i = 0 to capacity t - 1 do
-    if Option_array.is_some t i then r := f !r (Option_array.get_some_exn t i)
+    if Option_array.is_some (to_repr t) i
+    then r := f !r (Option_array.get_some_exn (to_repr t) i)
   done;
   !r
 ;;
@@ -84,19 +85,20 @@ let fold t ~init ~f =
 let foldi t ~init ~f =
   let r = ref init in
   for i = 0 to capacity t - 1 do
-    if Option_array.is_some t i then r := f i !r (Option_array.get_some_exn t i)
+    if Option_array.is_some (to_repr t) i
+    then r := f i !r (Option_array.get_some_exn (to_repr t) i)
   done;
   !r
 ;;
 
 let iter t ~f =
   for i = 0 to capacity t - 1 do
-    if Option_array.is_some t i then f (Option_array.get_some_exn t i)
+    if Option_array.is_some (to_repr t) i then f (Option_array.get_some_exn (to_repr t) i)
   done
 ;;
 
 let exists t ~f =
-  Option_array.exists t ~f:(function
+  Option_array.exists (to_repr t) ~f:(function
     | None -> false
     | Some x -> f x)
 ;;
@@ -110,7 +112,7 @@ let sexp_of_t sexp_of t =
 let invariant t =
   try
     for i = 0 to capacity t - 1 do
-      match Option_array.get t i with
+      match Option_array.get (to_repr t) i with
       | None -> ()
       | Some fd ->
         Raw_fd.invariant fd;

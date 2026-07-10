@@ -260,14 +260,15 @@ module type Writer0 = sig
     -> 'a
     -> blit_to_bigstring:
          (src:'a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
-    -> length:('a -> int)
+       @ local
+    -> length:('a -> int) @ local
     -> unit
 
   val write_gen_whole
     :  t
     -> 'a
-    -> blit_to_bigstring:('a -> Bigstring.t -> pos:int -> unit)
-    -> length:('a -> int)
+    -> blit_to_bigstring:('a -> Bigstring.t -> pos:int -> unit) @ local
+    -> length:('a -> int) @ local
     -> unit
 
   (** [write_direct t ~f] gives [t]'s internal buffer to [f]. [pos] and [len] define the
@@ -278,21 +279,24 @@ module type Writer0 = sig
       ensure that the writer's internal buffer never grows. Look at the [write_direct]
       expect tests for an example of how this can be used to construct a [write_string]
       like function that never grows the internal buffer. *)
-  val write_direct : t -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int) -> 'a option
+  val write_direct
+    :  t
+    -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int) @ local
+    -> 'a option
 
   (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes. The
       contents of the string are copied to an internal buffer before [write] returns, so
       clients can do whatever they want with [s] after that. *)
-  val write_bytes : ?pos:int -> ?len:int -> t -> Bytes.t -> unit
+  val write_bytes : ?pos:int -> ?len:int -> t -> Bytes.t @ local -> unit
 
   val write : ?pos:int -> ?len:int -> t -> string @ local -> unit
-  val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t -> unit
+  val write_bigstring : ?pos:int -> ?len:int -> t -> Bigstring.t @ local -> unit
 
   val write_iobuf
     :  ?pos:int
     -> ?len:int
     -> t
-    -> ([> read ], _, Iobuf.global) Iobuf.t
+    -> ([> read ], _, Iobuf.global) Iobuf.t @ local
     -> unit
 
   val write_substring : t -> Substring.t -> unit
@@ -312,7 +316,7 @@ module type Writer0 = sig
   val newline : ?line_ending:Line_ending.t -> t -> unit
 
   (** [write_line t s ?line_ending] is [write t s; newline t ?line_ending]. *)
-  val write_line : ?line_ending:Line_ending.t -> t -> string -> unit
+  val write_line : ?line_ending:Line_ending.t -> t -> string @ local -> unit
 
   (** [write_byte t i] writes one 8-bit integer (as the single character with that code).
       The given integer is taken modulo 256. *)

@@ -400,6 +400,21 @@ module%test _ = struct
       (module Quickcheck_cpuset)
   ;;
 
+  let get_and_reset_stats t =
+    (* invariant check is not zero-alloc, so we have to do something weird here *)
+    let stats =
+      Ref.set_temporarily check_invariant false ~f:(fun () ->
+        let stats =
+          Expect_test_helpers_core.require_no_allocation_local (fun () -> exclave_
+            get_and_reset_stats_local t)
+          |> [%globalize: Thread_pool.Stats.t]
+        in
+        stats)
+    in
+    Thread_pool.invariant t;
+    stats
+  ;;
+
   let%expect_test "test stats" =
     let t = ok_exn (create ~max_num_threads:1 ()) in
     let release_jobs = Thread_safe_ivar.create () in
@@ -423,6 +438,7 @@ module%test _ = struct
     let delay = sec 0.01 in
     Time_ns.pause delay;
     let stats = get_and_reset_stats t in
+    [%expect {| |}];
     [%test_result: int] stats.num_threads ~expect:1;
     [%test_result: int] stats.num_work_completed ~expect:0;
     [%test_result: int] stats.unfinished_work ~expect:2;
@@ -434,6 +450,7 @@ module%test _ = struct
     (* The stats also include results since the last time that [get_and_reset_stats] was
        called. *)
     let stats = get_and_reset_stats t in
+    [%expect {| |}];
     [%test_result: int] stats.num_work_completed ~expect:2;
     [%test_result: int] stats.unfinished_work ~expect:0;
     assert (Time_ns.Span.( >= ) stats.total_working_time delay);
@@ -441,6 +458,7 @@ module%test _ = struct
     assert (Time_ns.Span.( >= ) stats.max_queue_wait delay);
     (* And then the max_ stats are reset *)
     let stats = get_and_reset_stats t in
+    [%expect {| |}];
     [%test_result: int] stats.max_unfinished_work ~expect:0;
     [%test_result: Time_ns.Span.t] stats.max_queue_wait ~expect:Time_ns.Span.zero;
     finished_with t

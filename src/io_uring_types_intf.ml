@@ -171,7 +171,6 @@ module type S = sig
     val directory : t
     val dsync : t
     val excl : t
-    val largefile : t
     val noatime : t
     val noctty : t
     val nofollow : t

@@ -184,8 +184,9 @@ let openat2 t ~access ~flags ~perm ~resolve ?fd filename =
 
 let close t fd = prepare_internal (Uring.close t fd)
 
-let link t ~follow ~target ~link_name =
-  prepare_internal (Uring.linkat t ~follow ~target ~link_name)
+let link t ~follow ~old_path ~new_path =
+  let flags = Uring.Linkat_flags.(if follow then symlink_follow else empty) in
+  prepare_internal (Uring.linkat t ~flags ~old_path ~new_path)
 ;;
 
 let unlink t ~dir ?fd filename = prepare_internal (Uring.unlink t ~dir ?fd filename)
