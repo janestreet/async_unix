@@ -3,4 +3,4 @@
  (public_name async_unix.thread_safe_ivar)
  (libraries core core_unix.error_checking_mutex)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane -compare-require-explicit-locality)))

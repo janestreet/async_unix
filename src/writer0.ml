@@ -1294,29 +1294,36 @@ module Writes = struct
         (src:a @ m -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
         @ local)
     =
-    if is_stopped_permanently t
-    then got_bytes t src_len
-    else (
-      let available = Bigstring.length t.buf - t.back in
-      if available >= src_len
-      then (
-        got_bytes t src_len;
-        let dst_pos = t.back in
-        t.back <- dst_pos + src_len;
-        blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
-      else if allow_partial_write
-      then (
-        got_bytes t available;
-        let dst_pos = t.back in
-        t.back <- dst_pos + available;
-        blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
-        let remaining = src_len - available in
-        let dst, dst_pos = give_buf t remaining in
-        blit_to_bigstring ~src ~src_pos:(src_pos + available) ~len:remaining ~dst ~dst_pos)
+    unyielding (fun () ->
+      if is_stopped_permanently t
+      then got_bytes t src_len
       else (
-        let dst, dst_pos = give_buf t src_len in
-        blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
-      maybe_start_writer t)
+        let available = Bigstring.length t.buf - t.back in
+        if available >= src_len
+        then (
+          got_bytes t src_len;
+          let dst_pos = t.back in
+          t.back <- dst_pos + src_len;
+          blit_to_bigstring ~src ~src_pos ~len:src_len ~dst:t.buf ~dst_pos)
+        else if allow_partial_write
+        then (
+          got_bytes t available;
+          let dst_pos = t.back in
+          t.back <- dst_pos + available;
+          blit_to_bigstring ~src ~src_pos ~len:available ~dst:t.buf ~dst_pos;
+          let remaining = src_len - available in
+          let dst, dst_pos = give_buf t remaining in
+          blit_to_bigstring
+            ~src
+            ~src_pos:(src_pos + available)
+            ~len:remaining
+            ~dst
+            ~dst_pos)
+        else (
+          let dst, dst_pos = give_buf t src_len in
+          blit_to_bigstring ~src ~src_pos ~dst ~dst_pos ~len:src_len);
+        maybe_start_writer t))
+    [@nontail]
   ;;
 
   let write_direct t ~f =
@@ -1360,7 +1367,7 @@ module Writes = struct
       ~blit_to_bigstring
   ;;
 
-  let write_gen_whole_unchecked t src ~(blit_to_bigstring @ local) ~(length @ local) =
+  let write_gen_whole_unchecked t src ~blit_to_bigstring ~length =
     let src_len = length src in
     write_gen_internal
       t
@@ -1438,12 +1445,12 @@ module Writes = struct
 
   let writef t = ksprintf (fun s -> write t s)
 
-  let write_gen ?pos ?len t src ~(blit_to_bigstring @ local) ~(length @ local) =
+  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
     try write_gen_unchecked ?pos ?len t src ~blit_to_bigstring ~length with
     | exn -> die t [%message "Writer.write_gen: error writing value" (exn : exn)]
   ;;
 
-  let write_gen_whole t src ~(blit_to_bigstring @ local) ~(length @ local) =
+  let write_gen_whole t src ~blit_to_bigstring ~length =
     try write_gen_whole_unchecked t src ~blit_to_bigstring ~length with
     | exn -> die t [%message "Writer.write_gen_whole: error writing value" (exn : exn)]
   ;;
@@ -1523,17 +1530,28 @@ module Writes = struct
     write_sexp_internal t sexp ?hum ~terminate_with
   ;;
 
-  let write_bin_prot t (writer : _ Bin_prot.Type_class.writer) v =
+  let%template write_bin_prot
+    t
+    (writer : (_ Bin_prot.Type_class.writer[@mode m]))
+    (v @ m unyielding)
+    =
     let len = writer.size v in
     let tot_len = len + Bin_prot.Utils.size_header_length in
     if is_stopped_permanently t
     then got_bytes t tot_len
     else (
       let buf, start_pos = give_buf t tot_len in
-      ignore
-        (Bigstring.write_bin_prot_known_size buf ~pos:start_pos ~size:len writer.write v
-         : int);
+      unyielding (fun () ->
+        ignore
+          ((Bigstring.write_bin_prot_known_size [@mode m])
+             buf
+             ~pos:start_pos
+             ~size:len
+             writer.write
+             v
+           : int));
       maybe_start_writer t)
+  [@@mode m = (global, local)]
   ;;
 
   let write_bin_prot_no_size_header t ~size write v =
@@ -1614,9 +1632,14 @@ module Checked_writes = struct
     Unix.fdatasync t.fd
   ;;
 
-  let write_bin_prot t sw_arg v =
+  let%template write_bin_prot
+    t
+    (writer : (_ Bin_prot.Type_class.writer[@mode m]))
+    (v @ m unyielding)
+    =
     ensure_can_write t;
-    write_bin_prot t sw_arg v
+    (write_bin_prot [@mode m]) t writer v
+  [@@mode m = (global, local)]
   ;;
 
   let send t s =
@@ -1654,7 +1677,7 @@ module Checked_writes = struct
     schedule_iobuf_consume t ?len iobuf
   ;;
 
-  let write_gen ?pos ?len t src ~(blit_to_bigstring @ local) ~(length @ local) =
+  let write_gen ?pos ?len t src ~blit_to_bigstring ~length =
     ensure_can_write t;
     write_gen ?pos ?len t src ~blit_to_bigstring ~length
   ;;

@@ -211,6 +211,7 @@ let run ?priority ?thread ?name f =
   run ?priority ?thread ?name f
 ;;
 
+let threads_are_never_retired = ()
 let syscall ~name f = run ~name (fun () -> Syscall.syscall f)
 let syscall_exn ~name f = run ~name (fun () -> Result.ok_exn (Syscall.syscall f))
 

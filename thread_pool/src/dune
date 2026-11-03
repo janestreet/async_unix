@@ -5,4 +5,4 @@
    core_unix.nano_mutex core_unix.squeue core_kernel.thread_pool_cpu_affinity
    thread_safe_ivar core_unix.time_ns_unix)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane -compare-require-explicit-locality)))

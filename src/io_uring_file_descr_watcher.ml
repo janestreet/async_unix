@@ -102,7 +102,9 @@ let iter t ~f =
 let has_fds t = Table.length t.states > 0
 
 let rec add_poll t file_descr flags =
-  let job_handle = Io_uring_raw.poll_add t.uring file_descr flags in
+  let job_handle =
+    Io_uring_raw.poll_add t.uring ~sqe_flags:Io_uring_raw.Sqe_flags.empty file_descr flags
+  in
   Table.set t.states ~key:file_descr ~data:{ running_job = job_handle; flags };
   upon (Io_uring_raw.syscall_result_noretry job_handle) (fun res ->
     on_poll_result t ~job_handle ~file_descr res)
@@ -128,7 +130,8 @@ let remove_poll_exn t file_descr =
   match Table.find t.states file_descr with
   | Some { running_job; _ } ->
     Table.remove t.states file_descr;
-    Deferred.don't_wait_for (Io_uring_raw.cancel t.uring running_job)
+    Deferred.don't_wait_for
+      (Io_uring_raw.cancel t.uring ~sqe_flags:Io_uring_raw.Sqe_flags.empty running_job)
   | None ->
     raise_s
       [%sexp

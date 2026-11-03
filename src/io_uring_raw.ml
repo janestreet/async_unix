@@ -8,6 +8,7 @@ module _ = Io_uring_raw_null
 module Uring = Ocaml_uring.Uring
 module Int63 = Optint.Int63
 module Poll_mask = Uring.Poll_mask
+module Sqe_flags = Uring.Sqe_flags
 
 module Clock = struct
   type t =
@@ -98,6 +99,8 @@ let create ?polling_timeout ~queue_depth () =
 let exit = Uring.exit
 let supports_ext_arg = Uring.supports_ext_arg
 let register_eventfd = Uring.register_eventfd
+let register_iowq_aff = Uring.register_iowq_aff
+let unregister_iowq_aff = Uring.unregister_iowq_aff
 
 module Submit_outcome = struct
   type t = Uring.Submit_outcome.t =
@@ -171,36 +174,53 @@ let prepare_internal f =
   handle
 ;;
 
-let noop t = prepare_internal (Uring.noop t)
-let read t ~file_offset fd buf = prepare_internal (Uring.read t ~file_offset fd buf)
-let write t ~file_offset fd buf = prepare_internal (Uring.write t ~file_offset fd buf)
-let readv t ~file_offset fd bufs = prepare_internal (Uring.readv t ~file_offset fd bufs)
-let writev t ~file_offset fd bufs = prepare_internal (Uring.writev t ~file_offset fd bufs)
-let poll_add t fd flags = prepare_internal (Uring.poll_add t fd flags)
+let noop t ~sqe_flags = prepare_internal (Uring.noop ~sqe_flags t)
 
-let openat2 t ~access ~flags ~perm ~resolve ?fd filename =
-  prepare_internal (Uring.openat2 t ~access ~flags ~perm ~resolve ?fd filename)
+let read t ~sqe_flags ~file_offset fd buf =
+  prepare_internal (Uring.read ~sqe_flags t ~file_offset fd buf)
 ;;
 
-let close t fd = prepare_internal (Uring.close t fd)
+let write t ~sqe_flags ~file_offset fd buf =
+  prepare_internal (Uring.write ~sqe_flags t ~file_offset fd buf)
+;;
 
-let link t ~follow ~old_path ~new_path =
+let readv t ~sqe_flags ~file_offset fd bufs =
+  prepare_internal (Uring.readv ~sqe_flags t ~file_offset fd bufs)
+;;
+
+let writev t ~sqe_flags ~file_offset fd bufs =
+  prepare_internal (Uring.writev ~sqe_flags t ~file_offset fd bufs)
+;;
+
+let poll_add t ~sqe_flags fd flags =
+  prepare_internal (Uring.poll_add ~sqe_flags t fd flags)
+;;
+
+let openat2 t ~sqe_flags ~access ~flags ~perm ~resolve ?fd filename =
+  prepare_internal (Uring.openat2 ~sqe_flags t ~access ~flags ~perm ~resolve ?fd filename)
+;;
+
+let close t ~sqe_flags fd = prepare_internal (Uring.close ~sqe_flags t fd)
+
+let link t ~sqe_flags ~follow ~old_path ~new_path =
   let flags = Uring.Linkat_flags.(if follow then symlink_follow else empty) in
-  prepare_internal (Uring.linkat t ~flags ~old_path ~new_path)
+  prepare_internal (Uring.linkat ~sqe_flags t ~flags ~old_path ~new_path)
 ;;
 
-let unlink t ~dir ?fd filename = prepare_internal (Uring.unlink t ~dir ?fd filename)
+let unlink t ~sqe_flags ~dir ?fd filename =
+  prepare_internal (Uring.unlink ~sqe_flags t ~dir ?fd filename)
+;;
 
-let timeout t ?absolute clock timeout_ns =
+let timeout t ~sqe_flags ?absolute clock timeout_ns =
   let clock = Clock.to_uring_clock clock in
-  prepare_internal (Uring.timeout t ?absolute clock timeout_ns)
+  prepare_internal (Uring.timeout ~sqe_flags t ?absolute clock timeout_ns)
 ;;
 
-let statx t ?fd ~mask path statx flags =
-  prepare_internal (Uring.statx t ?fd ~mask path statx flags)
+let statx t ~sqe_flags ?fd ~mask path statx flags =
+  prepare_internal (Uring.statx ~sqe_flags t ?fd ~mask path statx flags)
 ;;
 
-let cancel t handle =
+let cancel t ~sqe_flags handle =
   let rec cancel_until_success () =
     if Ivar.is_full (Handle.result handle)
     then return ()
@@ -227,7 +247,7 @@ let cancel t handle =
         (* [Uring.cancel] requires that the completion wasn't collected yet. We know it
            wasn't collected because we just checked [Ivar.is_full result_ivar] earlier.
         *)
-        (match Uring.cancel t (Option.value_exn handle.job) cancel_ivar with
+        (match Uring.cancel ~sqe_flags t (Option.value_exn handle.job) cancel_ivar with
          | None ->
            let%bind () = Async_kernel_scheduler.yield () in
            cancel_until_success ()

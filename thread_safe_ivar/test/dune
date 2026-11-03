@@ -2,4 +2,4 @@
  (name thread_safe_ivar_tests)
  (libraries core_kernel.caml_threads portable thread_safe_ivar threads unix)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane -compare-require-explicit-locality)))

@@ -190,16 +190,19 @@ val peek_available : t -> len:int -> string
 (** [drain t] reads and ignores all data from [t] until it hits EOF, and then closes [t]. *)
 val drain : t -> unit Deferred.t
 
-type 'a read_one_chunk_at_a_time_result =
+type ('a, 'unconsumed) read_one_chunk_at_a_time_result' =
   [ `Eof
   | `Stopped of 'a
-    (** [`Eof_with_unconsumed_data s] means that [handle_chunk] returned
+    (** [`Eof_with_unconsumed_data u] means that [handle_chunk] returned
         [`Consumed (c, _)] and left data in the reader's buffer (i.e., [c < len]), and
         that the reader reached EOF without reading any more data into the buffer; hence
         the data in the buffer was never consumed. The unconsumed data is left on the
         reader. *)
-  | `Eof_with_unconsumed_data of string
+  | `Eof_with_unconsumed_data of 'unconsumed
   ]
+[@@deriving sexp_of]
+
+type 'a read_one_chunk_at_a_time_result = ('a, string) read_one_chunk_at_a_time_result'
 [@@deriving sexp_of]
 
 type 'a handle_chunk_result =
@@ -232,6 +235,15 @@ val read_one_chunk_at_a_time
   :  t
   -> handle_chunk:(Bigstring.t -> pos:int -> len:int -> 'a handle_chunk_result Deferred.t)
   -> 'a read_one_chunk_at_a_time_result Deferred.t
+
+(** The same as [read_one_chunk_at_a_time], except that it passes any unconsumed data at
+    EOF to [handle_unconsumed_data] instead of allocating and copying it into a new
+    string. *)
+val read_one_chunk_at_a_time'
+  :  t
+  -> handle_chunk:(Bigstring.t -> pos:int -> len:int -> 'a handle_chunk_result Deferred.t)
+  -> handle_unconsumed_data:(Bigstring.t @ local -> pos:int -> len:int -> 'unconsumed)
+  -> ('a, 'unconsumed) read_one_chunk_at_a_time_result' Deferred.t
 
 (** [`Stop a] or [`Continue] respects the usual [Iobuf] semantics where data up to the
     [Iobuf.Lo_bound] is considered consumed. *)

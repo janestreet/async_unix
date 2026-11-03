@@ -72,6 +72,12 @@ module Where_to_connect = struct
     ; info = [%sexp_of: Socket.Address.Unix.t] address
     }
   ;;
+
+  module For_testing = struct
+    let create ~socket_type ~remote_address ~info =
+      { socket_type; remote_address; local_address = None; info }
+    ;;
+  end
 end
 
 let close_sock_on_error s f =
@@ -110,8 +116,6 @@ let connect_sock
     | Some x -> Time_source.read_only x
     | None -> Time_source.wall_clock ()
   in
-  where_to_connect.remote_address ()
-  >>= fun address ->
   let timeout =
     Time_source.Event.after time_source (Time_ns.Span.of_span_float_round_nearest timeout)
   in
@@ -126,30 +130,54 @@ let connect_sock
     | None -> timeout
     | Some interrupt -> Deferred.any [ interrupt; timeout ]
   in
-  let connect_interruptible s = Socket.connect_interruptible s address ~interrupt in
-  Deferred.create (fun result ->
-    let s =
-      match socket with
-      | Some s -> s
-      | None -> Socket.create where_to_connect.socket_type
-    in
-    close_sock_on_error s (fun () ->
-      match where_to_connect.local_address with
-      | None -> connect_interruptible s
-      | Some local_interface ->
-        Socket.bind s local_interface >>= fun s -> connect_interruptible s)
-    >>> function
-    | `Ok s ->
-      Time_source.Event.abort_if_possible timeout ();
-      Ivar.fill_exn result s
-    | `Interrupted ->
-      don't_wait_for (Unix.close (Socket.fd s));
-      let address = Socket.Address.to_string address in
-      (match Time_source.Event.abort timeout () with
-       | Previously_happened () ->
-         raise_s [%sexp "connection attempt timeout", (address : string)]
-       | Ok | Previously_aborted () ->
-         raise_s [%sexp "connection attempt aborted", (address : string)]))
+  let raise_connection_attempt_interrupted target ~maybe_socket =
+    Option.iter maybe_socket ~f:(fun socket ->
+      don't_wait_for (Unix.close (Socket.fd socket)));
+    match Time_source.Event.abort timeout () with
+    | Previously_happened () ->
+      raise_s [%sexp "connection attempt timeout", (target : Sexp.t)]
+    | Ok | Previously_aborted () ->
+      raise_s [%sexp "connection attempt aborted", (target : Sexp.t)]
+  in
+  let connect_to_address address =
+    let target = [%sexp ((address :> Socket.Address.t) : Socket.Address.t)] in
+    if Deferred.is_determined interrupt
+    then raise_connection_attempt_interrupted target ~maybe_socket:socket;
+    let connect_interruptible s = Socket.connect_interruptible s address ~interrupt in
+    Deferred.create (fun result ->
+      let s =
+        match socket with
+        | Some s -> s
+        | None -> Socket.create where_to_connect.socket_type
+      in
+      close_sock_on_error s (fun () ->
+        match where_to_connect.local_address with
+        | None -> connect_interruptible s
+        | Some local_interface ->
+          Socket.bind s local_interface >>= fun s -> connect_interruptible s)
+      >>> function
+      | `Ok s ->
+        Time_source.Event.abort_if_possible timeout ();
+        Ivar.fill_exn result s
+      | `Interrupted -> raise_connection_attempt_interrupted target ~maybe_socket:(Some s))
+  in
+  let resolved_address =
+    Monitor.try_with
+      ~extract_exn:true
+      ~name:"Tcp.connect_sock.resolve_address"
+      where_to_connect.remote_address
+  in
+  choose
+    [ choice interrupt (fun () -> `Interrupted)
+    ; choice resolved_address (fun result -> `Resolved result)
+    ]
+  >>= function
+  | `Interrupted ->
+    raise_connection_attempt_interrupted where_to_connect.info ~maybe_socket:socket
+  | `Resolved (Error error) ->
+    Time_source.Event.abort_if_possible timeout ();
+    raise error
+  | `Resolved (Ok address) -> connect_to_address address
 ;;
 
 let connect

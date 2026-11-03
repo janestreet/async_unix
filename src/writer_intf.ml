@@ -252,7 +252,16 @@ module type Writer0 = sig
 
       Note: [write_gen] and [write_gen_whole] give you access to the writer's internal
       buffer. You should not capture it; doing so might lead to errors of the segfault
-      kind. *)
+      kind. Nor should you use the writer in the callbacks. The @unyielding annotation is
+      only a partial protection from that.
+
+      Note: [blit_to_bigstring] and [length] are [unyielding], i.e. they may not suspend
+      to the Async scheduler. [write_gen] first reserves space in the writer's buffer by
+      advancing the write pointer, and only then calls [blit_to_bigstring] to fill it. If
+      these functions yielded to the scheduler, the writer's own background job could
+      flush the buffer to the underlying file descriptor, before anything has been
+      written. It could also swap out the writer's internal buffer, such that the eventual
+      write lands in bytes that are thrown away. *)
   val write_gen
     :  ?pos:int
     -> ?len:int
@@ -260,15 +269,15 @@ module type Writer0 = sig
     -> 'a
     -> blit_to_bigstring:
          (src:'a -> src_pos:int -> dst:Bigstring.t -> dst_pos:int -> len:int -> unit)
-       @ local
-    -> length:('a -> int) @ local
+       @ local unyielding
+    -> length:('a -> int) @ local unyielding
     -> unit
 
   val write_gen_whole
     :  t
     -> 'a
-    -> blit_to_bigstring:('a -> Bigstring.t -> pos:int -> unit) @ local
-    -> length:('a -> int) @ local
+    -> blit_to_bigstring:('a -> Bigstring.t -> pos:int -> unit) @ local unyielding
+    -> length:('a -> int) @ local unyielding
     -> unit
 
   (** [write_direct t ~f] gives [t]'s internal buffer to [f]. [pos] and [len] define the
@@ -281,7 +290,7 @@ module type Writer0 = sig
       like function that never grows the internal buffer. *)
   val write_direct
     :  t
-    -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int) @ local
+    -> f:(Bigstring.t -> pos:int -> len:int -> 'a * int) @ local unyielding
     -> 'a option
 
   (** [write ?pos ?len t s] adds a job to the writer's queue of pending writes. The
@@ -346,7 +355,12 @@ module type Writer0 = sig
   (** [write_bin_prot] writes out a value using its bin_prot sizer/writer pair. The format
       is the "size-prefixed binary protocol", in which the length of the data is written
       before the data itself. This is the format that [Reader.read_bin_prot] reads. *)
-  val write_bin_prot : t -> 'a Bin_prot.Type_class.writer -> 'a -> unit
+  val%template write_bin_prot
+    :  t
+    -> ('a Bin_prot.Type_class.writer[@mode m])
+    -> 'a @ m unyielding
+    -> unit
+  [@@mode m = (global, local)]
 
   (** Writes out a value using its bin_prot writer. Unlike [write_bin_prot], this doesn't
       prefix the output with the size of the bin_prot blob. [size] is the expected size.

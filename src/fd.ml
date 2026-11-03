@@ -57,6 +57,7 @@ module Kind = struct
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
         Io_uring_raw.statx
           uring
+          ~sqe_flags:Io_uring_raw.Sqe_flags.empty
           ~fd:file_descr
           ~mask:Io_uring_raw.Statx.Mask.type'
           ""
@@ -136,7 +137,7 @@ module Close = struct
     match Io_uring_raw_singleton.the_one_and_only () with
     | Some uring ->
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
-        Io_uring_raw.close uring file_descr)
+        Io_uring_raw.close uring ~sqe_flags:Io_uring_raw.Sqe_flags.empty file_descr)
       >>| (function
        | Error err ->
          raise

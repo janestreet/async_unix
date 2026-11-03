@@ -164,6 +164,7 @@ module Uring_openfile = struct
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
         Io_uring_raw.openat2
           uring
+          ~sqe_flags:Io_uring_raw.Sqe_flags.empty
           ~access
           ~flags
           ~perm

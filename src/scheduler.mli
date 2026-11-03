@@ -258,6 +258,10 @@ module External : sig
 end
 
 module For_metrics : sig
+  (** Returns the number of file descriptors in Async's scheduler table. This does not
+      include file descriptors opened outside Async or registered via [External]. *)
+  val num_file_descriptors : unit -> int
+
   module Thread_pool_stats_subscription : sig
     type t
 

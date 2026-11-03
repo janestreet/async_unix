@@ -485,17 +485,20 @@ module Internal = struct
     ]
   [@@deriving sexp_of]
 
-  type 'a read_one_chunk_at_a_time_result =
+  type ('a, 'unconsumed) read_one_chunk_at_a_time_result' =
     [ `Eof
     | `Stopped of 'a
-    | `Eof_with_unconsumed_data of string
+    | `Eof_with_unconsumed_data of 'unconsumed
     ]
+  [@@deriving sexp_of]
+
+  type 'a read_one_chunk_at_a_time_result = ('a, string) read_one_chunk_at_a_time_result'
   [@@deriving sexp_of]
 
   type consumed = [ `Consumed of int * [ `Need of int | `Need_unknown ] ]
   [@@deriving sexp_of]
 
-  let read_one_chunk_at_a_time t ~handle_chunk =
+  let read_one_chunk_at_a_time' t ~handle_chunk ~handle_unconsumed_data =
     t.close_may_destroy_buf <- `Not_ever;
     Deferred.create (fun final_result ->
       let rec loop ~force_refill =
@@ -505,7 +508,7 @@ module Internal = struct
               if t.available > 0
               then
                 `Eof_with_unconsumed_data
-                  (Bigstring.to_string t.buf ~pos:t.pos ~len:t.available)
+                  (handle_unconsumed_data t.buf ~pos:t.pos ~len:t.available)
               else `Eof
             in
             Ivar.fill_exn final_result result
@@ -581,6 +584,11 @@ module Internal = struct
              | Some result -> continue result))
       in
       loop ~force_refill:false)
+  ;;
+
+  let read_one_chunk_at_a_time =
+    read_one_chunk_at_a_time' ~handle_unconsumed_data:(fun buf ~pos ~len ->
+      Bigstring.to_string buf ~pos ~len)
   ;;
 
   type 'a handle_iobuf_result =
@@ -1170,6 +1178,10 @@ type nonrec t = t [@@deriving sexp_of]
 type nonrec 'a handle_chunk_result = 'a handle_chunk_result [@@deriving sexp_of]
 type nonrec 'a handle_iobuf_result = 'a handle_iobuf_result [@@deriving sexp_of]
 
+type nonrec ('a, 'unconsumed) read_one_chunk_at_a_time_result' =
+  ('a, 'unconsumed) read_one_chunk_at_a_time_result'
+[@@deriving sexp_of]
+
 type nonrec 'a read_one_chunk_at_a_time_result = 'a read_one_chunk_at_a_time_result
 [@@deriving sexp_of]
 
@@ -1238,6 +1250,14 @@ let read_bigsubstring t s = do_read t (fun () -> read_bigsubstring t s)
 
 let read_one_chunk_at_a_time t ~handle_chunk =
   do_read t (fun () -> read_one_chunk_at_a_time t ~handle_chunk)
+;;
+
+let read_one_chunk_at_a_time'
+  t
+  ~handle_chunk
+  ~(handle_unconsumed_data : Bigstring.t @ local -> pos:int -> len:int -> _)
+  =
+  do_read t (fun () -> read_one_chunk_at_a_time' t ~handle_chunk ~handle_unconsumed_data)
 ;;
 
 let read_one_iobuf_at_a_time t ~handle_chunk =

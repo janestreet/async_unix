@@ -35,6 +35,18 @@ module type S = sig
     val pollhup : t
   end
 
+  (** Flags that can be applied to individual submission queue entries. *)
+  module Sqe_flags : sig
+    include FLAGS
+
+    val empty : t
+
+    (** Force the operation to be issued asynchronously from the start rather than first
+        attempting inline execution. This is useful for operations that are expected to
+        block. Available since Linux 5.6. *)
+    val async : t
+  end
+
   module Clock : sig
     type t =
       | Boottime

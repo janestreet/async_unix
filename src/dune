@@ -14,4 +14,4 @@
    core_unix.time_ns_unix core_unix.time_stamp_counter)
  (preprocessor_deps io_uring_config.h)
  (preprocess
-  (pps ppx_jane ppx_optcomp)))
+  (pps ppx_jane -compare-require-explicit-locality ppx_optcomp)))

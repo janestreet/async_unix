@@ -118,6 +118,12 @@ val run
   -> (unit -> 'a)
   -> 'a Deferred.t
 
+(** Async does not retire worker threads when jobs finish or while they are idle.
+    Reference this value when correctness depends on that behavior, for example when using
+    Linux parent-death signals. Remove this value if the policy changes, so callers must
+    revisit their assumptions. *)
+val threads_are_never_retired : unit
+
 (** [syscall f] runs f, which should be a single system call, and returns the result,
     handling the restarting of interrupted system calls. To avoid race conditions, the [f]
     supplied to [syscall] should just make a system call. That way, everything else is
