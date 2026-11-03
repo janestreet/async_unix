@@ -15,7 +15,7 @@ module Status = struct
   type t =
     | Exit of int
     | Signal of Signal.t
-  [@@deriving equal ~localize, sexp_of]
+  [@@deriving equal, sexp_of]
 
   let compatibility t ~prior : Status_compatibility.t =
     if equal t prior

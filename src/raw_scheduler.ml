@@ -113,6 +113,7 @@ type t = Types.Scheduler.t =
   ; (* [fd_by_descr] holds every file descriptor that Async manages. Fds are added when
        they are created, and removed when they transition to [Closed]. *)
     fd_by_descr : Fd.t By_descr.t
+  ; num_file_descriptors : int ref
   ; (* [external_fd_by_descr] holds file descriptors registered via External. Async does
        no I/O on these, nor does it open or close them, but it reports readiness of them
        from External.run_one_cycle *)
@@ -268,7 +269,7 @@ let fds_created_before_initialization = ref []
 
 let create_fd_registration t fd =
   match By_descr.add t.fd_by_descr fd.Fd.file_descr fd with
-  | Ok () -> ()
+  | Ok () -> incr t.num_file_descriptors
   | Error error ->
     let backtrace =
       if Ppx_inline_test_lib.am_running then None else Some (Backtrace.get ())
@@ -303,7 +304,16 @@ let current_thread_id () = Core_thread.(id (self ()))
 (* OCaml runtime happens to assign the thread id of [0] to the main thread (the initial
    thread that starts the program). *)
 let is_main_thread () = current_thread_id () = 0
-let remove_fd t fd = By_descr.remove t.fd_by_descr fd.Fd.file_descr
+
+let remove_fd t fd =
+  let file_descr = fd.Fd.file_descr in
+  (* If the [mem] call returns [false], that's a bug. Not adding an assert in this feature
+     though on the off-chance we're wrong. *)
+  if By_descr.mem t.fd_by_descr file_descr
+  then (
+    By_descr.remove t.fd_by_descr file_descr;
+    decr t.num_file_descriptors)
+;;
 
 let maybe_start_closing_fd t (fd : Fd.t) =
   if fd.num_active_syscalls = 0
@@ -363,6 +373,12 @@ let invariant t : unit =
                assert (
                  Stack.exists t.fds_whose_watching_has_changed ~f:(fun fd' ->
                    phys_equal fd fd')))))
+      ~num_file_descriptors:
+        (check (fun num_file_descriptors ->
+           let expected =
+             By_descr.fold t.fd_by_descr ~init:0 ~f:(fun count _ -> count + 1)
+           in
+           assert (Int.equal !num_file_descriptors expected)))
       ~external_fd_by_descr:ignore
       ~external_fd_events:(check (fun fds -> assert (List.is_empty fds)))
       ~timerfd:ignore
@@ -681,9 +697,11 @@ let create
   in
   let num_file_descrs = Max_num_open_file_descrs.raw max_num_open_file_descrs in
   let fd_by_descr = By_descr.create ~num_file_descrs in
+  let num_file_descriptors = ref 0 in
   let create_fd kind file_descr info =
     let fd = Fd.create kind file_descr info in
     ok_exn (By_descr.add fd_by_descr fd.Fd.file_descr fd);
+    Int.incr num_file_descriptors;
     fd
   in
   let external_fd_by_descr = By_descr.create ~num_file_descrs in
@@ -799,6 +817,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
     ; num_busy_pollers = 0
     ; time_spent_waiting_for_io = Tsc.Span.of_int_exn 0
     ; fd_by_descr
+    ; num_file_descriptors
     ; external_fd_by_descr
     ; external_fd_events = []
     ; timerfd
@@ -828,7 +847,7 @@ Async will be unable to timeout with sub-millisecond precision.|}]
   t
 ;;
 
-let init ~take_the_lock =
+let prepare_to_init ~take_the_lock =
   let mutex = Nano_mutex.create () in
   if take_the_lock
   then
@@ -841,7 +860,7 @@ let init ~take_the_lock =
   the_one_and_only_ref := Ready_to_initialize (fun () -> create ~mutex ())
 ;;
 
-let () = init ~take_the_lock:true
+let () = prepare_to_init ~take_the_lock:true
 
 let reset_in_forked_process ~take_the_lock =
   (match !the_one_and_only_ref with
@@ -854,7 +873,7 @@ let reset_in_forked_process ~take_the_lock =
       | Some tfd -> Unix.close (tfd :> Unix.File_descr.t)));
   Kernel_scheduler.reset_in_forked_process ();
   fds_created_before_initialization := [];
-  init ~take_the_lock
+  prepare_to_init ~take_the_lock
 ;;
 
 let reset_in_forked_process_without_taking_lock () =
@@ -1049,7 +1068,7 @@ let stop_watching_interruptor t =
      | `Ok | `Unsupported -> ())
 ;;
 
-let init t =
+let start t =
   dump_core_on_job_delay ();
   let interruptor = t.interruptor in
   Kernel_scheduler.set_thread_safe_external_job_hook t.kernel_scheduler (fun () ->
@@ -1065,7 +1084,7 @@ let init t =
   if t.num_busy_pollers = 0 then start_watching_interruptor t
 ;;
 
-let scheduler_has_been_initialized t = t.scheduler_thread_id >= 0
+let scheduler_has_been_started t = t.scheduler_thread_id >= 0
 
 let add_busy_poller t ~max_busy_wait_duration f =
   if t.num_busy_pollers = Uniform_array.length t.busy_pollers
@@ -1078,11 +1097,11 @@ let add_busy_poller t ~max_busy_wait_duration f =
        (Time_ns.Span.min
           (Max_inter_cycle_timeout.raw t.max_inter_cycle_timeout)
           max_busy_wait_duration);
-  (* If this is the first busy poller and [init] already registered the interruptor with
+  (* If this is the first busy poller and [start] already registered the interruptor with
      the file-descr-watcher, remove it now: we will no longer be sleeping in
-     [thread_safe_check], so the fd-based wakeup path is unnecessary. If [init] has not
+     [thread_safe_check], so the fd-based wakeup path is unnecessary. If [start] has not
      yet run, it will notice the busy poller and skip the registration. *)
-  if was_empty && scheduler_has_been_initialized t then stop_watching_interruptor t
+  if was_empty && scheduler_has_been_started t then stop_watching_interruptor t
 ;;
 
 let fds_may_produce_events t =
@@ -1344,7 +1363,7 @@ let one_iter t =
 ;;
 
 let be_the_scheduler ?(raise_unhandled_exn = false) t =
-  init t;
+  start t;
   let rec loop () =
     match one_iter t with
     | Some error -> error
@@ -1526,6 +1545,7 @@ let fold_fields (type a) ~init folder : a =
     ~num_busy_pollers:f
     ~time_spent_waiting_for_io:f
     ~fd_by_descr:f
+    ~num_file_descriptors:f
     ~external_fd_by_descr:f
     ~external_fd_events:f
     ~timerfd:f
@@ -1560,6 +1580,8 @@ let handle_thread_pool_stuck f =
 ;;
 
 module For_metrics = struct
+  let num_file_descriptors () = !((t ()).num_file_descriptors)
+
   module Thread_pool_stats_subscription = struct
     type t = unit
 
@@ -1625,7 +1647,7 @@ module External = struct
       | Not_started ->
         let active = ref false in
         t.start_type <- Called_external_run { active; call_pos = here };
-        init t;
+        start t;
         active
     in
     if !active

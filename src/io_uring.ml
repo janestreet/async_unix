@@ -55,32 +55,60 @@ let with_file_descr_deferred_opt ~name fd_opt ~f =
   | Some fd -> with_file_descr_deferred ~name fd (fun fd -> f (Some fd))
 ;;
 
-let read_file_descr_or_unix_error t ?(file_offset = -1) file_descr ?off ?len buf =
+let read_file_descr_or_unix_error
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?(file_offset = -1)
+  file_descr
+  ?off
+  ?len
+  buf
+  =
   attempt_syscall (fun () ->
     Io_uring_raw.read
       t
+      ~sqe_flags
       ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
       file_descr
       (Cstruct.of_bigarray ?off ?len buf))
 ;;
 
-let read_file_descr t ?file_offset file_descr ?off ?len buf =
-  match%map read_file_descr_or_unix_error t ?file_offset file_descr ?off ?len buf with
+let read_file_descr t ~sqe_flags ?file_offset file_descr ?off ?len buf =
+  match%map
+    read_file_descr_or_unix_error ~sqe_flags t ?file_offset file_descr ?off ?len buf
+  with
   | Error err -> Error (Unix.Unix_error (err, "read", ""))
   | Ok res -> Ok res
 ;;
 
-let read t ?(file_offset = -1) fd ?off ?len buf =
+let read
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?(file_offset = -1)
+  fd
+  ?off
+  ?len
+  buf
+  =
   with_file_descr_deferred ~name:"read" fd (fun fd ->
-    read_file_descr t ~file_offset fd ?off ?len buf)
+    read_file_descr t ~sqe_flags ~file_offset fd ?off ?len buf)
 ;;
 
-let write t ?(file_offset = -1) fd ?off ?len buf =
+let write
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?(file_offset = -1)
+  fd
+  ?off
+  ?len
+  buf
+  =
   with_file_descr_deferred ~name:"write" fd (fun fd ->
     match%map
       attempt_syscall (fun () ->
         Io_uring_raw.write
           t
+          ~sqe_flags
           ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
           fd
           (Cstruct.of_bigarray ?off ?len buf))
@@ -94,12 +122,13 @@ let to_cstruct (iovecs : Bigstring.t Core_unix.IOVec.t array) =
   |> List.map ~f:(fun { buf; pos; len } -> Cstruct.of_bigarray ~off:pos ~len buf)
 ;;
 
-let readv t ?(file_offset = -1) fd bufs =
+let readv t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?(file_offset = -1) fd bufs =
   with_file_descr_deferred ~name:"readv" fd (fun fd ->
     match%map
       attempt_syscall (fun () ->
         Io_uring_raw.readv
           t
+          ~sqe_flags
           ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
           fd
           (to_cstruct bufs))
@@ -108,12 +137,19 @@ let readv t ?(file_offset = -1) fd bufs =
     | Ok res -> Ok res)
 ;;
 
-let writev t ?(file_offset = -1) fd (bufs : Bigstring.t Core_unix.IOVec.t array) =
+let writev
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?(file_offset = -1)
+  fd
+  (bufs : Bigstring.t Core_unix.IOVec.t array)
+  =
   with_file_descr_deferred ~name:"writev" fd (fun fd ->
     match%map
       attempt_syscall (fun () ->
         Io_uring_raw.writev
           t
+          ~sqe_flags
           ~file_offset:(Io_uring_raw.Int63.of_int file_offset)
           fd
           (to_cstruct bufs))
@@ -122,7 +158,17 @@ let writev t ?(file_offset = -1) fd (bufs : Bigstring.t Core_unix.IOVec.t array)
     | Ok res -> Ok res)
 ;;
 
-let openat2 t ~access ~flags ?(perm = 0o644) ~resolve ?info ?fd filename =
+let openat2
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ~access
+  ~flags
+  ?(perm = 0o644)
+  ~resolve
+  ?info
+  ?fd
+  filename
+  =
   let perm =
     let open Io_uring_raw.Open_flags in
     if mem creat flags || mem tmpfile flags then perm else 0
@@ -130,7 +176,7 @@ let openat2 t ~access ~flags ?(perm = 0o644) ~resolve ?info ?fd filename =
   let info = Option.value info ~default:(Info.create_s [%sexp (filename : string)]) in
   let openat2_syscall fd_opt =
     attempt_syscall (fun () ->
-      Io_uring_raw.openat2 t ~access ~flags ~perm ~resolve ?fd:fd_opt filename)
+      Io_uring_raw.openat2 t ~sqe_flags ~access ~flags ~perm ~resolve ?fd:fd_opt filename)
   in
   let unix_error err = Unix.Unix_error (err, "open", Info.to_string_mach info) in
   let success_fd res = Fd.create Fd.Kind.File (File_descr.of_int res) info in
@@ -143,7 +189,7 @@ let openat2 t ~access ~flags ?(perm = 0o644) ~resolve ?info ?fd filename =
       | Ok res -> Ok (success_fd res))
 ;;
 
-let unlink t ~dir ?fd filename =
+let unlink t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ~dir ?fd filename =
   let to_exn err =
     Unix.Unix_error
       (err, "unlink", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
@@ -152,7 +198,8 @@ let unlink t ~dir ?fd filename =
   then return (Error (to_exn ENOENT))
   else (
     let unlink_syscall fd_opt =
-      attempt_syscall (fun () -> Io_uring_raw.unlink t ~dir ?fd:fd_opt filename)
+      attempt_syscall (fun () ->
+        Io_uring_raw.unlink t ~sqe_flags ~dir ?fd:fd_opt filename)
     in
     with_file_descr_deferred_opt fd ~name:"unlink" ~f:(fun fd ->
       match%map unlink_syscall fd with
@@ -164,7 +211,15 @@ let unlink t ~dir ?fd filename =
    [Unix_syscalls] error message which outputs the arguments of the [link] in the case
    [unlink] fails.
 *)
-let link t ?(follow = false) ?(force = false) ~target ~link_name () =
+let link
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?(follow = false)
+  ?(force = false)
+  ~target
+  ~link_name
+  ()
+  =
   let args_for_error () =
     Core_unix.Private.sexp_to_string_hum [%sexp { target : string; link_name : string }]
   in
@@ -175,7 +230,7 @@ let link t ?(follow = false) ?(force = false) ~target ~link_name () =
     let%bind unlink_res =
       match force with
       | true ->
-        (match%map unlink t ~dir:false link_name with
+        (match%map unlink t ~sqe_flags ~dir:false link_name with
          | Error (Unix.Unix_error (Unix.ENOENT, _, _)) -> Ok ()
          | Error (Unix.Unix_error (e, s, _)) -> unix_error s e
          | Error exn -> Error exn
@@ -187,19 +242,20 @@ let link t ?(follow = false) ?(force = false) ~target ~link_name () =
     | Ok () ->
       (match%map
          attempt_syscall (fun () ->
-           Io_uring_raw.link t ~follow ~old_path:target ~new_path:link_name)
+           Io_uring_raw.link t ~sqe_flags ~follow ~old_path:target ~new_path:link_name)
        with
        | Error err -> unix_error "link" err
        | Ok _ -> Ok ()))
 ;;
 
-let do_statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
+let do_statx t ~sqe_flags ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
   if String.contains path '\000'
   then return (Error (ENOENT : Core_unix.Error.t))
   else (
     let statx_buffer = Io_uring_raw.Statx.create () in
     match%map
-      attempt_syscall (fun () -> Io_uring_raw.statx t ?fd ~mask path statx_buffer flags)
+      attempt_syscall (fun () ->
+        Io_uring_raw.statx t ~sqe_flags ?fd ~mask path statx_buffer flags)
     with
     | Error err -> Error err
     | Ok res ->
@@ -207,8 +263,15 @@ let do_statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
       Ok statx_buffer)
 ;;
 
-let statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
-  let statx_syscall fd_opt = do_statx t ?fd:fd_opt ~mask path flags in
+let statx
+  t
+  ?(sqe_flags = Io_uring_raw.Sqe_flags.empty)
+  ?fd
+  ?(mask = Io_uring_raw.Statx.Mask.basic_stats)
+  path
+  flags
+  =
+  let statx_syscall fd_opt = do_statx t ~sqe_flags ?fd:fd_opt ~mask path flags in
   let unix_error err =
     Unix.Unix_error
       ( err
@@ -222,41 +285,41 @@ let statx t ?fd ?(mask = Io_uring_raw.Statx.Mask.basic_stats) path flags =
     | Ok res -> Ok res)
 ;;
 
-let stat_or_unix_error t ?mask filename =
-  do_statx t ?mask filename Io_uring_raw.Statx.Flags.empty
+let stat_or_unix_error t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?mask filename =
+  do_statx t ~sqe_flags ?mask filename Io_uring_raw.Statx.Flags.empty
 ;;
 
-let stat t ?mask filename =
+let stat t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?mask filename =
   let unix_error err =
     Unix.Unix_error
       (err, "stat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
   in
-  match%map stat_or_unix_error t ?mask filename with
+  match%map stat_or_unix_error ~sqe_flags t ?mask filename with
   | Error err -> Error (unix_error err)
   | Ok res -> Ok res
 ;;
 
-let fstat t ?mask fd =
+let fstat t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?mask fd =
   with_file_descr_deferred ~name:"fstat" fd (fun fd ->
     let unix_error err =
       Unix.Unix_error
         (err, "fstat", Core_unix.Private.sexp_to_string_hum [%sexp { fd : File_descr.t }])
     in
-    match%map do_statx t ?mask ~fd "" Io_uring_raw.Statx.Flags.empty_path with
+    match%map do_statx t ~sqe_flags ?mask ~fd "" Io_uring_raw.Statx.Flags.empty_path with
     | Ok res -> Ok res
     | Error err -> Error (unix_error err))
 ;;
 
-let lstat_or_unix_error t ?mask filename =
-  do_statx t ?mask filename Io_uring_raw.Statx.Flags.symlink_nofollow
+let lstat_or_unix_error t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?mask filename =
+  do_statx t ~sqe_flags ?mask filename Io_uring_raw.Statx.Flags.symlink_nofollow
 ;;
 
-let lstat t ?mask filename =
+let lstat t ?(sqe_flags = Io_uring_raw.Sqe_flags.empty) ?mask filename =
   let unix_error err =
     Unix.Unix_error
       (err, "lstat", Core_unix.Private.sexp_to_string_hum [%sexp { filename : string }])
   in
-  match%map lstat_or_unix_error t ?mask filename with
+  match%map lstat_or_unix_error ~sqe_flags t ?mask filename with
   | Ok res -> Ok res
   | Error err -> Error (unix_error err)
 ;;

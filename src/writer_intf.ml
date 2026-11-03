@@ -252,7 +252,16 @@ module type Writer0 = sig
 
       Note: [write_gen] and [write_gen_whole] give you access to the writer's internal
       buffer. You should not capture it; doing so might lead to errors of the segfault
-      kind. *)
+      kind. Nor should you use the writer in the callbacks. The @unyielding annotation is
+      only a partial protection from that.
+
+      Note: [blit_to_bigstring] and [length] are [unyielding], i.e. they may not suspend
+      to the Async scheduler. [write_gen] first reserves space in the writer's buffer by
+      advancing the write pointer, and only then calls [blit_to_bigstring] to fill it. If
+      these functions yielded to the scheduler, the writer's own background job could
+      flush the buffer to the underlying file descriptor, before anything has been
+      written. It could also swap out the writer's internal buffer, such that the eventual
+      write lands in bytes that are thrown away. *)
   val write_gen
     :  ?pos:int
     -> ?len:int

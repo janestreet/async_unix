@@ -770,11 +770,9 @@ let last_thread_creation_failure t =
   Option.map t.last_thread_creation_failure ~f:Thread_creation_failure.sexp_of_t
 ;;
 
-let%template[@mode l = (global, local)] critical_section t ~f =
-  (Mutex.critical_section [@mode l]) t.mutex ~f:(fun () ->
-    (Exn.protect [@mode l]) ~f ~finally:(fun () -> if !check_invariant then invariant t)
-    [@nontail] [@exclave_if_local l ~reasons:[ May_return_local ]])
-  [@exclave_if_local l ~reasons:[ May_return_local ]]
+let critical_section t ~f =
+  Mutex.critical_section t.mutex ~f:(fun () ->
+    Exn.protect ~f ~finally:(fun () -> if !check_invariant then invariant t) [@nontail])
 ;;
 
 let invariant t = critical_section t ~f:(fun () -> invariant t)
@@ -835,7 +833,7 @@ let finished_with_helper_thread t helper_thread =
 module Stats = Stats
 
 let get_and_reset_stats_local t : Stats.t =
-  (critical_section [@mode local]) t ~f:(fun () -> get_and_reset_stats t)
+  critical_section t ~f:(fun () -> get_and_reset_stats t)
 ;;
 
 let get_and_reset_stats t =

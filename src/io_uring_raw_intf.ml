@@ -52,21 +52,53 @@ module type S = sig
   val supports_ext_arg : t -> bool
   val exit : t -> unit
   val register_eventfd : t -> File_descr.t -> unit
+  val register_iowq_aff : t -> cpus:int Nonempty_list.t -> unit
+  val unregister_iowq_aff : t -> unit
   val submit : t -> Submit_outcome.t
   val submit_raw : t -> int
   val cqe_ready : t -> timeout:float -> bool
   val fill_completions : t -> int
-  val noop : t -> Handle.t
-  val read : t -> file_offset:Int63.t -> File_descr.t -> Cstruct.t -> Handle.t
-  val write : t -> file_offset:Int63.t -> File_descr.t -> Cstruct.t -> Handle.t
-  val readv : t -> file_offset:Int63.t -> File_descr.t -> Cstruct.t list -> Handle.t
-  val writev : t -> file_offset:Int63.t -> File_descr.t -> Cstruct.t list -> Handle.t
-  val poll_add : t -> File_descr.t -> Poll_mask.t -> Handle.t
+  val noop : t -> sqe_flags:Sqe_flags.t -> Handle.t
+
+  val read
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> file_offset:Int63.t
+    -> File_descr.t
+    -> Cstruct.t
+    -> Handle.t
+
+  val write
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> file_offset:Int63.t
+    -> File_descr.t
+    -> Cstruct.t
+    -> Handle.t
+
+  val readv
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> file_offset:Int63.t
+    -> File_descr.t
+    -> Cstruct.t list
+    -> Handle.t
+
+  val writev
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> file_offset:Int63.t
+    -> File_descr.t
+    -> Cstruct.t list
+    -> Handle.t
+
+  val poll_add : t -> sqe_flags:Sqe_flags.t -> File_descr.t -> Poll_mask.t -> Handle.t
 
   (** Openat2 will fail if non-zero perms are passed while no file is being created (i.e.
       when creat or tmpfile are not passed as flags) *)
   val openat2
     :  t
+    -> sqe_flags:Sqe_flags.t
     -> access:[ `R | `W | `RW ]
     -> flags:Open_flags.t
     -> perm:Unix.file_perm
@@ -75,13 +107,35 @@ module type S = sig
     -> string
     -> Handle.t
 
-  val close : t -> File_descr.t -> Handle.t
-  val link : t -> follow:bool -> old_path:string -> new_path:string -> Handle.t
-  val unlink : t -> dir:bool -> ?fd:File_descr.t -> string -> Handle.t
-  val timeout : t -> ?absolute:bool -> Clock.t -> int64 -> Handle.t
+  val close : t -> sqe_flags:Sqe_flags.t -> File_descr.t -> Handle.t
+
+  val link
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> follow:bool
+    -> old_path:string
+    -> new_path:string
+    -> Handle.t
+
+  val unlink
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> dir:bool
+    -> ?fd:File_descr.t
+    -> string
+    -> Handle.t
+
+  val timeout
+    :  t
+    -> sqe_flags:Sqe_flags.t
+    -> ?absolute:bool
+    -> Clock.t
+    -> int64
+    -> Handle.t
 
   val statx
     :  t
+    -> sqe_flags:Sqe_flags.t
     -> ?fd:File_descr.t
     -> mask:Statx.Mask.t
     -> string
@@ -89,7 +143,7 @@ module type S = sig
     -> Statx.Flags.t
     -> Handle.t
 
-  val cancel : t -> Handle.t -> unit Deferred.t
+  val cancel : t -> sqe_flags:Sqe_flags.t -> Handle.t -> unit Deferred.t
   val syscall_result_noretry : Handle.t -> Syscall_result.t Deferred.t
   val has_pending_jobs : t -> bool
 end

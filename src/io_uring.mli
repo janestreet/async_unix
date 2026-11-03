@@ -10,6 +10,7 @@ val fill_completions : t -> int
 
 val read
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?file_offset:int
   -> Fd.t
   -> ?off:int
@@ -19,6 +20,7 @@ val read
 
 val read_file_descr_or_unix_error
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?file_offset:int
   -> File_descr.t
   -> ?off:int
@@ -28,6 +30,7 @@ val read_file_descr_or_unix_error
 
 val write
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?file_offset:int
   -> Fd.t
   -> ?off:int
@@ -37,6 +40,7 @@ val write
 
 val readv
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?file_offset:int
   -> Fd.t
   -> Bigstring.t Unix.IOVec.t Array.t
@@ -44,6 +48,7 @@ val readv
 
 val writev
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?file_offset:int
   -> Fd.t
   -> Bigstring.t Unix.IOVec.t array
@@ -51,6 +56,7 @@ val writev
 
 val openat2
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> access:[ `R | `W | `RW ]
   -> flags:Io_uring_raw.Open_flags.t
   -> ?perm:Unix.file_perm
@@ -60,10 +66,17 @@ val openat2
   -> string
   -> (Fd.t, Exn.t) Result.t Deferred.t
 
-val unlink : t -> dir:bool -> ?fd:Fd.t -> string -> (unit, Exn.t) Result.t Deferred.t
+val unlink
+  :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
+  -> dir:bool
+  -> ?fd:Fd.t
+  -> string
+  -> (unit, Exn.t) Result.t Deferred.t
 
 val link
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?follow:bool
   -> ?force:bool
   -> target:string
@@ -73,6 +86,7 @@ val link
 
 val statx
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?fd:Fd.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
@@ -81,30 +95,35 @@ val statx
 
 val stat
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val stat_or_unix_error
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> (Io_uring_raw.Statx.t, Unix.Error.t) Result.t Deferred.t
 
 val fstat
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> Fd.t
   -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val lstat
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> (Io_uring_raw.Statx.t, Exn.t) Result.t Deferred.t
 
 val lstat_or_unix_error
   :  t
+  -> ?sqe_flags:Io_uring_raw.Sqe_flags.t
   -> ?mask:Io_uring_raw.Statx.Mask.t
   -> string
   -> (Io_uring_raw.Statx.t, Unix.Error.t) Result.t Deferred.t

@@ -72,7 +72,7 @@ type open_flag =
   ]
 [@@deriving sexp_of]
 
-type file_perm = int [@@deriving sexp, bin_io, compare ~localize]
+type file_perm = int [@@deriving sexp, bin_io, compare]
 
 (* Implementation of [openfile] on top of [Io_uring]. *)
 module Uring_openfile = struct
@@ -164,6 +164,7 @@ module Uring_openfile = struct
       Io_uring_raw.syscall_result_retry_on_ECANCELED (fun () ->
         Io_uring_raw.openat2
           uring
+          ~sqe_flags:Io_uring_raw.Sqe_flags.empty
           ~access
           ~flags
           ~perm
@@ -292,7 +293,7 @@ module Lock_mechanism = struct
     type t =
       | Lockf
       | Flock
-    [@@deriving compare ~localize, enumerate, sexp, variants]
+    [@@deriving compare, enumerate, sexp, variants]
   end
 
   let lock (t : T.t) =
@@ -348,7 +349,7 @@ module File_kind = struct
       | `Fifo
       | `Socket
       ]
-    [@@deriving compare ~localize, sexp, bin_io]
+    [@@deriving compare, sexp, bin_io]
   end
 
   include T
@@ -401,7 +402,7 @@ module Stats = struct
     ; mtime : Time.t
     ; ctime : Time.t
     }
-  [@@deriving fields ~getters, sexp, bin_io, compare ~localize]
+  [@@deriving fields ~getters, sexp, bin_io, compare]
 
   let of_unix (u : Unix.stats) =
     let of_float_sec f = Time.of_span_since_epoch (Time.Span.of_sec f) in
@@ -852,7 +853,7 @@ let bind_to_interface_exn =
 module Socket = struct
   module Address = struct
     module Inet = struct
-      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare ~localize, hash]
+      type t = [ `Inet of Inet_addr.t * int ] [@@deriving bin_io, compare, hash]
 
       let to_string_internal ~show_port_in_test (`Inet (a, p)) =
         sprintf
@@ -868,7 +869,7 @@ module Socket = struct
 
       module Blocking_sexp = struct
         type t = [ `Inet of Inet_addr.Blocking_sexp.t * int ]
-        [@@deriving bin_io, compare ~localize, hash, sexp]
+        [@@deriving bin_io, compare, hash, sexp]
       end
 
       module Show_port_in_test = struct
@@ -896,7 +897,7 @@ module Socket = struct
     end
 
     module Unix = struct
-      type t = [ `Unix of string ] [@@deriving bin_io, compare ~localize, hash, sexp]
+      type t = [ `Unix of string ] [@@deriving bin_io, compare, hash, sexp]
 
       let create s = `Unix s
       let to_string (`Unix s) = s
@@ -1410,19 +1411,19 @@ type socket_domain = Unix.socket_domain =
   | PF_UNIX
   | PF_INET
   | PF_INET6
-[@@deriving bin_io, compare ~localize, hash, sexp]
+[@@deriving bin_io, compare, hash, sexp]
 
 type socket_type = Unix.socket_type =
   | SOCK_STREAM
   | SOCK_DGRAM
   | SOCK_RAW
   | SOCK_SEQPACKET
-[@@deriving bin_io, compare ~localize, hash, sexp]
+[@@deriving bin_io, compare, hash, sexp]
 
 type sockaddr = Unix.sockaddr =
   | ADDR_UNIX of string
   | ADDR_INET of Inet_addr.t * int
-[@@deriving bin_io, compare ~localize, sexp_of]
+[@@deriving bin_io, compare, sexp_of]
 
 type sockaddr_blocking_sexp = Unix.sockaddr =
   | ADDR_UNIX of string

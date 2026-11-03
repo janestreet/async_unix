@@ -174,7 +174,7 @@ module Output = struct
         ; stderr : string
         ; exit_status : Unix.Exit_or_signal.t
         }
-      [@@deriving compare ~localize, sexp]
+      [@@deriving compare, sexp]
     end
   end
 

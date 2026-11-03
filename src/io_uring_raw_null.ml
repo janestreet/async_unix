@@ -35,6 +35,13 @@ module Poll_mask = struct
   let pollhup = 0
 end
 
+module Sqe_flags = struct
+  include FLAGS
+
+  let empty = 0
+  let async = 0
+end
+
 module Clock = struct
   type t =
     | Boottime
@@ -201,19 +208,21 @@ let submit _ = assert false
 let submit_raw _ = assert false
 let cqe_ready _ ~timeout:_ = assert false
 let fill_completions _ = assert false
-let noop _ = assert false
-let read _ = assert false
-let write _ = assert false
-let readv _ = assert false
-let writev _ = assert false
-let poll_add _ = assert false
-let openat2 _ = assert false
-let close _ = assert false
-let unlink _ = assert false
-let link _ = assert false
-let timeout _ = assert false
-let statx _ = assert false
-let cancel _ = assert false
+let noop _ ~sqe_flags:_ = assert false
+let read _ ~sqe_flags:_ = assert false
+let write _ ~sqe_flags:_ = assert false
+let readv _ ~sqe_flags:_ = assert false
+let writev _ ~sqe_flags:_ = assert false
+let poll_add _ ~sqe_flags:_ = assert false
+let openat2 _ ~sqe_flags:_ = assert false
+let close _ ~sqe_flags:_ = assert false
+let unlink _ ~sqe_flags:_ = assert false
+let link _ ~sqe_flags:_ = assert false
+let timeout _ ~sqe_flags:_ = assert false
+let statx _ ~sqe_flags:_ = assert false
+let cancel _ ~sqe_flags:_ = assert false
 let syscall_result_noretry _ = assert false
 let register_eventfd _ = assert false
+let register_iowq_aff _ ~cpus:_ = assert false
+let unregister_iowq_aff _ = assert false
 let has_pending_jobs _ = assert false

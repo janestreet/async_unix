@@ -266,6 +266,7 @@ and Scheduler : sig
     ; mutable extra_event_sources : (unit -> Extra_event_source_result.t) Uniform_array.t
     ; mutable time_spent_waiting_for_io : Time_stamp_counter.Span.t
     ; fd_by_descr : Fd.t By_descr.t
+    ; num_file_descriptors : int ref
     ; external_fd_by_descr : bool Read_write_pair.t By_descr.t
     ; mutable external_fd_events : External_fd_event.t list
     ; mutable timerfd : Linux_ext.Timerfd.t option

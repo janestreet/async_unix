@@ -78,11 +78,11 @@ module Output : sig
     ; stderr : string
     ; exit_status : Unix.Exit_or_signal.t
     }
-  [@@deriving compare ~localize, sexp_of]
+  [@@deriving compare, sexp_of]
 
   module Stable : sig
     module V1 : sig
-      type nonrec t = t [@@deriving compare ~localize, sexp]
+      type nonrec t = t [@@deriving compare, sexp]
     end
   end
 end

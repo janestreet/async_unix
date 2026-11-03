@@ -9,9 +9,9 @@ open! Unix_syscalls
 
 (** A [Where_to_connect] describes the socket that a tcp client should connect to. *)
 module Where_to_connect : sig
-  type 'a t constraint 'a = [< Socket.Address.t ] [@@deriving sexp_of ~portable]
-  type inet = Socket.Address.Inet.t t [@@deriving sexp_of ~portable]
-  type unix = Socket.Address.Unix.t t [@@deriving sexp_of ~portable]
+  type 'a t constraint 'a = [< Socket.Address.t ] [@@deriving sexp_of]
+  type inet = Socket.Address.Inet.t t [@@deriving sexp_of]
+  type unix = Socket.Address.Unix.t t [@@deriving sexp_of]
 
   val remote_address : 'a t -> 'a Deferred.t
 
@@ -35,6 +35,16 @@ module Where_to_connect : sig
 
   val of_file : string -> unix
   val of_unix_address : Socket.Address.Unix.t -> unix
+
+  module For_testing : sig
+    (** [create] makes a [t] with an arbitrary [remote_address] function, so tests can
+        exercise behavior that depends on address-resolution timing. *)
+    val create
+      :  socket_type:'addr Socket.Type.t
+      -> remote_address:(unit -> 'addr Deferred.t)
+      -> info:Sexp.t
+      -> 'addr t
+  end
 end
 
 type 'a with_connect_options :=
@@ -43,6 +53,8 @@ type 'a with_connect_options :=
   -> ?reader_buffer_size:int
   -> ?writer_buffer_size:int
   -> ?timeout:Time.Span.t
+       (** default is 10s; applies to the entire connection attempt, including address
+           resolution *)
   -> ?time_source:Time_source.t (** default is [Time_source.wall_clock ()] *)
   -> 'a
 
@@ -66,12 +78,15 @@ val with_connection
        with_connect_options
 
 (** [connect_sock where_to_connect] creates a socket and opens a TCP connection. To use an
-    existing socket, supply [~socket]. Any errors in the connection will be reported to
-    the monitor that was current when [connect_sock] was called. *)
+    existing socket, supply [~socket]. [timeout] and [interrupt] apply while resolving
+    [where_to_connect] as well as while connecting. Any errors in the connection will be
+    reported to the monitor that was current when [connect_sock] was called. *)
 val connect_sock
   :  ?socket:([ `Unconnected ], 'addr) Socket.t
   -> ?interrupt:unit Deferred.t
   -> ?timeout:Time.Span.t
+       (** default is 10s; applies to the entire connection attempt, including address
+           resolution *)
   -> ?time_source:[> read ] Time_source.T1.t (** default is [Time_source.wall_clock ()] *)
   -> 'addr Where_to_connect.t
   -> ([ `Active ], 'addr) Socket.t Deferred.t
